@@ -1,0 +1,4 @@
+[submodule "cape-sdks"]
+	path = cape-sdks
+	url = https://github.com/cape-project-eu/cape-sdks.git
+	branch = dist/sdk/pulumi
