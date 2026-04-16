@@ -30,3 +30,6 @@ Pulumi.*.yaml
 
 # ACT run artifacts
 act_runs/
+
+# Provider schemas (large, download locally via: pulumi package get-schema <provider>)
+act/examples/**/schema.json
