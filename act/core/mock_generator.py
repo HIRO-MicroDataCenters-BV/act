@@ -85,12 +85,15 @@ class MockGenerator:
         detected = self._detect_resource_types(program_path)
         type_map = self._type_map
 
-        # Build per-token output defaults
+        # Defaults only for computed outputs (not inputs) so missing fields stay missing.
         token_defaults: dict[str, dict] = {}
         for class_name in detected:
             info = type_map[class_name]
+            input_names = set(info["inputs"].keys())
             defaults: dict[str, Any] = {}
             for prop_name, prop_schema in info["outputs"].items():
+                if prop_name in input_names:
+                    continue
                 if prop_name == "status":
                     defaults["status"] = "active"
                 elif prop_name == "metadata":
