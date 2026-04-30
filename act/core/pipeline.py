@@ -16,7 +16,7 @@ class PipelineResult:
 
 def _is_parameterized(program_path: str) -> bool:
     """Return True if the program reads from os.environ or sys.argv."""
-    with open(program_path) as f:
+    with open(MockGenerator._entry_point(program_path)) as f:
         tree = ast.parse(f.read())
     for node in ast.walk(tree):
         if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):

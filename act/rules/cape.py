@@ -36,3 +36,8 @@ def rule_no_unprotected_ssh(inputs: dict) -> List[Violation]:
             severity="HIGH",
         )]
     return []
+
+
+def register(oracle) -> None:
+    oracle.add_rule(rule_no_exposed_instance, resource_type="cape:compute:Instance")
+    oracle.add_rule(rule_no_unprotected_ssh, resource_type="cape:compute:Instance")
