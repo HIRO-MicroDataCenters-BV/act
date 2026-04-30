@@ -1,7 +1,7 @@
 import json
 import pytest
 
-from act.core.cape_rules import rule_no_exposed_instance, rule_no_unprotected_ssh
+from act.rules.cape import rule_no_exposed_instance, rule_no_unprotected_ssh
 from act.core.mock_generator import MockGenerator
 from act.core.oracle import CorrectnessOracle, Violation
 
