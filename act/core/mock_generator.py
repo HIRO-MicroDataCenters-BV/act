@@ -113,6 +113,10 @@ class MockGenerator:
 
         return GeneratedMock
 
+    def get_resource_type(self, resource_name: str) -> str | None:
+        """Return the Pulumi token for a resource name captured by the last run_with_mocks call."""
+        return self._recorded_types.get(resource_name)
+
     def run_with_mocks(self, program_path: str) -> dict:
         """Run a Pulumi program under mocks and return captured resource outputs.
 
@@ -120,11 +124,13 @@ class MockGenerator:
         """
         MockClass = self.generate(program_path)
         recorded: dict[str, dict] = {}
+        recorded_types: dict[str, str] = {}
 
         class RecordingMock(MockClass):
             def new_resource(self, args: pulumi.runtime.MockResourceArgs):
                 name, outputs = super().new_resource(args)
                 recorded[name] = outputs
+                recorded_types[name] = args.typ
                 return name, outputs
 
         program_dir = str(Path(program_path).parent)
@@ -153,4 +159,5 @@ class MockGenerator:
             asyncio.set_event_loop(None)
             loop.close()
 
+        self._recorded_types = recorded_types
         return recorded
