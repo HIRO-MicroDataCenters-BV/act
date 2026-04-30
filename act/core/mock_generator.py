@@ -60,7 +60,7 @@ class MockGenerator:
 
         Uses AST analysis — no execution required.
         """
-        with open(program_path) as f:
+        with open(self._entry_point(program_path)) as f:
             tree = ast.parse(f.read())
 
         found = set()
@@ -113,18 +113,32 @@ class MockGenerator:
 
         return GeneratedMock
 
+    def get_resource_type(self, resource_name: str) -> str | None:
+        """Return the Pulumi token for a resource name captured by the last run_with_mocks call."""
+        return self._recorded_types.get(resource_name)
+
+    @staticmethod
+    def _entry_point(program_path: str) -> str:
+        """Return the .py entry point — directory → __main__.py, file → unchanged."""
+        p = Path(program_path)
+        return str(p / "__main__.py") if p.is_dir() else str(p)
+
     def run_with_mocks(self, program_path: str) -> dict:
         """Run a Pulumi program under mocks and return captured resource outputs.
 
+        Accepts a single .py file or a project directory (uses __main__.py).
         Returns a dict mapping resource name to its output dict.
         """
+        program_path = self._entry_point(program_path)
         MockClass = self.generate(program_path)
         recorded: dict[str, dict] = {}
+        recorded_types: dict[str, str] = {}
 
         class RecordingMock(MockClass):
             def new_resource(self, args: pulumi.runtime.MockResourceArgs):
                 name, outputs = super().new_resource(args)
                 recorded[name] = outputs
+                recorded_types[name] = args.typ
                 return name, outputs
 
         program_dir = str(Path(program_path).parent)
@@ -153,4 +167,5 @@ class MockGenerator:
             asyncio.set_event_loop(None)
             loop.close()
 
+        self._recorded_types = recorded_types
         return recorded
