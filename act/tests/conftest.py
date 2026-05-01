@@ -40,3 +40,8 @@ def random_schema_path():
 @pytest.fixture
 def random_fixtures():
     return FIXTURES / "random"
+
+
+@pytest.fixture
+def path_b_fixture():
+    return FIXTURES / "cape" / "path_b_parameterized.py"
