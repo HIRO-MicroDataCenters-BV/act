@@ -1,7 +1,4 @@
-"""Atheris-based fuzz runner for Path B programs.
-
-Skips gracefully on non-Linux hosts where atheris is not installed.
-"""
+"""Atheris-based fuzz runner for Path B programs."""
 
 from typing import List
 
@@ -17,12 +14,7 @@ from act.plugins.base import TestGeneratorPlugin
 
 
 class FuzzRunner(TestGeneratorPlugin):
-    """Mutates resource inputs with atheris and checks the oracle for violations.
-
-    Requires atheris (Linux only). Returns [] when atheris is not importable.
-    One Pulumi program execution per run() call; mutations are applied to the
-    captured outputs dict without re-executing the program.
-    """
+    """Mutates resource inputs with atheris and checks the oracle for violations."""
 
     def __init__(
         self,

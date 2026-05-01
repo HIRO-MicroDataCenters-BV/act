@@ -14,7 +14,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-fuzzing = ["atheris>=2.3.0"]
+fuzzing = ["atheris>=3.0.0"]
 
 [dependency-groups]
 dev = [
