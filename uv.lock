@@ -19,6 +19,7 @@ version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "checkov" },
+    { name = "hypothesis" },
     { name = "pulumi" },
     { name = "pulumi-cape" },
     { name = "pulumi-kubernetes" },
@@ -27,9 +28,16 @@ dependencies = [
     { name = "pytest" },
 ]
 
+[package.optional-dependencies]
+fuzzing = [
+    { name = "atheris" },
+]
+
 [package.metadata]
 requires-dist = [
+    { name = "atheris", marker = "extra == 'fuzzing'", specifier = ">=2.3.0" },
     { name = "checkov", specifier = ">=3.1.47" },
+    { name = "hypothesis", specifier = ">=6.100.0" },
     { name = "pulumi", specifier = ">=3.230.0" },
     { name = "pulumi-cape", editable = "cape-sdks/python" },
     { name = "pulumi-kubernetes", specifier = ">=4.28.0" },
@@ -37,6 +45,7 @@ requires-dist = [
     { name = "pulumi-random", specifier = ">=4.19.2" },
     { name = "pytest", specifier = ">=9.0.3" },
 ]
+provides-extras = ["fuzzing"]
 
 [[package]]
 name = "aiodns"
@@ -208,6 +217,17 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/3b/58/ba011f3cf8291804ce80f9d81289ac15f0319a27f9d7e3c124aa5e4981cc/Arpeggio-2.0.3.tar.gz", hash = "sha256:9e85ad35cfc6c938676817c7ae9a1000a7c72a34c71db0c687136c460d12b85e", size = 766566, upload-time = "2025-09-12T12:45:20.594Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/84/4d/53b8186b41842f7a5e971b1d1c28e678364dcf841e4170f5d14d38ac1e2a/Arpeggio-2.0.3-py2.py3-none-any.whl", hash = "sha256:9374d9c531b62018b787635f37fd81c9a6ee69ef2d28c5db3cd18791b1f7db2f", size = 54656, upload-time = "2025-09-12T12:45:17.971Z" },
+]
+
+[[package]]
+name = "atheris"
+version = "3.0.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/f8/58/5965955898e16bee17c8379eae12194993bf641c4629016991248b862069/atheris-3.0.0.tar.gz", hash = "sha256:1f0929c7bc3040f3fe4102e557718734190cf2d7718bbb8e3ce6d3eb56ef5bb3", size = 373239, upload-time = "2025-11-24T23:54:02.15Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/da/15/cf109e2e8696a54c8c4bc3ef79a79bec32361eceb64eaa36690a682e83a9/atheris-3.0.0-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:8a5c8a781467c187da40fd29139784193e2647058831f837f675d0bb8cbd8746", size = 34805555, upload-time = "2025-11-24T23:53:53.477Z" },
+    { url = "https://files.pythonhosted.org/packages/85/8c/e9960b996e70e5f6a523670431166b2b238de52fef094955515dcf854da1/atheris-3.0.0-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:510e502c57b6dc615fb174066407af620d4c7f73cf08a782c86e7761bf12c4eb", size = 34907016, upload-time = "2025-11-24T23:53:56.535Z" },
+    { url = "https://files.pythonhosted.org/packages/db/48/df670f75f458cc7c1752a01a394fd59c830b08172dd59cf29d73f31050f9/atheris-3.0.0-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:a402cdca8a650d1371050b1f9552eb4cdc488d2db64950d603c4560318365eac", size = 34858525, upload-time = "2025-11-24T23:53:59.925Z" },
 ]
 
 [[package]]
@@ -910,6 +930,18 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/f5/68/67f4947ed55d2e69f2cc199ab9fd85e0a0034d813bbeef84df6d2ba4d4b7/grpcio-1.80.0-cp314-cp314-musllinux_1_2_x86_64.whl", hash = "sha256:31b9ac4ad1aa28ffee5503821fafd09e4da0a261ce1c1281c6c8da0423c83b6e", size = 7828477, upload-time = "2026-03-30T08:48:32.054Z" },
     { url = "https://files.pythonhosted.org/packages/44/b6/8d4096691b2e385e8271911a0de4f35f0a6c7d05aff7098e296c3de86939/grpcio-1.80.0-cp314-cp314-win32.whl", hash = "sha256:367ce30ba67d05e0592470428f0ec1c31714cab9ef19b8f2e37be1f4c7d32fae", size = 4218563, upload-time = "2026-03-30T08:48:34.538Z" },
     { url = "https://files.pythonhosted.org/packages/e5/8c/bbe6baf2557262834f2070cf668515fa308b2d38a4bbf771f8f7872a7036/grpcio-1.80.0-cp314-cp314-win_amd64.whl", hash = "sha256:3b01e1f5464c583d2f567b2e46ff0d516ef979978f72091fd81f5ab7fa6e2e7f", size = 5019457, upload-time = "2026-03-30T08:48:37.308Z" },
+]
+
+[[package]]
+name = "hypothesis"
+version = "6.152.4"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "sortedcontainers" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/fa/c7/3147bd903d6b18324a016d43a259cf5b4bb4545e1ead6773dc8a0374e70a/hypothesis-6.152.4.tar.gz", hash = "sha256:31c8f9ce619716f543e2710b489b1633c833586641d9e6c94cee03f109a5afc4", size = 466444, upload-time = "2026-04-27T20:18:37.594Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/19/89/0f50dd0d92e8a7dffc24f69ab910ff81db89b2f082ba42682bd57695e4d2/hypothesis-6.152.4-py3-none-any.whl", hash = "sha256:e730fd93c7578182efadc7f90b3c5437ee4d55edf738930eb5043c81ac1d97e8", size = 532145, upload-time = "2026-04-27T20:18:35.043Z" },
 ]
 
 [[package]]

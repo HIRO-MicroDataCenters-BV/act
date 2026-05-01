@@ -5,6 +5,7 @@ description = "Automated Configuration Testing for CAPE Pulumi programs"
 requires-python = ">=3.11"
 dependencies = [
     "checkov>=3.1.47",
+    "hypothesis>=6.100.0",
     "pulumi>=3.230.0",
     "pulumi-cape",
     "pulumi-kubernetes>=4.28.0",
@@ -12,6 +13,9 @@ dependencies = [
     "pulumi-random>=4.19.2",
     "pytest>=9.0.3",
 ]
+
+[project.optional-dependencies]
+fuzzing = ["atheris>=2.3.0"]
 
 [tool.uv.workspace]
 members = [
