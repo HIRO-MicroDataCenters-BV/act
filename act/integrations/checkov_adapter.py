@@ -21,12 +21,13 @@ Usage:
     load_checkov_rules(oracle, check_type="kubernetes")
 """
 
+from typing import List
+
 import importlib
 import logging
 import os
 import pkgutil
 import tempfile
-from typing import List
 
 import yaml
 
@@ -82,8 +83,7 @@ def _run_checkov(check_type: str, outputs: dict) -> List[Violation]:
             runner_filter=RunnerFilter(show_progress_bar=False),
         )
         return [
-            Violation(field=fc.check_id, message=fc.check_name, severity=_severity(fc))
-            for fc in report.failed_checks
+            Violation(field=fc.check_id, message=fc.check_name, severity=_severity(fc)) for fc in report.failed_checks
         ]
     finally:
         os.unlink(tmp_path)

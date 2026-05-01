@@ -1,10 +1,11 @@
+from typing import Any
+
 import ast
 import asyncio
 import importlib.util
 import json
 import sys
 from pathlib import Path
-from typing import Any
 
 import pulumi
 import pulumi.runtime

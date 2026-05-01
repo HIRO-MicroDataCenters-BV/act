@@ -1,6 +1,6 @@
 import pulumi
 from pulumi_kubernetes.apps.v1 import Deployment
-from pulumi_kubernetes.core.v1 import Service, ConfigMap
+from pulumi_kubernetes.core.v1 import ConfigMap, Service
 
 config = ConfigMap(
     "app-config",

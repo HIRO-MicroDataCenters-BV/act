@@ -18,8 +18,8 @@ from act.core.mock_generator import MockGenerator
 from act.core.oracle import CorrectnessOracle
 from act.core.pipeline import ACTPipeline
 from act.gate.ci_gate import CIGate
-from act.rules import auto_load
 from act.integrations.checkov_adapter import load_checkov_rules
+from act.rules import auto_load
 
 
 def _load_extra_rules(oracle, mg, engines: list) -> None:

@@ -1,6 +1,7 @@
-from dataclasses import dataclass
 from typing import Callable, List
+
 import json
+from dataclasses import dataclass
 
 
 @dataclass
@@ -66,11 +67,13 @@ class CorrectnessOracle:
 
         for field in required:
             if inputs.get(field) is None:
-                violations.append(Violation(
-                    field=field,
-                    message=f"Required field '{field}' is missing",
-                    severity="HIGH",
-                ))
+                violations.append(
+                    Violation(
+                        field=field,
+                        message=f"Required field '{field}' is missing",
+                        severity="HIGH",
+                    )
+                )
 
         type_checks = {
             "string": str,
@@ -84,34 +87,42 @@ class CorrectnessOracle:
             expected_type = prop_schema.get("type")
             python_type = type_checks.get(expected_type)
             if python_type and not isinstance(value, python_type):
-                violations.append(Violation(
-                    field=field,
-                    message=f"Field '{field}' must be {expected_type}",
-                    severity="MEDIUM",
-                ))
+                violations.append(
+                    Violation(
+                        field=field,
+                        message=f"Field '{field}' must be {expected_type}",
+                        severity="MEDIUM",
+                    )
+                )
                 continue  # skip range/enum checks if type is already wrong
 
             minimum = prop_schema.get("minimum")
             maximum = prop_schema.get("maximum")
             if minimum is not None and isinstance(value, (int, float)) and value < minimum:
-                violations.append(Violation(
-                    field=field,
-                    message=f"Field '{field}' must be >= {minimum}, got {value}",
-                    severity="HIGH",
-                ))
+                violations.append(
+                    Violation(
+                        field=field,
+                        message=f"Field '{field}' must be >= {minimum}, got {value}",
+                        severity="HIGH",
+                    )
+                )
             if maximum is not None and isinstance(value, (int, float)) and value > maximum:
-                violations.append(Violation(
-                    field=field,
-                    message=f"Field '{field}' must be <= {maximum}, got {value}",
-                    severity="HIGH",
-                ))
+                violations.append(
+                    Violation(
+                        field=field,
+                        message=f"Field '{field}' must be <= {maximum}, got {value}",
+                        severity="HIGH",
+                    )
+                )
 
             allowed = prop_schema.get("enum")
             if allowed is not None and value not in allowed:
-                violations.append(Violation(
-                    field=field,
-                    message=f"Field '{field}' must be one of {allowed}, got {value!r}",
-                    severity="HIGH",
-                ))
+                violations.append(
+                    Violation(
+                        field=field,
+                        message=f"Field '{field}' must be one of {allowed}, got {value!r}",
+                        severity="HIGH",
+                    )
+                )
 
         return violations

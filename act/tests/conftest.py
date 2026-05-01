@@ -23,7 +23,7 @@ def cape_fixtures():
 def kubernetes_schema_path():
     path = Path(__file__).parent.parent.parent / "act" / "examples" / "kubernetes" / "schema.json"
     if not path.exists():
-        pytest.skip("kubernetes schema.json not found — run: pulumi package get-schema kubernetes > act/examples/kubernetes/schema.json")
+        pytest.skip("kubernetes schema.json not found — run: pulumi package get-schema kubernetes")
     return str(path)
 
 
@@ -40,3 +40,8 @@ def random_schema_path():
 @pytest.fixture
 def random_fixtures():
     return FIXTURES / "random"
+
+
+@pytest.fixture
+def path_b_fixture():
+    return FIXTURES / "cape" / "path_b_parameterized.py"

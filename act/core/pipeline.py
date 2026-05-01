@@ -1,6 +1,7 @@
+from typing import List
+
 import ast
 from dataclasses import dataclass
-from typing import List
 
 from act.core.mock_generator import MockGenerator
 from act.core.oracle import CorrectnessOracle, Violation
@@ -63,11 +64,13 @@ class ACTPipeline:
             try:
                 acv_result = self._acv.validate(program_path)
                 for finding in acv_result.findings:
-                    violations.append(Violation(
-                        field=finding.tool,
-                        message=finding.message,
-                        severity=finding.severity.upper(),
-                    ))
+                    violations.append(
+                        Violation(
+                            field=finding.tool,
+                            message=finding.message,
+                            severity=finding.severity.upper(),
+                        )
+                    )
             except Exception:
                 pass
 

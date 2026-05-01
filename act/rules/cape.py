@@ -16,25 +16,29 @@ from act.core.oracle import Violation
 
 def rule_no_exposed_instance(inputs: dict) -> List[Violation]:
     """securityGroupRef must be present in Instance spec."""
-    spec = inputs.get("spec", {})
+    spec = inputs.get("spec") or {}
     if not spec.get("securityGroupRef"):
-        return [Violation(
-            field="spec.securityGroupRef",
-            message="Instance has no security group — network traffic is uncontrolled",
-            severity="HIGH",
-        )]
+        return [
+            Violation(
+                field="spec.securityGroupRef",
+                message="Instance has no security group — network traffic is uncontrolled",
+                severity="HIGH",
+            )
+        ]
     return []
 
 
 def rule_no_unprotected_ssh(inputs: dict) -> List[Violation]:
     """sshKeys without securityGroupRef exposes SSH to any source."""
-    spec = inputs.get("spec", {})
+    spec = inputs.get("spec") or {}
     if spec.get("sshKeys") and not spec.get("securityGroupRef"):
-        return [Violation(
-            field="spec.sshKeys",
-            message="SSH keys configured but no security group — SSH access is open",
-            severity="HIGH",
-        )]
+        return [
+            Violation(
+                field="spec.sshKeys",
+                message="SSH keys configured but no security group — SSH access is open",
+                severity="HIGH",
+            )
+        ]
     return []
 
 

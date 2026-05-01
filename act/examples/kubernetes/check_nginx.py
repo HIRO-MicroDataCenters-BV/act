@@ -4,6 +4,7 @@ Run nginx_deployment.py under ACT mocks and check for security violations.
 Usage (from src/):
     uv run python act/examples/kubernetes/check_nginx.py
 """
+
 import json
 import sys
 from pathlib import Path
@@ -19,17 +20,10 @@ PROGRAM = Path(__file__).parent / "nginx_deployment.py"
 def check_run_as_non_root(result: dict) -> list[str]:
     violations = []
     for resource_name, outputs in result.items():
-        containers = (
-            outputs.get("spec", {})
-            .get("template", {})
-            .get("spec", {})
-            .get("containers", [])
-        )
+        containers = outputs.get("spec", {}).get("template", {}).get("spec", {}).get("containers", [])
         for c in containers:
             if not c.get("securityContext", {}).get("runAsNonRoot"):
-                violations.append(
-                    f"[{resource_name}] container '{c['name']}': runAsNonRoot not set"
-                )
+                violations.append(f"[{resource_name}] container '{c['name']}': runAsNonRoot not set")
     return violations
 
 
