@@ -11,11 +11,11 @@ COPY pyproject.toml uv.lock ./
 COPY cape-sdks/python/ ./cape-sdks/python/
 
 ARG TARGETARCH
-RUN if [ "$TARGETARCH" = "amd64" ]; then \
-        uv sync --frozen --no-dev --no-install-project --compile-bytecode --extra fuzzing; \
-    else \
-        uv sync --frozen --no-dev --no-install-project --compile-bytecode; \
+RUN if [ "$TARGETARCH" = "arm64" ]; then \
+        apt-get update && apt-get install -y --no-install-recommends clang && rm -rf /var/lib/apt/lists/*; \
     fi
+
+RUN uv sync --frozen --no-dev --no-install-project --compile-bytecode --extra fuzzing
 
 COPY act/ ./act/
 RUN .venv/bin/python -m compileall -q act/
