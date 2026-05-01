@@ -1,0 +1,15 @@
+.venv
+.pytest_cache
+.mypy_cache
+.hypothesis
+dist
+build
+**/__pycache__
+**/*.pyc
+**/*.egg-info
+cape-sdks/dotnet
+cape-sdks/ext
+cape-sdks/go
+cape-sdks/java
+cape-sdks/nodejs
+.git
