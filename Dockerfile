@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 FROM python:3.11-slim AS builder
-COPY --from=ghcr.io/astral-sh/uv:0.11.6 /uv /bin/uv
+RUN pip install --no-cache-dir uv==0.11.6
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
@@ -11,11 +11,25 @@ COPY pyproject.toml uv.lock ./
 COPY cape-sdks/python/ ./cape-sdks/python/
 
 ARG TARGETARCH
+
+# arm64 requires clang with compiler-rt (SanitizerCoverage) to build atheris from source.
+# Install LLVM 17 from the official apt repository which provides pre-built compiler-rt.
 RUN if [ "$TARGETARCH" = "arm64" ]; then \
-        apt-get update && apt-get install -y --no-install-recommends clang && rm -rf /var/lib/apt/lists/*; \
+        apt-get update && \
+        apt-get install -y --no-install-recommends wget gnupg lsb-release && \
+        wget -qO /tmp/llvm.sh https://apt.llvm.org/llvm.sh && \
+        chmod +x /tmp/llvm.sh && \
+        /tmp/llvm.sh 18 && \
+        apt-get install -y --no-install-recommends clang-18 libclang-rt-18-dev && \
+        rm -rf /var/lib/apt/lists/* /tmp/llvm.sh; \
     fi
 
-RUN uv sync --frozen --no-dev --no-install-project --compile-bytecode --extra fuzzing
+RUN if [ "$TARGETARCH" = "arm64" ]; then \
+        CC=clang-18 CXX=clang++-18 CLANG_BIN=/usr/bin/clang-18 \
+        uv sync --frozen --no-dev --no-install-project --compile-bytecode --extra fuzzing; \
+    else \
+        uv sync --frozen --no-dev --no-install-project --compile-bytecode --extra fuzzing; \
+    fi
 
 COPY act/ ./act/
 RUN .venv/bin/python -m compileall -q act/
