@@ -1,5 +1,3 @@
-import pulumi.runtime
-import pytest
 
 from act.core.mock_generator import MockGenerator
 

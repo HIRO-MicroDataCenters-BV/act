@@ -45,8 +45,7 @@ def test_checkov_scoped_to_resource_type(kubernetes_schema_path, kubernetes_fixt
     if "nginx-svc" in result:
         rtype = mg.get_resource_type("nginx-svc")
         violations = k8s_oracle.check(rtype, result["nginx-svc"])
-        assert all(v.field.startswith("CKV_") is False or rtype == "kubernetes:apps/v1:Deployment"
-                   for v in violations)
+        assert all(v.field.startswith("CKV_") is False or rtype == "kubernetes:apps/v1:Deployment" for v in violations)
 
 
 def test_invalid_provider_raises(kubernetes_schema_path):

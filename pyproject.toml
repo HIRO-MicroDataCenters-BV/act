@@ -1,6 +1,6 @@
 [project]
 name = "act"
-version = "0.1.0"
+version = "0.0.0"
 description = "Automated Configuration Testing for CAPE Pulumi programs"
 requires-python = ">=3.11"
 dependencies = [
@@ -11,11 +11,21 @@ dependencies = [
     "pulumi-kubernetes>=4.28.0",
     "pulumi-policy>=1.20.0",
     "pulumi-random>=4.19.2",
-    "pytest>=9.0.3",
 ]
 
 [project.optional-dependencies]
 fuzzing = ["atheris>=2.3.0"]
+
+[dependency-groups]
+dev = [
+    "black>=24.0.0",
+    "flake8>=7.0.0",
+    "isort>=5.13.0",
+    "mypy>=1.10.0",
+    "pre-commit>=3.7.0",
+    "pytest>=9.0.3",
+    "pytest-mock>=3.14.0",
+]
 
 [tool.uv.workspace]
 members = [
@@ -24,3 +34,30 @@ members = [
 
 [tool.uv.sources]
 pulumi-cape = { workspace = true }
+
+[tool.black]
+line-length = 120
+color = true
+
+[tool.isort]
+line_length = 120
+known_typing = ["typing", "types", "typing_extensions", "mypy", "mypy_extensions"]
+sections = ["FUTURE", "TYPING", "STDLIB", "THIRDPARTY", "FIRSTPARTY", "LOCALFOLDER"]
+include_trailing_comma = true
+profile = "black"
+multi_line_output = 3
+indent = 4
+color_output = true
+
+[tool.mypy]
+pretty = true
+show_traceback = true
+color_output = true
+exclude = [".git", "__pycache__", ".venv", "build", "dist"]
+ignore_missing_imports = true
+check_untyped_defs = true
+warn_unused_configs = true
+
+[tool.pytest.ini_options]
+norecursedirs = ["hooks", "*.egg", ".eggs", "dist", "build", "docs", ".tox", ".git", "__pycache__", ".hypothesis", ".venv"]
+addopts = ["--strict-markers", "--tb=short"]

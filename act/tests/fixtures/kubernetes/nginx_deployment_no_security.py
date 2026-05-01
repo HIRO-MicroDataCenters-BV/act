@@ -1,4 +1,3 @@
-import pulumi
 from pulumi_kubernetes.apps.v1 import Deployment
 
 deployment = Deployment(

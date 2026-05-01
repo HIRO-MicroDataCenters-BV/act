@@ -1,14 +1,14 @@
 import json
-import pytest
 
-from act.rules.cape import rule_no_exposed_instance, rule_no_unprotected_ssh
+
 from act.core.mock_generator import MockGenerator
 from act.core.oracle import CorrectnessOracle, Violation
-
+from act.rules.cape import rule_no_exposed_instance, rule_no_unprotected_ssh
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_schema(tmp_path, input_props: dict, required: list = None) -> str:
     """Write a minimal provider schema with the given inputProperties and return its path."""
@@ -32,6 +32,7 @@ RTYPE = "test:index:Resource"
 # Engine tests — synthetic inputs, no provider fixtures, no MockGenerator
 # ---------------------------------------------------------------------------
 
+
 def test_required_field_missing_flagged(cape_schema_path):
     oracle = CorrectnessOracle(cape_schema_path)
     violations = oracle.check("cape:compute:Instance", {})
@@ -46,18 +47,14 @@ def test_no_violations_when_required_fields_present(cape_schema_path):
 
 def test_custom_rule_plugged_and_fires(cape_schema_path):
     oracle = CorrectnessOracle(cape_schema_path)
-    oracle.add_rule(
-        lambda inputs: [Violation("x", "test rule", "LOW")] if not inputs.get("x") else []
-    )
+    oracle.add_rule(lambda inputs: [Violation("x", "test rule", "LOW")] if not inputs.get("x") else [])
     violations = oracle.check("cape:compute:Instance", {})
     assert any(v.field == "x" and v.severity == "LOW" for v in violations)
 
 
 def test_custom_rule_does_not_fire_when_condition_met(cape_schema_path):
     oracle = CorrectnessOracle(cape_schema_path)
-    oracle.add_rule(
-        lambda inputs: [Violation("x", "test rule", "LOW")] if not inputs.get("x") else []
-    )
+    oracle.add_rule(lambda inputs: [Violation("x", "test rule", "LOW")] if not inputs.get("x") else [])
     violations = oracle.check("cape:compute:Instance", {"spec": {}, "x": "present"})
     assert not any(v.field == "x" for v in violations)
 
@@ -80,6 +77,7 @@ def test_multiple_rules_combined(cape_schema_path):
 # ---------------------------------------------------------------------------
 # CAPE rule tests — use MockGenerator + existing fixtures
 # ---------------------------------------------------------------------------
+
 
 def test_valid_instance_no_violations(cape_schema_path, cape_fixtures):
     mg = MockGenerator(cape_schema_path)
@@ -125,6 +123,7 @@ def test_instance_rules_do_not_fire_on_workspace(cape_schema_path, cape_fixtures
 # ---------------------------------------------------------------------------
 # Range and enum inference tests — synthetic schema via tmp_path
 # ---------------------------------------------------------------------------
+
 
 def test_minimum_violation(tmp_path):
     schema_path = _make_schema(tmp_path, {"cpu": {"type": "integer", "minimum": 1}})

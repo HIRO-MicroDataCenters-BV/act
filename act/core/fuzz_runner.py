@@ -3,8 +3,9 @@
 Skips gracefully on non-Linux hosts where atheris is not installed.
 """
 
-import os
 from typing import List
+
+import os
 
 from act.core._runner_utils import (
     _atheris_mutate,

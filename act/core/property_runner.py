@@ -64,9 +64,9 @@ class PropertyRunner(TestGeneratorPlugin):
                     # State invariant: status must be str or dict if present
                     status = inputs.get("status")
                     if status is not None:
-                        assert isinstance(status, (str, dict)), (
-                            f"status must be str or dict, got {type(status).__name__}"
-                        )
+                        assert isinstance(
+                            status, (str, dict)
+                        ), f"status must be str or dict, got {type(status).__name__}"
 
                 return _check
 
