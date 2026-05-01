@@ -1,7 +1,5 @@
 import time
 
-import pytest
-
 from act.core.mock_generator import MockGenerator
 from act.core.oracle import CorrectnessOracle
 from act.core.property_runner import PropertyRunner
