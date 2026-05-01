@@ -35,6 +35,7 @@ COPY act/ ./act/
 RUN .venv/bin/python -m compileall -q act/
 
 FROM python:3.11-slim AS runtime
+COPY --from=builder /usr/local/bin/uv /usr/local/bin/uv
 
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONPATH="/app" \
@@ -43,6 +44,9 @@ ENV PATH="/app/.venv/bin:$PATH" \
 
 COPY --from=builder /app/.venv /app/.venv
 COPY --from=builder /app/act /app/act
+COPY --from=builder /app/pyproject.toml /app/pyproject.toml
+COPY --from=builder /app/uv.lock /app/uv.lock
+COPY --from=builder /app/cape-sdks /app/cape-sdks
 
 WORKDIR /app
 
