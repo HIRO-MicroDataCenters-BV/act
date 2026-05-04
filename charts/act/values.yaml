@@ -1,0 +1,42 @@
+image:
+  repository: ghcr.io/hiro-microdatacenters-bv/act
+  tag: ""  # defaults to appVersion
+  pullPolicy: IfNotPresent
+
+# Path to the Pulumi program inside the container (mount via configMap or initContainer)
+program: /workspace/program.py
+
+# Path to the provider schema JSON inside the container
+schema: /workspace/schema.json
+
+# Extra rule engines to enable (e.g. ["checkov"])
+rules: []
+
+# Resource requests/limits for the validation job
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    cpu: "1"
+    memory: 2Gi
+
+# Volume mounts for program and schema files
+volumes: []
+volumeMounts: []
+
+# Image pull secrets for private registries
+imagePullSecrets: []
+
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: false
+  name: ""
+
+# Job-level settings
+job:
+  backoffLimit: 0         # do not retry on failure — exit code is the result
+  ttlSecondsAfterFinished: 300
+  restartPolicy: Never

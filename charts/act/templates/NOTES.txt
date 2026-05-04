@@ -1,0 +1,16 @@
+ACT — Automated Configuration Testing
+
+A validation Job has been created: {{ include "app.fullname" . }}
+
+Check the result:
+  kubectl get job {{ include "app.fullname" . }}
+  kubectl logs job/{{ include "app.fullname" . }}
+
+Exit codes:
+  0 — all checks passed
+  1 — violations found
+  2 — pipeline error
+
+To validate a program, mount it via a volume and set:
+  --set program=/workspace/program.py
+  --set schema=/workspace/schema.json
