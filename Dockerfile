@@ -8,7 +8,6 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /app
 
 COPY pyproject.toml uv.lock ./
-COPY cape-sdks/python/ ./cape-sdks/python/
 
 ARG TARGETARCH
 
@@ -46,7 +45,6 @@ COPY --from=builder /app/.venv /app/.venv
 COPY --from=builder /app/act /app/act
 COPY --from=builder /app/pyproject.toml /app/pyproject.toml
 COPY --from=builder /app/uv.lock /app/uv.lock
-COPY --from=builder /app/cape-sdks /app/cape-sdks
 
 WORKDIR /app
 

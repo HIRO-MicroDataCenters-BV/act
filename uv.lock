@@ -8,12 +8,6 @@ resolution-markers = [
     "python_full_version < '3.13'",
 ]
 
-[manifest]
-members = [
-    "act",
-    "pulumi-cape",
-]
-
 [[package]]
 name = "act"
 version = "0.0.0"

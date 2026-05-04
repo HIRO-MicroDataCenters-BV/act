@@ -27,13 +27,8 @@ dev = [
     "pytest-mock>=3.14.0",
 ]
 
-[tool.uv.workspace]
-members = [
-    "cape-sdks/python",
-]
-
 [tool.uv.sources]
-pulumi-cape = { workspace = true }
+pulumi-cape = { path = "cape-sdks/python", editable = true }
 
 [tool.black]
 line-length = 120
