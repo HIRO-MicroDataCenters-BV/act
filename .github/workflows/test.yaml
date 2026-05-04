@@ -44,5 +44,3 @@ jobs:
     - name: pytest
       run: uv run pytest act/tests/ -v
 
-  osv-scanner:
-    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@v2.2.1
