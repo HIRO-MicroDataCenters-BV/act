@@ -13,3 +13,5 @@ cape-sdks/go
 cape-sdks/java
 cape-sdks/nodejs
 .git
+tests/
+examples/

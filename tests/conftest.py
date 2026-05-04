@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-ROOT = Path(__file__).parent.parent.parent  # src/
+ROOT = Path(__file__).parent.parent  # src/
 sys.path.insert(0, str(ROOT))
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -21,7 +21,7 @@ def cape_fixtures():
 
 @pytest.fixture
 def kubernetes_schema_path():
-    path = Path(__file__).parent.parent.parent / "act" / "examples" / "kubernetes" / "schema.json"
+    path = ROOT / "examples" / "kubernetes" / "schema.json"
     if not path.exists():
         pytest.skip("kubernetes schema.json not found — run: pulumi package get-schema kubernetes")
     return str(path)

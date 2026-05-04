@@ -30,17 +30,17 @@ jobs:
       run: uv sync --frozen --dev --extra fuzzing
 
     - name: isort
-      run: uv run isort act/ --check --diff
+      run: uv run isort act/ tests/ --check --diff
 
     - name: black
-      run: uv run black act/ --check --diff
+      run: uv run black act/ tests/ --check --diff
 
     - name: flake8
-      run: uv run flake8 --config ./.flake8 act/
+      run: uv run flake8 --config ./.flake8 act/ tests/
 
     - name: mypy
-      run: uv run mypy act/ --ignore-missing-imports --no-error-summary
+      run: uv run mypy act/ tests/ --ignore-missing-imports --no-error-summary
 
     - name: pytest
-      run: uv run pytest act/tests/ -v
+      run: uv run pytest -v
 

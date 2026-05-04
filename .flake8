@@ -7,4 +7,5 @@ exclude =
     .venv,
     build,
     dist,
-    act/examples
+    examples,
+    tests/fixtures

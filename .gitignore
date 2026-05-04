@@ -38,4 +38,4 @@ VERSION_DOCKER
 DOCKER_IMAGES
 
 # Provider schemas (large, download locally via: pulumi package get-schema <provider>)
-act/examples/**/schema.json
+examples/**/schema.json

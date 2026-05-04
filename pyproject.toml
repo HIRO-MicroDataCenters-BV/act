@@ -7,10 +7,7 @@ dependencies = [
     "checkov>=3.1.47",
     "hypothesis>=6.100.0",
     "pulumi>=3.230.0",
-    "pulumi-cape",
-    "pulumi-kubernetes>=4.28.0",
     "pulumi-policy>=1.20.0",
-    "pulumi-random>=4.19.2",
 ]
 
 [project.optional-dependencies]
@@ -23,6 +20,9 @@ dev = [
     "isort>=5.13.0",
     "mypy>=1.10.0",
     "pre-commit>=3.7.0",
+    "pulumi-cape",
+    "pulumi-kubernetes>=4.28.0",
+    "pulumi-random>=4.19.2",
     "pytest>=9.0.3",
     "pytest-mock>=3.14.0",
 ]
@@ -53,11 +53,12 @@ color_output = true
 pretty = true
 show_traceback = true
 color_output = true
-exclude = [".git", "__pycache__", ".venv", "build", "dist", "act/tests/fixtures", "act/examples"]
+exclude = [".git", "__pycache__", ".venv", "build", "dist", "tests/fixtures", "examples"]
 ignore_missing_imports = true
 check_untyped_defs = true
 warn_unused_configs = true
 
 [tool.pytest.ini_options]
+testpaths = ["tests"]
 norecursedirs = ["hooks", "*.egg", ".eggs", "dist", "build", "docs", ".tox", ".git", "__pycache__", ".hypothesis", ".venv"]
 addopts = ["--strict-markers", "--tb=short"]
