@@ -1,3 +1,5 @@
+from typing import Optional
+
 import json
 
 from act.core.mock_generator import MockGenerator
@@ -9,7 +11,7 @@ from act.rules.cape import rule_no_exposed_instance, rule_no_unprotected_ssh
 # ---------------------------------------------------------------------------
 
 
-def _make_schema(tmp_path, input_props: dict, required: list = None) -> str:
+def _make_schema(tmp_path, input_props: dict, required: Optional[list] = None) -> str:
     """Write a minimal provider schema with the given inputProperties and return its path."""
     schema = {
         "resources": {

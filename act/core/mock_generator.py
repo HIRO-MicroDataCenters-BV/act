@@ -135,7 +135,7 @@ class MockGenerator:
         recorded: dict[str, dict] = {}
         recorded_types: dict[str, str] = {}
 
-        class RecordingMock(MockClass):
+        class RecordingMock(MockClass):  # type: ignore[valid-type,misc]
             def new_resource(self, args: pulumi.runtime.MockResourceArgs):
                 name, outputs = super().new_resource(args)
                 recorded[name] = outputs
@@ -149,8 +149,10 @@ class MockGenerator:
             sys.path.insert(0, program_dir)
             try:
                 spec = importlib.util.spec_from_file_location("_act_prog", program_path)
+                if spec is None or spec.loader is None:
+                    raise RuntimeError(f"Cannot load program: {program_path}")
                 mod = importlib.util.module_from_spec(spec)
-                spec.loader.exec_module(mod)
+                spec.loader.exec_module(mod)  # type: ignore[union-attr]
                 # Drain all resource registration tasks scheduled by CustomResource.__init__
                 pending = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
                 if pending:

@@ -21,7 +21,7 @@ Usage:
     load_checkov_rules(oracle, check_type="kubernetes")
 """
 
-from typing import List
+from typing import List, Optional
 
 import importlib
 import logging
@@ -29,7 +29,7 @@ import os
 import pkgutil
 import tempfile
 
-import yaml
+import yaml  # type: ignore[import-untyped]
 
 from act.core.oracle import Violation
 
@@ -91,8 +91,8 @@ def _run_checkov(check_type: str, outputs: dict) -> List[Violation]:
 
 def load_checkov_rules(
     oracle,
-    check_type: str = None,
-    resource_type: str = None,
+    check_type: Optional[str] = None,
+    resource_type: Optional[str] = None,
 ) -> None:
     """Register Checkov checks on the oracle.
 
@@ -106,7 +106,7 @@ def load_checkov_rules(
     if not check_type and not resource_type:
         raise ValueError("Provide at least one of check_type or resource_type.")
 
-    resolved_type = check_type or resource_type.split(":")[0]
+    resolved_type = check_type or (resource_type or "").split(":")[0]
     _load_checks(resolved_type)
 
     def _rule(inputs: dict) -> List[Violation]:

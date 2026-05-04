@@ -1,4 +1,4 @@
-from typing import Callable, List
+from typing import Callable, List, Optional, Tuple
 
 import json
 from dataclasses import dataclass
@@ -25,12 +25,12 @@ class CorrectnessOracle:
     def __init__(self, schema_path: str):
         with open(schema_path) as f:
             self._schema = json.load(f)
-        self._rules: List[Callable[[dict], List[Violation]]] = []
+        self._rules: List[Tuple[Optional[str], Callable[[dict], List[Violation]]]] = []
 
     def add_rule(
         self,
         rule_fn: Callable[[dict], List[Violation]],
-        resource_type: str = None,
+        resource_type: Optional[str] = None,
     ) -> None:
         """Register a rule function.
 
