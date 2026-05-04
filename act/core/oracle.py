@@ -3,6 +3,8 @@ from typing import Callable, List, Optional, Tuple
 import json
 from dataclasses import dataclass
 
+from act.plugins.base import OraclePlugin
+
 
 @dataclass
 class Violation:
@@ -11,7 +13,7 @@ class Violation:
     severity: str  # "HIGH", "MEDIUM", "LOW"
 
 
-class CorrectnessOracle:
+class CorrectnessOracle(OraclePlugin):
     """Provider-agnostic rule engine.
 
     Combines two violation sources:

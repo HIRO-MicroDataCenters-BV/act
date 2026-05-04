@@ -4,7 +4,8 @@ import ast
 from dataclasses import dataclass
 
 from act.core.mock_generator import MockGenerator
-from act.core.oracle import CorrectnessOracle, Violation
+from act.core.oracle import Violation
+from act.plugins.base import OraclePlugin
 
 
 @dataclass
@@ -32,7 +33,7 @@ class ACTPipeline:
     def __init__(
         self,
         mock_generator: MockGenerator,
-        oracle: CorrectnessOracle,
+        oracle: OraclePlugin,
         fuzz_runner=None,
         property_runner=None,
         acv=None,
