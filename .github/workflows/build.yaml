@@ -78,7 +78,7 @@ jobs:
 
     - name: Create GitHub release
       if: startsWith(github.ref, 'refs/tags/')
-      run: gh release create "${{ env.APP_VERSION }}"
+      run: gh release create "${{ env.APP_VERSION }}" --generate-notes || true
       env:
         GH_TOKEN: ${{ github.token }}
 
