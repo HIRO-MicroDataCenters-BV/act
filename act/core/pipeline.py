@@ -102,7 +102,7 @@ class ACTPipeline:
 
         log.info("pipeline.done", extra={
             "passed": len(violations) == 0,
-            "total_violations": len(violations),
+            "violations": len(violations),
             "duration_ms": _ms(t0),
         })
 

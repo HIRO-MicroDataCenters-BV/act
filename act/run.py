@@ -42,10 +42,10 @@ class _JsonFormatter(logging.Formatter):
 def _configure_logging(level: str) -> None:
     handler = logging.StreamHandler()
     handler.setFormatter(_JsonFormatter())
-    logging.basicConfig(level=level, handlers=[handler], force=True)
-    logging.getLogger("checkov").setLevel(logging.ERROR)
-    logging.getLogger("pulumi").setLevel(logging.ERROR)
-    logging.getLogger("hypothesis").setLevel(logging.ERROR)
+    # Root at ERROR suppresses Pulumi/asyncio noise (direct logging.debug() calls)
+    logging.basicConfig(level=logging.ERROR, handlers=[handler], force=True)
+    # Explicitly set act.* to the requested level
+    logging.getLogger("act").setLevel(level)
 
 
 def _load_extra_rules(oracle, mg, engines: list) -> None:
