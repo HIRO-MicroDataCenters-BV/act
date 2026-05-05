@@ -3,7 +3,7 @@
 ACT — Automated Configuration Testing
 
 Usage:
-  python act/run.py --program <path> --schema <path> [--output <dir>] [--rules checkov]
+  python act/run.py --program <path> --schema <path> [<path> ...] [--output <dir>] [--rules checkov]
 
 Exit codes:
   0  all checks passed
@@ -41,7 +41,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
         description="Validate a Pulumi program against security rules without provisioning real infrastructure.",
     )
     parser.add_argument("--program", required=True, help="Path to Pulumi program file or project directory")
-    parser.add_argument("--schema", required=True, help="Path to provider schema JSON")
+    parser.add_argument(
+        "--schema",
+        required=True,
+        nargs="+",
+        metavar="SCHEMA",
+        help="Path(s) to provider schema JSON. Repeat for multi-provider programs.",
+    )
     parser.add_argument("--output", default=None, help="Directory to write run artefacts (optional)")
     parser.add_argument(
         "--rules",

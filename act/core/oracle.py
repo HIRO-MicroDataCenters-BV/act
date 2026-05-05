@@ -17,9 +17,13 @@ class CorrectnessOracle(OraclePlugin):
     injected via add_rule().
     """
 
-    def __init__(self, schema_path: str):
-        with open(schema_path) as f:
-            self._schema = json.load(f)
+    def __init__(self, schema_path: str | list[str]):
+        paths = [schema_path] if isinstance(schema_path, str) else schema_path
+        merged_resources: dict = {}
+        for p in paths:
+            with open(p) as f:
+                merged_resources.update(json.load(f).get("resources", {}))
+        self._schema = {"resources": merged_resources}
         self._rules: List[Tuple[Optional[str], Callable[[dict], List[Violation]]]] = []
 
     def add_rule(

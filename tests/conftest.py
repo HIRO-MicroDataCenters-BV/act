@@ -45,3 +45,8 @@ def random_fixtures():
 @pytest.fixture
 def path_b_fixture():
     return FIXTURES / "cape" / "path_b_parameterized.py"
+
+
+@pytest.fixture
+def multi_provider_fixtures():
+    return FIXTURES / "multi_provider"

@@ -18,10 +18,14 @@ class MockGenerator:
     then intercepts CustomResource registrations at the Pulumi SDK level.
     """
 
-    def __init__(self, schema_path: str):
-        self._schema_path = schema_path
-        with open(schema_path) as f:
-            self._schema = json.load(f)
+    def __init__(self, schema_path: str | list[str]):
+        paths = [schema_path] if isinstance(schema_path, str) else schema_path
+        merged_resources: dict = {}
+        for p in paths:
+            with open(p) as f:
+                merged_resources.update(json.load(f).get("resources", {}))
+        self._schema = {"resources": merged_resources}
+        self._schema_path = paths
         self._type_map = self._build_type_map()
 
     def _build_type_map(self) -> dict:
