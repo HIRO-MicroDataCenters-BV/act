@@ -2,7 +2,10 @@
 
 from typing import List
 
+import logging
 import os
+
+log = logging.getLogger(__name__)
 
 from act.core._runner_utils import (
     _atheris_mutate,
@@ -28,9 +31,11 @@ class FuzzRunner(TestGeneratorPlugin):
         self._iterations = iterations
 
     def run(self, program_path: str) -> List[Violation]:
+        log.debug("fuzz_runner.start", extra={"program": program_path, "iterations": self._iterations})
         try:
             import atheris
         except ImportError:
+            log.debug("fuzz_runner.skipped", extra={"reason": "atheris_unavailable"})
             return []
 
         resource_info = collect_resource_info(self._mg, program_path)
@@ -48,4 +53,5 @@ class FuzzRunner(TestGeneratorPlugin):
                 viols = self._oracle.check(token, mutated)
                 violations.extend(deduplicate(viols, seen))
 
+        log.debug("fuzz_runner.done", extra={"violations": len(violations)})
         return violations

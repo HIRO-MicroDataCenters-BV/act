@@ -4,8 +4,11 @@ import ast
 import asyncio
 import importlib.util
 import json
+import logging
 import sys
 from pathlib import Path
+
+log = logging.getLogger(__name__)
 
 import pulumi
 import pulumi.runtime
@@ -166,6 +169,7 @@ class MockGenerator:
                     sys.path.remove(program_dir)
                 sys.modules.pop("_act_prog", None)
 
+        log.debug("mock_generator.start", extra={"program": program_path})
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
@@ -175,4 +179,5 @@ class MockGenerator:
             loop.close()
 
         self._recorded_types = recorded_types
+        log.debug("mock_generator.done", extra={"resources": list(recorded)})
         return recorded

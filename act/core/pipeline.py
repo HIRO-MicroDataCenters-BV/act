@@ -1,7 +1,16 @@
 from typing import List
 
 import ast
+import logging
+import time
 from dataclasses import dataclass
+
+log = logging.getLogger(__name__)
+
+
+def _ms(t: float) -> int:
+    return int((time.perf_counter() - t) * 1000)
+
 
 from act.core.mock_generator import MockGenerator
 from act.core.violations import Violation
@@ -45,21 +54,37 @@ class ACTPipeline:
         self._acv = acv
 
     def run(self, program_path: str) -> PipelineResult:
+        t0 = time.perf_counter()
         violations: List[Violation] = []
         parameterized = _is_parameterized(program_path)
+        log.info("pipeline.start", extra={"program": program_path, "parameterized": parameterized})
 
+        t = time.perf_counter()
         mock_outputs = self._mock_generator.run_with_mocks(program_path)
+        log.info("pipeline.mock_done", extra={"resources": list(mock_outputs), "duration_ms": _ms(t)})
 
         if parameterized:
             if self._fuzz_runner:
-                violations.extend(self._fuzz_runner.run(program_path))
+                t = time.perf_counter()
+                fuzz_v = self._fuzz_runner.run(program_path)
+                violations.extend(fuzz_v)
+                log.info("pipeline.fuzz_done", extra={"violations": len(fuzz_v), "duration_ms": _ms(t)})
             if self._property_runner:
-                violations.extend(self._property_runner.run(program_path))
+                t = time.perf_counter()
+                prop_v = self._property_runner.run(program_path)
+                violations.extend(prop_v)
+                log.info("pipeline.property_done", extra={"violations": len(prop_v), "duration_ms": _ms(t)})
+        else:
+            log.debug("pipeline.fuzz_skipped", extra={"reason": "path_a"})
 
+        t = time.perf_counter()
+        oracle_violations: List[Violation] = []
         for resource_name, outputs in mock_outputs.items():
             resource_type = self._mock_generator.get_resource_type(resource_name)
             if resource_type:
-                violations.extend(self._oracle.check(resource_type, outputs))
+                oracle_violations.extend(self._oracle.check(resource_type, outputs))
+        violations.extend(oracle_violations)
+        log.info("pipeline.oracle_done", extra={"violations": len(oracle_violations), "duration_ms": _ms(t)})
 
         if self._acv:
             try:
@@ -74,6 +99,12 @@ class ACTPipeline:
                     )
             except Exception:
                 pass
+
+        log.info("pipeline.done", extra={
+            "passed": len(violations) == 0,
+            "total_violations": len(violations),
+            "duration_ms": _ms(t0),
+        })
 
         return PipelineResult(
             passed=len(violations) == 0,

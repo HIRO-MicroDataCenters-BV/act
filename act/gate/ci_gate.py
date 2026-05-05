@@ -1,4 +1,8 @@
+import logging
+
 from act.core.pipeline import ACTPipeline, PipelineResult
+
+log = logging.getLogger(__name__)
 
 
 class CIGate:
@@ -9,8 +13,15 @@ class CIGate:
         """Run the pipeline and return exit code: 0 = pass, 1 = violations, 2 = error."""
         try:
             result = self._pipeline.run(program_path)
+            exit_code = 0 if result.passed else 1
+            log.info("ci_gate.result", extra={
+                "program": program_path,
+                "passed": result.passed,
+                "violations": len(result.violations),
+                "exit_code": exit_code,
+            })
             print(self.format_report(result))
-            return 0 if result.passed else 1
+            return exit_code
         except Exception as e:
             print(f"[ERROR] Pipeline failed: {e}")
             return 2

@@ -12,6 +12,8 @@ Exit codes:
 """
 
 import argparse
+import json
+import logging
 import sys
 
 from act.core.mock_generator import MockGenerator
@@ -20,6 +22,30 @@ from act.core.pipeline import ACTPipeline
 from act.gate.ci_gate import CIGate
 from act.integrations.checkov_adapter import load_checkov_rules
 from act.rules import auto_load
+
+
+class _JsonFormatter(logging.Formatter):
+    _FIELDS = (
+        "program", "resources", "violations", "duration_ms", "passed",
+        "parameterized", "resource_type", "fields", "exit_code", "reason",
+        "iterations", "count",
+    )
+
+    def format(self, record: logging.LogRecord) -> str:
+        d: dict = {"level": record.levelname, "logger": record.name, "msg": record.getMessage()}
+        for k in self._FIELDS:
+            if hasattr(record, k):
+                d[k] = getattr(record, k)
+        return json.dumps(d)
+
+
+def _configure_logging(level: str) -> None:
+    handler = logging.StreamHandler()
+    handler.setFormatter(_JsonFormatter())
+    logging.basicConfig(level=level, handlers=[handler], force=True)
+    logging.getLogger("checkov").setLevel(logging.ERROR)
+    logging.getLogger("pulumi").setLevel(logging.ERROR)
+    logging.getLogger("hypothesis").setLevel(logging.ERROR)
 
 
 def _load_extra_rules(oracle, mg, engines: list) -> None:
@@ -50,6 +76,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--output", default=None, help="Directory to write run artefacts (optional)")
     parser.add_argument(
+        "--log-level",
+        default="WARNING",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+        help="Log verbosity (default: WARNING — silent in CI unless set)",
+    )
+    parser.add_argument(
         "--rules",
         nargs="*",
         default=[],
@@ -62,6 +94,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
 def main(argv=None) -> int:
     parser = build_arg_parser()
     args = parser.parse_args(argv)
+
+    _configure_logging(args.log_level)
 
     try:
         mg = MockGenerator(args.schema)

@@ -1,9 +1,12 @@
 from typing import Callable, List, Optional, Tuple
 
 import json
+import logging
 
 from act.core.violations import Violation
 from act.plugins.base import OraclePlugin
+
+log = logging.getLogger(__name__)
 
 
 class CorrectnessOracle(OraclePlugin):
@@ -48,6 +51,12 @@ class CorrectnessOracle(OraclePlugin):
         for scoped_type, rule in self._rules:
             if scoped_type is None or scoped_type == resource_type:
                 violations.extend(rule(inputs))
+        if violations:
+            log.debug("oracle.violations", extra={
+                "resource_type": resource_type,
+                "count": len(violations),
+                "fields": [v.field for v in violations],
+            })
         return violations
 
     def _infer_from_schema(self, resource_type: str, inputs: dict) -> List[Violation]:
