@@ -1,16 +1,9 @@
 from typing import Callable, List, Optional, Tuple
 
 import json
-from dataclasses import dataclass
 
+from act.core.violations import Violation
 from act.plugins.base import OraclePlugin
-
-
-@dataclass
-class Violation:
-    field: str
-    message: str
-    severity: str  # "HIGH", "MEDIUM", "LOW"
 
 
 class CorrectnessOracle(OraclePlugin):

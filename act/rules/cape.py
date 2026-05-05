@@ -11,7 +11,7 @@ Only add rules for fields that exist in the real cape-sdks.
 
 from typing import List
 
-from act.core.oracle import Violation
+from act.core.violations import Violation
 
 
 def rule_no_exposed_instance(inputs: dict) -> List[Violation]:

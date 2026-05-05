@@ -13,7 +13,8 @@ from act.core._runner_utils import (
     collect_resource_info,
     deduplicate,
 )
-from act.core.oracle import CorrectnessOracle, Violation
+from act.core.oracle import CorrectnessOracle
+from act.core.violations import Violation
 from act.plugins.base import TestGeneratorPlugin
 
 

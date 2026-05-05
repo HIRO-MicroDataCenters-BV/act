@@ -4,7 +4,7 @@ import ast
 from dataclasses import dataclass
 
 from act.core.mock_generator import MockGenerator
-from act.core.oracle import Violation
+from act.core.violations import Violation
 from act.plugins.base import OraclePlugin
 
 

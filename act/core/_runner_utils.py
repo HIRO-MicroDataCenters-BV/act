@@ -2,7 +2,7 @@
 
 import copy
 
-from act.core.oracle import Violation
+from act.core.violations import Violation
 
 # Boundary values to try per schema field type
 _BOUNDARY_VALUES: dict[str, list] = {

@@ -31,7 +31,7 @@ import tempfile
 
 import yaml  # type: ignore[import-untyped]
 
-from act.core.oracle import Violation
+from act.core.violations import Violation
 
 logging.getLogger("checkov").setLevel(logging.ERROR)
 

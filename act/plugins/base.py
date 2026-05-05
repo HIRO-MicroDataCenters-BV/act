@@ -1,11 +1,7 @@
-from __future__ import annotations
-
-from typing import TYPE_CHECKING, List
-
 from abc import ABC, abstractmethod
+from typing import List
 
-if TYPE_CHECKING:
-    from act.core.oracle import Violation
+from act.core.violations import Violation
 
 
 class TestGeneratorPlugin(ABC):

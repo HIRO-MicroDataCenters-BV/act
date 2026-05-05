@@ -3,7 +3,8 @@ from typing import Optional
 import json
 
 from act.core.mock_generator import MockGenerator
-from act.core.oracle import CorrectnessOracle, Violation
+from act.core.oracle import CorrectnessOracle
+from act.core.violations import Violation
 from act.rules.cape import rule_no_exposed_instance, rule_no_unprotected_ssh
 
 # ---------------------------------------------------------------------------
