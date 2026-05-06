@@ -5,16 +5,15 @@ import logging
 import time
 from dataclasses import dataclass
 
+from act.core.mock_generator import MockGenerator
+from act.core.violations import Violation
+from act.plugins.base import OraclePlugin
+
 log = logging.getLogger(__name__)
 
 
 def _ms(t: float) -> int:
     return int((time.perf_counter() - t) * 1000)
-
-
-from act.core.mock_generator import MockGenerator
-from act.core.violations import Violation
-from act.plugins.base import OraclePlugin
 
 
 @dataclass
@@ -74,9 +73,6 @@ class ACTPipeline:
                 prop_v = self._property_runner.run(program_path)
                 violations.extend(prop_v)
                 log.info("pipeline.property_done", extra={"violations": len(prop_v), "duration_ms": _ms(t)})
-        else:
-            log.debug("pipeline.fuzz_skipped", extra={"reason": "path_a"})
-
         t = time.perf_counter()
         oracle_violations: List[Violation] = []
         for resource_name, outputs in mock_outputs.items():

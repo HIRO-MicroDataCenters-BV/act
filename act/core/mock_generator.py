@@ -8,10 +8,10 @@ import logging
 import sys
 from pathlib import Path
 
-log = logging.getLogger(__name__)
-
 import pulumi
 import pulumi.runtime
+
+log = logging.getLogger(__name__)
 
 
 class MockGenerator:
