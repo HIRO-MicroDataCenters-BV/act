@@ -5,8 +5,6 @@ from typing import List
 import logging
 import os
 
-log = logging.getLogger(__name__)
-
 from act.core._runner_utils import (
     _atheris_mutate,
     collect_resource_info,
@@ -15,6 +13,8 @@ from act.core._runner_utils import (
 from act.core.oracle import CorrectnessOracle
 from act.core.violations import Violation
 from act.plugins.base import TestGeneratorPlugin
+
+log = logging.getLogger(__name__)
 
 
 class FuzzRunner(TestGeneratorPlugin):

@@ -32,6 +32,7 @@ pulumi-cape = { path = "cape-sdks/python", editable = true }
 
 [tool.black]
 line-length = 120
+target-version = ["py311"]
 color = true
 
 [tool.isort]
