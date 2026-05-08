@@ -1,4 +1,5 @@
 """Multi-provider fixture: uses CAPE Instance and pulumi-random RandomPassword in one program."""
+
 import pulumi
 from pulumi_cape.compute import Instance
 from pulumi_cape.schemas import InstanceSpecArgs, ReferenceArgs, VolumeReferenceArgs

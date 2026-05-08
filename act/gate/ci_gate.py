@@ -14,12 +14,15 @@ class CIGate:
         try:
             result = self._pipeline.run(program_path)
             exit_code = 0 if result.passed else 1
-            log.info("ci_gate.result", extra={
-                "program": program_path,
-                "passed": result.passed,
-                "violations": len(result.violations),
-                "exit_code": exit_code,
-            })
+            log.info(
+                "ci_gate.result",
+                extra={
+                    "program": program_path,
+                    "passed": result.passed,
+                    "violations": len(result.violations),
+                    "exit_code": exit_code,
+                },
+            )
             print(self.format_report(result))
             return exit_code
         except Exception as e:

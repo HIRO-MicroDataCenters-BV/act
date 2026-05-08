@@ -10,8 +10,6 @@ import logging
 
 from hypothesis import HealthCheck, given, settings
 
-log = logging.getLogger(__name__)
-
 from act.core._runner_utils import (
     build_strategy,
     collect_resource_info,
@@ -20,6 +18,8 @@ from act.core._runner_utils import (
 from act.core.oracle import CorrectnessOracle
 from act.core.violations import Violation
 from act.plugins.base import TestGeneratorPlugin
+
+log = logging.getLogger(__name__)
 
 
 class PropertyRunner(TestGeneratorPlugin):

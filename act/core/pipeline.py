@@ -96,11 +96,14 @@ class ACTPipeline:
             except Exception:
                 pass
 
-        log.info("pipeline.done", extra={
-            "passed": len(violations) == 0,
-            "violations": len(violations),
-            "duration_ms": _ms(t0),
-        })
+        log.info(
+            "pipeline.done",
+            extra={
+                "passed": len(violations) == 0,
+                "violations": len(violations),
+                "duration_ms": _ms(t0),
+            },
+        )
 
         return PipelineResult(
             passed=len(violations) == 0,

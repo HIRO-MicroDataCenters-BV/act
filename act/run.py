@@ -26,9 +26,18 @@ from act.rules import auto_load
 
 class _JsonFormatter(logging.Formatter):
     _FIELDS = (
-        "program", "resources", "violations", "duration_ms", "passed",
-        "parameterized", "resource_type", "fields", "exit_code", "reason",
-        "iterations", "count",
+        "program",
+        "resources",
+        "violations",
+        "duration_ms",
+        "passed",
+        "parameterized",
+        "resource_type",
+        "fields",
+        "exit_code",
+        "reason",
+        "iterations",
+        "count",
     )
 
     def format(self, record: logging.LogRecord) -> str:
