@@ -5,13 +5,31 @@ from act.reproducibility.deployment_arch import (
     ImageBootFailure,
 )
 from act.reproducibility.plan_check import PlanCheck, PlanCheckResult
+from act.reproducibility.runtime_check import (
+    RuntimeCheck,
+    RuntimeCheckFailure,
+    RuntimeCheckResult,
+)
+from act.reproducibility.substrates.base import (
+    ProvisionedTarget,
+    Substrate,
+    TargetSpec,
+)
+from act.reproducibility.substrates.docker import DockerSubstrate
 
 __all__ = [
     "DeploymentArchCheck",
     "DeploymentArchResult",
+    "DockerSubstrate",
     "ImageBootFailure",
     "PlanCheck",
     "PlanCheckResult",
+    "ProvisionedTarget",
     "ReproducibilityArtefact",
+    "RuntimeCheck",
+    "RuntimeCheckFailure",
+    "RuntimeCheckResult",
+    "Substrate",
+    "TargetSpec",
     "write_artefact",
 ]

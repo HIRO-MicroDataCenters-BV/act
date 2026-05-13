@@ -18,6 +18,7 @@ from typing import Optional
 
 from act.reproducibility.deployment_arch import DeploymentArchResult
 from act.reproducibility.plan_check import PlanCheckResult
+from act.reproducibility.runtime_check import RuntimeCheckResult
 
 
 def _safe_version(name: str) -> str:
@@ -45,6 +46,7 @@ class ReproducibilityArtefact:
     schemas: list[str]
     plan_check: PlanCheckResult
     deployment_arch: Optional[DeploymentArchResult] = None
+    runtime_check: Optional[RuntimeCheckResult] = None
     act_version: str = field(default_factory=lambda: _safe_version("act"))
     pulumi_version: str = field(default_factory=lambda: _safe_version("pulumi"))
     provider_versions: dict[str, str] = field(default_factory=_provider_versions)
