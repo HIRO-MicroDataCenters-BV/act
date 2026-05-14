@@ -32,6 +32,8 @@ class DockerSubstrate(Substrate):
     features: frozenset[str] = field(default_factory=frozenset)
     api_host_port: int = 6443
     startup_timeout: int = 180
+    extra_docker_args: tuple[str, ...] = ()
+    command: tuple[str, ...] = ()
 
     @property
     def name(self) -> str:  # type: ignore[override]
@@ -60,7 +62,9 @@ class DockerSubstrate(Substrate):
                 "--platform", self.platform,
                 "--name", container_id,
                 "-p", f"{self.api_host_port}:6443",
+                *self.extra_docker_args,
                 self.image,
+                *self.command,
             ],
             capture_output=True,
             check=True,

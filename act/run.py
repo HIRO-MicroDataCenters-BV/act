@@ -141,31 +141,43 @@ def build_arg_parser() -> argparse.ArgumentParser:
     return parser
 
 
-_K3S_IMAGE_REGISTRY = os.environ.get("ACT_K3S_IMAGE_REGISTRY", "ghcr.io/act/act-k3s")
+_K3S_IMAGE = os.environ.get("ACT_K3S_IMAGE", "rancher/k3s:v1.32.1-k3s1")
+_K3S_RISCV64_IMAGE = os.environ.get(
+    "ACT_K3S_RISCV64_IMAGE",
+    "ghcr.io/carv-ics-forth/k3s:v1.32.1-k3s1-riscv64",
+)
+_K3S_DOCKER_ARGS: tuple[str, ...] = ("--privileged", "--tmpfs", "/run", "--tmpfs", "/var/run")
+_K3S_COMMAND: tuple[str, ...] = ("server", "--disable=traefik", "--write-kubeconfig-mode=644")
 
 
 def _default_substrates() -> list:
-    """Substrate registry. Each row is a pinned-digest image + platform + arch.
+    """Substrate registry. Each row is a pinned image + platform + arch.
 
-    Image digests are produced by a separate image-build pipeline (see
-    `act/reproducibility/image_helpers/`) and pinned here. Adding a new
-    architecture or feature is one row.
+    amd64/arm64 use upstream rancher/k3s (multi-arch, well-tested).
+    riscv64 uses the CARV-ICS-FORTH fork that publishes pinned tarballs.
+    Both can be overridden via ACT_K3S_IMAGE / ACT_K3S_RISCV64_IMAGE env vars.
     """
     return [
         DockerSubstrate(
-            image=f"{_K3S_IMAGE_REGISTRY}:amd64-latest",
+            image=_K3S_IMAGE,
             platform="linux/amd64",
             spec_arch="x86_64-linux",
+            extra_docker_args=_K3S_DOCKER_ARGS,
+            command=_K3S_COMMAND,
         ),
         DockerSubstrate(
-            image=f"{_K3S_IMAGE_REGISTRY}:arm64-latest",
+            image=_K3S_IMAGE,
             platform="linux/arm64",
             spec_arch="aarch64-linux",
+            extra_docker_args=_K3S_DOCKER_ARGS,
+            command=_K3S_COMMAND,
         ),
         DockerSubstrate(
-            image=f"{_K3S_IMAGE_REGISTRY}:riscv64-latest",
+            image=_K3S_RISCV64_IMAGE,
             platform="linux/riscv64",
             spec_arch="riscv64-linux",
+            extra_docker_args=_K3S_DOCKER_ARGS,
+            command=_K3S_COMMAND,
         ),
     ]
 
