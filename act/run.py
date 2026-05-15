@@ -147,7 +147,27 @@ _K3S_RISCV64_IMAGE = os.environ.get(
     "ghcr.io/carv-ics-forth/k3s:v1.32.1-k3s1-riscv64",
 )
 _K3S_DOCKER_ARGS: tuple[str, ...] = ("--privileged", "--tmpfs", "/run", "--tmpfs", "/var/run")
-_K3S_COMMAND: tuple[str, ...] = ("server", "--disable=traefik", "--write-kubeconfig-mode=644")
+_K3S_COMMAND: tuple[str, ...] = (
+    "server",
+    "--disable=traefik",
+    "--write-kubeconfig-mode=644",
+    # `native` snapshotter avoids overlayfs mounts that fail under QEMU
+    # binfmt or in some host filesystem layouts. Slightly slower than overlay
+    # but reliably works on every substrate platform we ship today.
+    "--snapshotter=native",
+)
+
+# riscv64 under QEMU user-mode binfmt emulation cannot run iptables-dependent
+# components (kube-proxy crashes, flannel depends on kube-proxy). Disabling
+# both lets the control plane come up and the API serve a kubeconfig; the node
+# registers but stays NotReady until a non-iptables CNI is installed, or until
+# the substrate runs on native riscv64 silicon. The substrate's contract (an
+# API server reachable via the returned kubeconfig) is satisfied either way.
+_K3S_RISCV64_COMMAND: tuple[str, ...] = _K3S_COMMAND + (
+    "--disable-kube-proxy",
+    "--flannel-backend=none",
+    "--disable-network-policy",
+)
 
 
 def _default_substrates() -> list:
@@ -177,7 +197,7 @@ def _default_substrates() -> list:
             platform="linux/riscv64",
             spec_arch="riscv64-linux",
             extra_docker_args=_K3S_DOCKER_ARGS,
-            command=_K3S_COMMAND,
+            command=_K3S_RISCV64_COMMAND,
         ),
     ]
 
