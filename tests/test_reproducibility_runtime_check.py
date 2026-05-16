@@ -140,6 +140,13 @@ def _provisioned() -> ProvisionedTarget:
     )
 
 
+def _stub_program(tmp_path) -> str:
+    """A real on-disk file run_pulumi_against can copy into the temp project."""
+    p = tmp_path / "prog.py"
+    p.write_text("import pulumi\n")
+    return str(p)
+
+
 def test_run_pulumi_against_invokes_up_and_destroy(tmp_path):
     stack = MagicMock()
     stack.up.return_value = MagicMock(outputs={"endpoint": MagicMock(value="ok")})
@@ -151,7 +158,7 @@ def test_run_pulumi_against_invokes_up_and_destroy(tmp_path):
     ):
         outcome = run_pulumi_against(
             target=_provisioned(),
-            program_path="some.py",
+            program_path=_stub_program(tmp_path),
             backend_dir=str(tmp_path),
         )
 
@@ -171,7 +178,7 @@ def test_run_pulumi_against_destroys_on_up_failure(tmp_path):
     ):
         outcome = run_pulumi_against(
             target=_provisioned(),
-            program_path="some.py",
+            program_path=_stub_program(tmp_path),
             backend_dir=str(tmp_path),
         )
 
@@ -251,7 +258,7 @@ def test_run_pulumi_against_sets_kubeconfig_config(tmp_path):
     ):
         run_pulumi_against(
             target=_provisioned(),
-            program_path="some.py",
+            program_path=_stub_program(tmp_path),
             backend_dir=str(tmp_path),
         )
 

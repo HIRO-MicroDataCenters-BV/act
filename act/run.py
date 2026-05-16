@@ -158,11 +158,9 @@ _K3S_COMMAND: tuple[str, ...] = (
 )
 
 # riscv64 under QEMU user-mode binfmt emulation cannot run iptables-dependent
-# components (kube-proxy crashes, flannel depends on kube-proxy). Disabling
-# both lets the control plane come up and the API serve a kubeconfig; the node
-# registers but stays NotReady until a non-iptables CNI is installed, or until
-# the substrate runs on native riscv64 silicon. The substrate's contract (an
-# API server reachable via the returned kubeconfig) is satisfied either way.
+# components (kube-proxy crashes, flannel depends on kube-proxy). The image
+# bundles the reference CNI plugins + a bridge conflist so kubelet still
+# satisfies NetworkReady without iptables.
 _K3S_RISCV64_COMMAND: tuple[str, ...] = _K3S_COMMAND + (
     "--disable-kube-proxy",
     "--flannel-backend=none",
