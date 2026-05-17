@@ -159,7 +159,10 @@ _ARCH_NORMALISE = {
 
 
 def _normalise_arch(raw: str) -> str:
-    return _ARCH_NORMALISE.get(raw.strip().lower(), f"{raw}-linux")
+    cleaned = raw.strip().lower()
+    if cleaned.endswith("-linux"):
+        return cleaned
+    return _ARCH_NORMALISE.get(cleaned, f"{cleaned}-linux")
 
 
 def _resource_arch(outputs: dict) -> str | None:
@@ -184,9 +187,18 @@ def _mentions_cxl(outputs: dict) -> bool:
     return "cxl" in json.dumps(outputs, default=str).lower()
 
 
-def probe_k8s(kubeconfig: str, timeout: int = 60) -> dict:
+def probe_k8s(kubeconfig: str, namespace: str = "default", timeout: int = 60) -> dict:
+    """Capture user-deployed state in the named namespace.
+
+    Scoped to a single (non-system) namespace because `--all-namespaces`
+    pulls in kube-system pods whose state (restartCount, container
+    statuses, transient conditions) drifts between probes and would
+    surface as spurious reproducibility violations. Capture covers the
+    resource kinds a CAPE Pulumi program is most likely to deploy.
+    """
+    kinds = "pods,services,deployments,statefulsets,daemonsets,configmaps,secrets,jobs,cronjobs"
     result = subprocess.run(
-        ["kubectl", "--kubeconfig", kubeconfig, "get", "pods", "--all-namespaces", "-o", "json"],
+        ["kubectl", "--kubeconfig", kubeconfig, "get", kinds, "-n", namespace, "-o", "json"],
         capture_output=True,
         check=True,
         timeout=timeout,
@@ -277,13 +289,25 @@ class RuntimeCheck:
             detail=f"no substrate matches spec arch={spec.arch} orchestrator={spec.orchestrator}",
         )
 
-    def run(self, program_path: str, schema_path, backend_dir: Optional[str] = None) -> RuntimeCheckResult:
+    def run(
+        self,
+        program_path: str,
+        schema_path,
+        backend_dir: Optional[str] = None,
+        arch_override: Optional[str] = None,
+    ) -> RuntimeCheckResult:
         schemas = [schema_path] if isinstance(schema_path, str) else list(schema_path)
         start = time.monotonic_ns()
 
         mg = MockGenerator(schemas)
         plan = mg.run_with_mocks(program_path)
         spec = extract_target_spec(plan, mg)
+        if arch_override is not None:
+            spec = TargetSpec(
+                arch=_normalise_arch(arch_override),
+                orchestrator=spec.orchestrator,
+                features=spec.features,
+            )
 
         substrate, pick_failure = self._pick_substrate(spec)
         if substrate is None or pick_failure is not None:
