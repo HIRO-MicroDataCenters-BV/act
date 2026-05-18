@@ -1,12 +1,11 @@
-from typing import List, Optional
+from typing import List
 
 import hashlib
 import json
 import subprocess
 import sys
+import time
 from dataclasses import dataclass, field
-
-from act.reproducibility.targets import ArchTarget
 
 
 @dataclass
@@ -15,6 +14,7 @@ class PlanCheckResult:
     hash_1: str
     hash_2: str
     diff: List[str] = field(default_factory=list)
+    capture_duration_ms: int = 0
 
 
 def _flatten(obj, prefix: str = "") -> dict:
@@ -43,17 +43,22 @@ def _diff_paths(a: bytes, b: bytes, limit: int = 5) -> List[str]:
 
 
 class PlanCheck:
-    def __init__(self, target: Optional[ArchTarget] = None):
-        self._target = target
-
     def run(self, program_path: str, schema_path) -> PlanCheckResult:
         schemas = [schema_path] if isinstance(schema_path, str) else list(schema_path)
+        start = time.monotonic_ns()
         out_1 = self._capture_host(program_path, schemas)
         out_2 = self._capture_host(program_path, schemas)
+        duration_ms = (time.monotonic_ns() - start) // 1_000_000
         h1 = hashlib.sha256(out_1).hexdigest()
         h2 = hashlib.sha256(out_2).hexdigest()
         diff = [] if h1 == h2 else _diff_paths(out_1, out_2)
-        return PlanCheckResult(deterministic=h1 == h2, hash_1=h1, hash_2=h2, diff=diff)
+        return PlanCheckResult(
+            deterministic=h1 == h2,
+            hash_1=h1,
+            hash_2=h2,
+            diff=diff,
+            capture_duration_ms=int(duration_ms),
+        )
 
     def _capture_host(self, program_path: str, schemas: List[str]) -> bytes:
         cmd = [sys.executable, "-m", "act.reproducibility.capture", "--program", program_path, "--schema", *schemas]

@@ -4,6 +4,7 @@ ACT — Automated Configuration Testing
 
 Usage:
   python act/run.py --program <path> --schema <path> [<path> ...] [--output <dir>] [--rules checkov]
+                    [--check-deployment-arch <arch>]
 
 Exit codes:
   0  all checks passed
@@ -21,6 +22,14 @@ from act.core.oracle import CorrectnessOracle
 from act.core.pipeline import ACTPipeline
 from act.gate.ci_gate import CIGate
 from act.integrations.checkov_adapter import load_checkov_rules
+from act.reproducibility import (
+    DeploymentArchCheck,
+    DeploymentArchResult,
+    PlanCheck,
+    PlanCheckResult,
+    ReproducibilityArtefact,
+    write_artefact,
+)
 from act.rules import auto_load
 
 
@@ -38,6 +47,17 @@ class _JsonFormatter(logging.Formatter):
         "reason",
         "iterations",
         "count",
+        "hash_1",
+        "hash_2",
+        "diff",
+        "image",
+        "arch",
+        "detail",
+        "images_checked",
+        "check",
+        "capture_duration_ms",
+        "artefact_path",
+        "unhandled_tokens",
     )
 
     def format(self, record: logging.LogRecord) -> str:
@@ -97,7 +117,74 @@ def build_arg_parser() -> argparse.ArgumentParser:
         metavar="ENGINE",
         help="Extra rule engines to load (e.g. --rules checkov). Repeatable.",
     )
+    parser.add_argument(
+        "--check-deployment-arch",
+        default=None,
+        metavar="ARCH",
+        help="Smoke-boot every image referenced by the deployment under linux/<ARCH> using QEMU. "
+        "Example: --check-deployment-arch riscv64. Requires docker + binfmt_misc.",
+    )
     return parser
+
+
+def _run_plan_check(program: str, schemas: list[str], log: logging.Logger) -> PlanCheckResult:
+    result = PlanCheck().run(program, schemas)
+    if not result.deterministic:
+        log.warning(
+            "plan_drift",
+            extra={
+                "check": "plan_determinism",
+                "hash_1": result.hash_1,
+                "hash_2": result.hash_2,
+                "diff": result.diff,
+                "capture_duration_ms": result.capture_duration_ms,
+            },
+        )
+    return result
+
+
+def _run_deployment_arch_check(
+    program: str, schemas: list[str], arch: str, log: logging.Logger
+) -> DeploymentArchResult:
+    result = DeploymentArchCheck(arch).run(program, schemas)
+    if not result.images_checked:
+        log.warning(
+            "deployment_arch_no_images",
+            extra={
+                "check": "deployment_arch",
+                "arch": arch,
+                "unhandled_tokens": result.unhandled_tokens,
+                "detail": (
+                    "no extractable container images found in this program; arch check "
+                    "skipped. Add an entry to IMAGE_EXTRACTORS for any of the unhandled "
+                    "tokens to extend coverage."
+                ),
+            },
+        )
+    elif result.passed:
+        log.info(
+            "deployment_arch_ok",
+            extra={
+                "check": "deployment_arch",
+                "arch": arch,
+                "images_checked": result.images_checked,
+                "capture_duration_ms": result.capture_duration_ms,
+                "unhandled_tokens": result.unhandled_tokens,
+            },
+        )
+    else:
+        for failure in result.failures:
+            log.warning(
+                "deployment_arch_failure",
+                extra={
+                    "check": "deployment_arch",
+                    "arch": arch,
+                    "image": failure.image,
+                    "reason": failure.reason,
+                    "detail": failure.detail,
+                },
+            )
+    return result
 
 
 def main(argv=None) -> int:
@@ -105,6 +192,7 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
 
     _configure_logging(args.log_level)
+    log = logging.getLogger("act")
 
     try:
         mg = MockGenerator(args.schema)
@@ -113,7 +201,31 @@ def main(argv=None) -> int:
         _load_extra_rules(oracle, mg, args.rules)
         pipeline = ACTPipeline(mg, oracle)
         gate = CIGate(pipeline)
-        return gate.evaluate(args.program)
+        exit_code = gate.evaluate(args.program)
+
+        plan_result = _run_plan_check(args.program, args.schema, log)
+        if not plan_result.deterministic:
+            exit_code = max(exit_code, 1)
+
+        arch_result = None
+        if args.check_deployment_arch:
+            arch_result = _run_deployment_arch_check(
+                args.program, args.schema, args.check_deployment_arch, log
+            )
+            if not arch_result.passed:
+                exit_code = max(exit_code, 1)
+
+        if args.output:
+            artefact = ReproducibilityArtefact(
+                program_path=args.program,
+                schemas=list(args.schema),
+                plan_check=plan_result,
+                deployment_arch=arch_result,
+            )
+            path = write_artefact(artefact, args.output)
+            log.info("artefact_written", extra={"artefact_path": path})
+
+        return exit_code
     except FileNotFoundError as e:
         print(f"[ERROR] {e}")
         return 2
