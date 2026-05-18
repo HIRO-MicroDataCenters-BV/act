@@ -3,7 +3,7 @@
 The mocked tests in test_reproducibility_runtime_check.py cover the
 orchestration logic in isolation. This file proves the integration glue
 works against a real ephemeral cluster, including the substantive
-twice-and-hash claim from D4.2 §2.3.7:
+twice-and-hash claim:
 
   MockGenerator (capture plan) →
     extract_target_spec →
@@ -32,6 +32,7 @@ import pytest
 from act.reproducibility.runtime_check import RuntimeCheck, run_pulumi_against
 from act.reproducibility.substrates.base import TargetSpec
 from act.reproducibility.substrates.docker import DockerSubstrate
+from act.reproducibility.substrates.gpu import GpuSubstrate
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 # ConfigMap-only fixture: no image pulls, no pod scheduling. Image pulls
@@ -229,3 +230,60 @@ def test_runtime_check_twice_and_hash_against_real_riscv64_k3s_cluster():
         command=K3S_RISCV64_COMMAND,
     )
     _assert_twice_and_hash_passes(substrate, "riscv64-linux", "docker:linux/riscv64")
+
+
+def test_gpu_substrate_provisions_cluster_with_nvidia_gpu_extended_resource():
+    """GpuSubstrate provisions a real k3s cluster and declares nvidia.com/gpu schedulable.
+
+    Drives the substrate directly (not through RuntimeCheck.run) — GPU feature
+    auto-detection in extract_target_spec is a separate follow-up. The
+    substrate's contract is exercised end-to-end: provision → kubeconfig +
+    `nvidia.com/gpu: 1` in node allocatable → teardown.
+
+    Works on any host with docker + kubectl (no GPU hardware needed). The
+    Extended Resource patch is what makes the cluster schedulable for
+    GPU-flagged workloads; real CUDA execution still requires GPU hardware
+    on the host (no general-purpose GPU emulator exists for k8s).
+    """
+    substrate = GpuSubstrate(
+        image=K3S_IMAGE,
+        platform="linux/amd64",
+        spec_arch="x86_64-linux",
+        features=frozenset({"gpu"}),
+        gpu_count=1,
+        api_host_port=16453,
+        startup_timeout=240,
+        extra_docker_args=K3S_DOCKER_ARGS,
+        command=K3S_COMMAND,
+    )
+    spec = TargetSpec(arch="x86_64-linux", orchestrator="k8s", features=["gpu"])
+    target = substrate.provision(spec)
+
+    try:
+        assert target.kind == "kubeconfig"
+
+        # Verify the Extended Resource is now schedulable on the node.
+        out = subprocess.run(
+            [
+                "kubectl", "--kubeconfig", target.endpoint,
+                "--insecure-skip-tls-verify",
+                "get", "nodes",
+                "-o", r"jsonpath={.items[0].status.allocatable.nvidia\.com/gpu}",
+            ],
+            capture_output=True, check=True, timeout=15,
+        ).stdout.decode().strip()
+        assert out == "1", f"expected nvidia.com/gpu=1 in node allocatable, got {out!r}"
+
+        # Confirm capacity too (Extended Resources mirror across both fields).
+        capacity_out = subprocess.run(
+            [
+                "kubectl", "--kubeconfig", target.endpoint,
+                "--insecure-skip-tls-verify",
+                "get", "nodes",
+                "-o", r"jsonpath={.items[0].status.capacity.nvidia\.com/gpu}",
+            ],
+            capture_output=True, check=True, timeout=15,
+        ).stdout.decode().strip()
+        assert capacity_out == "1", f"expected nvidia.com/gpu=1 in node capacity, got {capacity_out!r}"
+    finally:
+        target.teardown()

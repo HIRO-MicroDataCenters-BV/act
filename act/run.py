@@ -27,6 +27,7 @@ from act.reproducibility import (
     DeploymentArchCheck,
     DeploymentArchResult,
     DockerSubstrate,
+    GpuSubstrate,
     PlanCheck,
     PlanCheckResult,
     ReproducibilityArtefact,
@@ -196,6 +197,19 @@ def _default_substrates() -> list:
             spec_arch="riscv64-linux",
             extra_docker_args=_K3S_DOCKER_ARGS,
             command=_K3S_RISCV64_COMMAND,
+        ),
+        # GPU substrate: only matches specs with features=["gpu"], so it
+        # doesn't steal non-GPU amd64 work from the regular row above. The
+        # post-provision step declares nvidia.com/gpu as a k8s Extended
+        # Resource — schedulable without GPU hardware. Real CUDA execution
+        # requires a GPU-equipped host; this substrate validates the IaC layer.
+        GpuSubstrate(
+            image=_K3S_IMAGE,
+            platform="linux/amd64",
+            spec_arch="x86_64-linux",
+            features=frozenset({"gpu"}),
+            extra_docker_args=_K3S_DOCKER_ARGS,
+            command=_K3S_COMMAND,
         ),
     ]
 

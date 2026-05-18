@@ -171,7 +171,7 @@ def test_nxc_accepts_init_build_pipeline_against_rendered_composition(tmp_path):
 def test_full_nxc_build_completes_for_x86_64_under_emulation(tmp_path):
     """End-to-end: nxc init + nxc build run to completion against the substrate's
     x86_64-linux composition. Proves the substrate produces a build-able flake
-    that nxc actually consumes and produces a docker-compose deliverable.
+    that nxc actually consumes and produces a docker-compose artefact.
 
     On Apple Silicon the amd64 image runs under QEMU emulation; expect ~5 min.
     On an x86_64 host this is native (~2 min). Image building (one-off): ~5 min.
