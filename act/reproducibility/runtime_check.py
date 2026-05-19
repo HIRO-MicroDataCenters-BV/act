@@ -4,16 +4,23 @@ import hashlib
 import json
 import re
 import subprocess
+import tempfile
+import time
 import uuid
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
 from pulumi import automation
 
-from act.reproducibility.substrates.base import ProvisionedTarget, TargetSpec
+from act.core.mock_generator import MockGenerator
+from act.reproducibility.substrates.base import (
+    ProvisionedTarget,
+    Substrate,
+    TargetSpec,
+)
 
-if TYPE_CHECKING:
-    from act.core.mock_generator import MockGenerator
+if TYPE_CHECKING:  # pragma: no cover
+    pass
 
 
 VOLATILE_KEYS: frozenset[str] = frozenset({
@@ -200,7 +207,7 @@ def hash_output(value: Any) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
-def extract_target_spec(plan: dict, mg: "MockGenerator") -> TargetSpec:
+def extract_target_spec(plan: dict, mg: MockGenerator) -> TargetSpec:
     arch = "x86_64-linux"
     orchestrator: str | None = None
     features: list[str] = []
@@ -219,3 +226,120 @@ def extract_target_spec(plan: dict, mg: "MockGenerator") -> TargetSpec:
                 features.append("cxl")
 
     return TargetSpec(arch=arch, orchestrator=orchestrator, features=features)
+
+
+def _diff_paths(a: Any, b: Any, prefix: str = "") -> list[str]:
+    paths: list[str] = []
+    if isinstance(a, dict) and isinstance(b, dict):
+        for key in sorted(set(a) | set(b)):
+            paths.extend(_diff_paths(a.get(key), b.get(key), f"{prefix}.{key}" if prefix else str(key)))
+            if len(paths) >= 5:
+                return paths[:5]
+    elif a != b:
+        paths.append(prefix or "<root>")
+    return paths[:5]
+
+
+class RuntimeCheck:
+    def __init__(self, substrates: list[Substrate]):
+        self._substrates = substrates
+
+    def _pick_substrate(self, spec: TargetSpec) -> tuple[Optional[Substrate], Optional[RuntimeCheckFailure]]:
+        unavailable: list[str] = []
+        for sub in self._substrates:
+            if not sub.matches(spec):
+                continue
+            if not sub.is_available():
+                unavailable.append(sub.name)
+                continue
+            return sub, None
+
+        if unavailable:
+            return None, RuntimeCheckFailure(
+                stage="substrate_unavailable",
+                detail=f"matching substrates not available: {', '.join(unavailable)}",
+            )
+        return None, RuntimeCheckFailure(
+            stage="spec_unsupported",
+            detail=f"no substrate matches spec arch={spec.arch} orchestrator={spec.orchestrator}",
+        )
+
+    def run(self, program_path: str, schema_path, backend_dir: Optional[str] = None) -> RuntimeCheckResult:
+        schemas = [schema_path] if isinstance(schema_path, str) else list(schema_path)
+        start = time.monotonic_ns()
+
+        mg = MockGenerator(schemas)
+        plan = mg.run_with_mocks(program_path)
+        spec = extract_target_spec(plan, mg)
+
+        substrate, pick_failure = self._pick_substrate(spec)
+        if substrate is None or pick_failure is not None:
+            return RuntimeCheckResult(
+                passed=False,
+                substrate=substrate.name if substrate else "none",
+                spec=spec,
+                failures=[pick_failure] if pick_failure else [],
+                capture_duration_ms=int((time.monotonic_ns() - start) // 1_000_000),
+            )
+
+        backend_root = backend_dir or tempfile.mkdtemp(prefix="act-pulumi-state-")
+        failures: list[RuntimeCheckFailure] = []
+        hashes: list[str] = []
+        last_normalised: list[Any] = []
+
+        provisioned: Optional[ProvisionedTarget] = None
+        try:
+            provisioned = substrate.provision(spec)
+
+            for run_index in range(2):
+                outcome = run_pulumi_against(
+                    target=provisioned,
+                    program_path=program_path,
+                    backend_dir=backend_root,
+                )
+                if outcome.failure is not None:
+                    failures.append(outcome.failure)
+                    break
+
+                try:
+                    probed = probe_k8s(provisioned.endpoint)
+                except subprocess.SubprocessError as exc:
+                    failures.append(RuntimeCheckFailure(stage="probe_failed", detail=str(exc)))
+                    break
+
+                normalised = normalise_output(probed)
+                last_normalised.append(normalised)
+                hashes.append(hash_output(probed))
+
+            if len(hashes) == 2:
+                if hashes[0] != hashes[1]:
+                    failures.append(
+                        RuntimeCheckFailure(
+                            stage="output_mismatch",
+                            detail="probe output hashes differ between runs",
+                        )
+                    )
+        except Exception as exc:
+            failures.append(RuntimeCheckFailure(stage="provision_failed", detail=str(exc)))
+        finally:
+            if provisioned is not None:
+                try:
+                    provisioned.teardown()
+                except Exception as exc:
+                    failures.append(RuntimeCheckFailure(stage="teardown_failed", detail=str(exc)))
+
+        passed = not failures and len(hashes) == 2 and hashes[0] == hashes[1]
+        diff: list[str] = []
+        if len(last_normalised) == 2 and hashes[0] != hashes[1]:
+            diff = _diff_paths(last_normalised[0], last_normalised[1])
+
+        return RuntimeCheckResult(
+            passed=passed,
+            substrate=substrate.name,
+            spec=spec,
+            hash_1=hashes[0] if len(hashes) >= 1 else "",
+            hash_2=hashes[1] if len(hashes) >= 2 else "",
+            diff=diff,
+            failures=failures,
+            capture_duration_ms=int((time.monotonic_ns() - start) // 1_000_000),
+        )

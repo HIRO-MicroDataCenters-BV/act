@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from act.reproducibility.runtime_check import (
+    RuntimeCheck,
     RuntimeCheckFailure,
     RuntimeCheckResult,
     extract_target_spec,
@@ -12,6 +13,7 @@ from act.reproducibility.runtime_check import (
     probe_k8s,
     run_pulumi_against,
 )
+from act.reproducibility.substrates.base import Substrate
 from act.reproducibility.substrates.base import ProvisionedTarget, TargetSpec
 
 
@@ -256,3 +258,133 @@ def test_run_pulumi_against_sets_kubeconfig_config(tmp_path):
     set_config_calls = stack.set_config.call_args_list
     keys = [call.args[0] for call in set_config_calls]
     assert "kubernetes:kubeconfig" in keys
+
+
+# ----- Orchestrator (RuntimeCheck) ---------------------------------------------
+
+
+class _FakeSubstrate(Substrate):
+    name = "fake"
+
+    def __init__(self, available=True, matches_fn=None):
+        self._available = available
+        self._matches_fn = matches_fn or (lambda spec: True)
+        self.teardown_calls = 0
+
+    def is_available(self):
+        return self._available
+
+    def matches(self, spec):
+        return self._matches_fn(spec)
+
+    def provision(self, spec):
+        return ProvisionedTarget(
+            endpoint="/tmp/kube.config",
+            kind="kubeconfig",
+            teardown=self._teardown,
+        )
+
+    def _teardown(self):
+        self.teardown_calls += 1
+
+
+def _patched_check_dependencies(probe_responses):
+    """Patches MockGenerator, run_pulumi_against, probe_k8s for orchestrator tests."""
+    plan_responses = iter(probe_responses)
+    return [
+        patch("act.reproducibility.runtime_check.MockGenerator", autospec=True),
+        patch(
+            "act.reproducibility.runtime_check.run_pulumi_against",
+            return_value=MagicMock(outputs={}, failure=None),
+        ),
+        patch(
+            "act.reproducibility.runtime_check.probe_k8s",
+            side_effect=lambda kube: next(plan_responses),
+        ),
+    ]
+
+
+def test_runtime_check_passes_when_two_probes_match(tmp_path):
+    sub = _FakeSubstrate(matches_fn=lambda s: s.orchestrator == "k8s")
+    probes = [{"items": [{"metadata": {"name": "a"}}]}, {"items": [{"metadata": {"name": "a"}}]}]
+
+    mg_patch, pulumi_patch, probe_patch = _patched_check_dependencies(probes)
+    with mg_patch as mg_cls, pulumi_patch, probe_patch:
+        mg = mg_cls.return_value
+        mg.run_with_mocks.return_value = {"nginx": {}}
+        mg.get_resource_type.return_value = "kubernetes:apps/v1:Deployment"
+
+        check = RuntimeCheck(substrates=[sub])
+        result = check.run("some.py", "schema.json", backend_dir=str(tmp_path))
+
+    assert result.passed is True
+    assert result.substrate == "fake"
+    assert result.hash_1 == result.hash_2
+    assert result.diff == []
+    assert result.capture_duration_ms >= 0
+    assert sub.teardown_calls == 1
+
+
+def test_runtime_check_fails_when_probes_differ(tmp_path):
+    sub = _FakeSubstrate(matches_fn=lambda s: s.orchestrator == "k8s")
+    probes = [
+        {"items": [{"metadata": {"name": "a"}}]},
+        {"items": [{"metadata": {"name": "b"}}]},
+    ]
+
+    mg_patch, pulumi_patch, probe_patch = _patched_check_dependencies(probes)
+    with mg_patch as mg_cls, pulumi_patch, probe_patch:
+        mg = mg_cls.return_value
+        mg.run_with_mocks.return_value = {"nginx": {}}
+        mg.get_resource_type.return_value = "kubernetes:apps/v1:Deployment"
+
+        result = RuntimeCheck(substrates=[sub]).run("some.py", "schema.json", backend_dir=str(tmp_path))
+
+    assert result.passed is False
+    assert result.hash_1 != result.hash_2
+    assert any(f.stage == "output_mismatch" for f in result.failures)
+
+
+def test_runtime_check_records_substrate_unavailable(tmp_path):
+    sub = _FakeSubstrate(available=False, matches_fn=lambda s: True)
+
+    with patch("act.reproducibility.runtime_check.MockGenerator", autospec=True) as mg_cls:
+        mg = mg_cls.return_value
+        mg.run_with_mocks.return_value = {"nginx": {}}
+        mg.get_resource_type.return_value = "kubernetes:apps/v1:Deployment"
+
+        result = RuntimeCheck(substrates=[sub]).run("some.py", "schema.json", backend_dir=str(tmp_path))
+
+    assert result.passed is False
+    assert any(f.stage == "substrate_unavailable" for f in result.failures)
+
+
+def test_runtime_check_records_spec_unsupported(tmp_path):
+    sub = _FakeSubstrate(matches_fn=lambda s: False)
+
+    with patch("act.reproducibility.runtime_check.MockGenerator", autospec=True) as mg_cls:
+        mg = mg_cls.return_value
+        mg.run_with_mocks.return_value = {"nginx": {}}
+        mg.get_resource_type.return_value = "kubernetes:apps/v1:Deployment"
+
+        result = RuntimeCheck(substrates=[sub]).run("some.py", "schema.json", backend_dir=str(tmp_path))
+
+    assert result.passed is False
+    assert any(f.stage == "spec_unsupported" for f in result.failures)
+
+
+def test_runtime_check_teardown_runs_on_pulumi_failure(tmp_path):
+    sub = _FakeSubstrate(matches_fn=lambda s: True)
+    failing_outcome = MagicMock(outputs={}, failure=RuntimeCheckFailure(stage="pulumi_up_failed", detail="boom"))
+
+    with patch("act.reproducibility.runtime_check.MockGenerator", autospec=True) as mg_cls, \
+         patch("act.reproducibility.runtime_check.run_pulumi_against", return_value=failing_outcome):
+        mg = mg_cls.return_value
+        mg.run_with_mocks.return_value = {"nginx": {}}
+        mg.get_resource_type.return_value = "kubernetes:apps/v1:Deployment"
+
+        result = RuntimeCheck(substrates=[sub]).run("some.py", "schema.json", backend_dir=str(tmp_path))
+
+    assert result.passed is False
+    assert any(f.stage == "pulumi_up_failed" for f in result.failures)
+    assert sub.teardown_calls == 1
