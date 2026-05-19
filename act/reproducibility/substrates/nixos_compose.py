@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import shutil
+import subprocess
+import tempfile
+from pathlib import Path
 from typing import ClassVar
 
 from act.reproducibility.substrates.base import (
@@ -71,5 +74,45 @@ class NixOSComposeSubstrate(Substrate):
             )
         return _K8S_COMPOSITION_TEMPLATE.format(arch=spec.arch, flavour=flavour)
 
-    def provision(self, spec: TargetSpec) -> ProvisionedTarget:
-        raise NotImplementedError("provision is wired in a later cycle")
+    def provision(self, spec: TargetSpec, flavour: str = "docker", timeout: int = 600) -> ProvisionedTarget:
+        work_dir = Path(tempfile.mkdtemp(prefix="act-nxc-"))
+        composition_path = work_dir / "composition.nix"
+        composition_path.write_text(self._render_composition(spec, flavour))
+
+        subprocess.run(
+            ["nxc", "build", "-f", flavour, "-c", str(composition_path)],
+            cwd=work_dir,
+            capture_output=True,
+            check=True,
+            timeout=timeout,
+        )
+
+        process = subprocess.Popen(
+            ["nxc", "start", "-f", flavour, "-c", str(composition_path)],
+            cwd=work_dir,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+
+        kubeconfig = work_dir / "kubeconfig.yaml"
+
+        def teardown() -> None:
+            if process.poll() is None:
+                process.terminate()
+                try:
+                    process.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+            subprocess.run(
+                ["nxc", "stop", "-f", flavour, "-c", str(composition_path)],
+                cwd=work_dir,
+                capture_output=True,
+                check=False,
+                timeout=60,
+            )
+
+        return ProvisionedTarget(
+            endpoint=str(kubeconfig),
+            kind="kubeconfig",
+            teardown=teardown,
+        )
