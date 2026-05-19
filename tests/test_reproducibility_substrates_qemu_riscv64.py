@@ -8,7 +8,9 @@ from act.reproducibility.substrates.base import TargetSpec
 from act.reproducibility.substrates.qemu_riscv64 import (
     DEFAULT_IMAGE,
     GuestImage,
+    QemuLaunchConfig,
     QemuRiscv64Substrate,
+    build_qemu_command,
     ensure_image,
     render_cloud_init_user_data,
     render_cloud_init_meta_data,
@@ -196,3 +198,65 @@ def test_meta_data_has_instance_id_and_hostname():
     rendered = render_cloud_init_meta_data(instance_id="act-001", hostname="act-riscv64")
     assert "instance-id: act-001" in rendered
     assert "local-hostname: act-riscv64" in rendered
+
+
+# ---- QEMU launcher ----------------------------------------------------------
+
+
+def test_build_qemu_command_uses_virt_machine():
+    cfg = QemuLaunchConfig(
+        disk_path=Path("/tmp/disk.img"),
+        seed_iso_path=Path("/tmp/seed.iso"),
+        ssh_host_port=2222,
+        api_host_port=6443,
+        memory_mib=4096,
+        cpus=4,
+    )
+    cmd = build_qemu_command(cfg)
+
+    assert cmd[0] == "qemu-system-riscv64"
+    assert "-M" in cmd and cmd[cmd.index("-M") + 1] == "virt"
+
+
+def test_build_qemu_command_forwards_ssh_and_api_ports():
+    cfg = QemuLaunchConfig(
+        disk_path=Path("/tmp/disk.img"),
+        seed_iso_path=Path("/tmp/seed.iso"),
+        ssh_host_port=2222,
+        api_host_port=6443,
+        memory_mib=4096,
+        cpus=4,
+    )
+    cmd = build_qemu_command(cfg)
+    netdev_args = " ".join(cmd)
+    assert "hostfwd=tcp::2222-:22" in netdev_args
+    assert "hostfwd=tcp::6443-:6443" in netdev_args
+
+
+def test_build_qemu_command_attaches_disk_and_seed_iso():
+    cfg = QemuLaunchConfig(
+        disk_path=Path("/tmp/disk.img"),
+        seed_iso_path=Path("/tmp/seed.iso"),
+        ssh_host_port=2222,
+        api_host_port=6443,
+        memory_mib=4096,
+        cpus=4,
+    )
+    cmd = build_qemu_command(cfg)
+    joined = " ".join(cmd)
+    assert "/tmp/disk.img" in joined
+    assert "/tmp/seed.iso" in joined
+
+
+def test_build_qemu_command_passes_memory_and_cpus():
+    cfg = QemuLaunchConfig(
+        disk_path=Path("/tmp/disk.img"),
+        seed_iso_path=Path("/tmp/seed.iso"),
+        ssh_host_port=2222,
+        api_host_port=6443,
+        memory_mib=8192,
+        cpus=8,
+    )
+    cmd = build_qemu_command(cfg)
+    assert "-m" in cmd and cmd[cmd.index("-m") + 1] == "8192"
+    assert "-smp" in cmd and cmd[cmd.index("-smp") + 1] == "8"

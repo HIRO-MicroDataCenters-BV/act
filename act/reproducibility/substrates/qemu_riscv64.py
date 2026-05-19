@@ -46,6 +46,38 @@ def _sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 
+@dataclass(frozen=True)
+class QemuLaunchConfig:
+    disk_path: Path
+    seed_iso_path: Path
+    ssh_host_port: int
+    api_host_port: int
+    memory_mib: int
+    cpus: int
+
+
+def build_qemu_command(cfg: QemuLaunchConfig) -> list[str]:
+    netdev = (
+        "user,id=net0,"
+        f"hostfwd=tcp::{cfg.ssh_host_port}-:22,"
+        f"hostfwd=tcp::{cfg.api_host_port}-:6443"
+    )
+    return [
+        "qemu-system-riscv64",
+        "-M", "virt",
+        "-cpu", "rv64",
+        "-smp", str(cfg.cpus),
+        "-m", str(cfg.memory_mib),
+        "-nographic",
+        "-bios", "default",
+        "-kernel", "default",
+        "-drive", f"file={cfg.disk_path},format=qcow2,if=virtio",
+        "-drive", f"file={cfg.seed_iso_path},format=raw,if=virtio",
+        "-device", "virtio-net-device,netdev=net0",
+        "-netdev", netdev,
+    ]
+
+
 _USER_DATA_TEMPLATE = """\
 #cloud-config
 hostname: act-riscv64
