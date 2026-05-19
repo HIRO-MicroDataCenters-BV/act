@@ -45,3 +45,24 @@ def test_does_not_match_when_features_include_cxl(substrate):
 
 def test_does_not_match_when_orchestrator_is_none(substrate):
     assert substrate.matches(TargetSpec(arch="x86_64-linux", orchestrator=None)) is False
+
+
+def test_render_composition_x86_64_k8s_contains_required_directives(substrate):
+    spec = TargetSpec(arch="x86_64-linux", orchestrator="k8s")
+    rendered = substrate._render_composition(spec, flavour="docker")
+    # Minimal contract: nix flake with k3s service exposed on the API port.
+    assert "k3s" in rendered
+    assert "6443" in rendered
+    assert "x86_64-linux" in rendered
+
+
+def test_render_composition_riscv64_raises(substrate):
+    spec = TargetSpec(arch="riscv64-linux", orchestrator="k8s")
+    with pytest.raises(NotImplementedError):
+        substrate._render_composition(spec, flavour="docker")
+
+
+def test_render_composition_unsupported_flavour_raises(substrate):
+    spec = TargetSpec(arch="x86_64-linux", orchestrator="k8s")
+    with pytest.raises(ValueError):
+        substrate._render_composition(spec, flavour="g5k-image")
