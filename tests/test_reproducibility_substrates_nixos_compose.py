@@ -70,7 +70,7 @@ def test_render_composition_unsupported_flavour_raises(substrate):
         substrate._render_composition(spec, flavour="g5k-image")
 
 
-def test_provision_invokes_nxc_build_then_start_and_returns_kubeconfig(monkeypatch, tmp_path, substrate):
+def test_provision_invokes_nxc_init_build_start_and_returns_kubeconfig(monkeypatch, tmp_path, substrate):
     spec = TargetSpec(arch="x86_64-linux", orchestrator="k8s")
     calls: list[list[str]] = []
     popen_instance = MagicMock()
@@ -79,7 +79,6 @@ def test_provision_invokes_nxc_build_then_start_and_returns_kubeconfig(monkeypat
 
     def fake_run(cmd, *args, **kwargs):
         calls.append(list(cmd))
-        # Simulate nxc creating a kubeconfig file inside the build artefacts dir.
         if cmd[:2] == ["nxc", "build"]:
             artefacts = kwargs.get("cwd") or tmp_path
             (artefacts / "kubeconfig.yaml").write_text("apiVersion: v1\nkind: Config\n")
@@ -95,10 +94,23 @@ def test_provision_invokes_nxc_build_then_start_and_returns_kubeconfig(monkeypat
 
     target = substrate.provision(spec)
 
+    init_calls = [c for c in calls if c[:2] == ["nxc", "init"]]
     build_calls = [c for c in calls if c[:2] == ["nxc", "build"]]
     start_calls = [c for c in calls if c[:2] == ["nxc", "start"]]
-    assert len(build_calls) == 1 and "-f" in build_calls[0]
+
+    # nxc init must run before nxc build to create the composition environment.
+    assert len(init_calls) == 1
+    assert calls.index(init_calls[0]) < calls.index(build_calls[0])
+
+    # nxc build takes the composition file as a positional argument, not -c.
+    assert len(build_calls) == 1
+    assert "-f" in build_calls[0]
+    assert "-c" not in build_calls[0]
+
+    # nxc start takes no -f or -c — picks up the previous build automatically.
     assert len(start_calls) == 1
+    assert "-c" not in start_calls[0]
+
     assert target.kind == "kubeconfig"
     assert target.endpoint.endswith("kubeconfig.yaml")
 
@@ -141,10 +153,12 @@ def test_teardown_kills_popen_and_runs_nxc_stop(monkeypatch, tmp_path, substrate
 
     target = substrate.provision(spec)
 
-    # Reset call log so we only see teardown commands.
     teardown_calls.clear()
     target.teardown()
 
     assert popen_instance.terminate.called or popen_instance.kill.called
     stop_calls = [c for c in teardown_calls if c[:2] == ["nxc", "stop"]]
     assert len(stop_calls) == 1
+    # nxc stop accepts -f flavour but no -c.
+    assert "-c" not in stop_calls[0]
+    assert "-f" in stop_calls[0]

@@ -76,19 +76,32 @@ class NixOSComposeSubstrate(Substrate):
 
     def provision(self, spec: TargetSpec, flavour: str = "docker", timeout: int = 600) -> ProvisionedTarget:
         work_dir = Path(tempfile.mkdtemp(prefix="act-nxc-"))
-        composition_path = work_dir / "composition.nix"
+        # nxc looks for `flake.nix` or `composition.nix` in cwd after `nxc init`.
+        composition_path = work_dir / "flake.nix"
         composition_path.write_text(self._render_composition(spec, flavour))
 
+        # nxc init creates the `nxc/` composition environment directory; required
+        # before `nxc build` will work in the directory.
         subprocess.run(
-            ["nxc", "build", "-f", flavour, "-c", str(composition_path)],
+            ["nxc", "init", "-f", flavour],
+            cwd=work_dir,
+            capture_output=True,
+            check=True,
+            timeout=60,
+        )
+
+        # nxc build takes the composition file as a positional argument.
+        subprocess.run(
+            ["nxc", "build", "-f", flavour, str(composition_path)],
             cwd=work_dir,
             capture_output=True,
             check=True,
             timeout=timeout,
         )
 
+        # nxc start picks up the previous build automatically; no -f or -c.
         process = subprocess.Popen(
-            ["nxc", "start", "-f", flavour, "-c", str(composition_path)],
+            ["nxc", "start"],
             cwd=work_dir,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -103,8 +116,9 @@ class NixOSComposeSubstrate(Substrate):
                     process.wait(timeout=10)
                 except subprocess.TimeoutExpired:
                     process.kill()
+            # nxc stop takes -f flavour only.
             subprocess.run(
-                ["nxc", "stop", "-f", flavour, "-c", str(composition_path)],
+                ["nxc", "stop", "-f", flavour],
                 cwd=work_dir,
                 capture_output=True,
                 check=False,
