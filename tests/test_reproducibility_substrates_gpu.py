@@ -75,7 +75,7 @@ def test_provision_patches_node_status_with_extended_resource(gpu_substrate):
         "act.reproducibility.substrates.gpu.DockerSubstrate.provision",
         return_value=parent_target,
     ) as mock_parent, patch(
-        "act.reproducibility.substrates.gpu.subprocess.run"
+        "act.reproducibility.substrates._extended_resource.subprocess.run"
     ) as mock_run:
         # First subprocess call returns the node name; second is the patch.
         mock_run.side_effect = [
@@ -119,7 +119,7 @@ def test_provision_calls_teardown_when_patch_fails(gpu_substrate):
         "act.reproducibility.substrates.gpu.DockerSubstrate.provision",
         return_value=parent_target,
     ), patch(
-        "act.reproducibility.substrates.gpu.subprocess.run",
+        "act.reproducibility.substrates._extended_resource.subprocess.run",
         side_effect=subprocess.CalledProcessError(1, "kubectl"),
     ):
         with pytest.raises(subprocess.CalledProcessError):
@@ -144,7 +144,7 @@ def test_custom_resource_name_is_honoured():
         "act.reproducibility.substrates.gpu.DockerSubstrate.provision",
         return_value=parent_target,
     ), patch(
-        "act.reproducibility.substrates.gpu.subprocess.run"
+        "act.reproducibility.substrates._extended_resource.subprocess.run"
     ) as mock_run:
         mock_run.side_effect = [
             MagicMock(stdout=b"node-x", returncode=0),

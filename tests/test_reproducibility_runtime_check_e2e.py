@@ -29,9 +29,14 @@ from pathlib import Path
 
 import pytest
 
-from act.reproducibility.runtime_check import RuntimeCheck, run_pulumi_against
+from act.reproducibility.runtime_check import (
+    RuntimeCheck,
+    probe_k8s_with_workload_logs,
+    run_pulumi_against,
+)
 from act.reproducibility.substrates.base import TargetSpec
 from act.reproducibility.substrates.docker import DockerSubstrate
+from act.reproducibility.substrates.fpga import FpgaSubstrate
 from act.reproducibility.substrates.gpu import GpuSubstrate
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -44,6 +49,8 @@ K8S_SCHEMA = str(REPO_ROOT / "examples" / "kubernetes" / "schema.json")
 
 K3S_IMAGE = os.environ.get("ACT_K3S_IMAGE", "rancher/k3s:v1.32.1-k3s1")
 K3S_RISCV64_IMAGE = os.environ.get("ACT_K3S_RISCV64_IMAGE", "act-k3s:riscv64")
+FPGA_IVERILOG_IMAGE = os.environ.get("ACT_FPGA_IVERILOG_IMAGE", "act-fpga:iverilog")
+FPGA_BOOT_FLOW_PROGRAM = str(REPO_ROOT / "tests" / "fixtures" / "kubernetes" / "fpga_boot_flow.py")
 K3S_DOCKER_ARGS = ("--privileged", "--tmpfs", "/run", "--tmpfs", "/var/run")
 K3S_COMMAND = (
     "server",
@@ -85,6 +92,17 @@ def _riscv64_image_present() -> bool:
     try:
         result = subprocess.run(
             ["docker", "image", "inspect", K3S_RISCV64_IMAGE],
+            capture_output=True, check=False, timeout=10,
+        )
+        return result.returncode == 0
+    except (subprocess.SubprocessError, FileNotFoundError):
+        return False
+
+
+def _fpga_iverilog_image_present() -> bool:
+    try:
+        result = subprocess.run(
+            ["docker", "image", "inspect", FPGA_IVERILOG_IMAGE],
             capture_output=True, check=False, timeout=10,
         )
         return result.returncode == 0
@@ -285,5 +303,94 @@ def test_gpu_substrate_provisions_cluster_with_nvidia_gpu_extended_resource():
             capture_output=True, check=True, timeout=15,
         ).stdout.decode().strip()
         assert capacity_out == "1", f"expected nvidia.com/gpu=1 in node capacity, got {capacity_out!r}"
+    finally:
+        target.teardown()
+
+
+@pytest.mark.skipif(
+    not _fpga_iverilog_image_present(),
+    reason="act-fpga:iverilog not built; run tests/integration/fpga/build.sh first",
+)
+def test_runtime_check_twice_and_hash_against_real_fpga_cluster(monkeypatch):
+    """Full RuntimeCheck.run end-to-end on an FPGA boot-flow workload.
+
+    The substrate declares cape.eu/fpga as schedulable; the IaC fixture
+    deploys a ConfigMap holding the HDL + a Job that runs iverilog against
+    it. The probe captures the Job's stdout (deterministic $display output)
+    and includes it in the hashed deployed state. Twice-and-hash verifies
+    the boot flow simulation runs reproducibly across two pulumi up runs.
+    """
+    monkeypatch.setenv("ACT_FPGA_IVERILOG_IMAGE", FPGA_IVERILOG_IMAGE)
+
+    # Use the host's native arch so the k3s sandbox doesn't hit
+    # "seccomp is not supported" — that error fires under QEMU emulation
+    # because containerd inside the emulated kernel lacks the seccomp
+    # filter surface. Native arch avoids it entirely.
+    if _arm64_host():
+        platform, spec_arch = "linux/arm64", "aarch64-linux"
+    else:
+        platform, spec_arch = "linux/amd64", "x86_64-linux"
+
+    substrate = FpgaSubstrate(
+        image=K3S_IMAGE,
+        platform=platform,
+        spec_arch=spec_arch,
+        features=frozenset({"fpga"}),
+        fpga_count=1,
+        api_host_port=16454,
+        startup_timeout=240,
+        extra_docker_args=K3S_DOCKER_ARGS,
+        command=K3S_COMMAND,
+    )
+
+    # Inside the k3s container we need the iverilog image accessible. Save+load
+    # it into containerd via the host's docker daemon. Provision the substrate
+    # first so we have the container ID.
+    spec = TargetSpec(arch=spec_arch, orchestrator="k8s", features=["fpga"])
+    target = substrate.provision(spec)
+
+    try:
+        # Get the k3s container ID from the kubeconfig path's parent dir naming convention,
+        # then import the local image into containerd.
+        ps = subprocess.run(
+            ["docker", "ps", "--filter", "ancestor=" + K3S_IMAGE,
+             "--filter", "publish=16454", "--format", "{{.ID}}"],
+            capture_output=True, check=True, timeout=10,
+        ).stdout.decode().strip().split("\n")[0]
+        save = subprocess.run(
+            ["docker", "save", FPGA_IVERILOG_IMAGE],
+            capture_output=True, check=True, timeout=60,
+        )
+        subprocess.run(
+            ["docker", "exec", "-i", ps, "ctr", "-n", "k8s.io", "images", "import", "-"],
+            input=save.stdout, capture_output=True, check=True, timeout=120,
+        )
+
+        # Reuse the already-imaged cluster — pass the probe inside
+        # run_pulumi_against so it runs between `up` and `destroy` while
+        # the iverilog Job's Pod still exists.
+        def probe(kubeconfig: str) -> dict:
+            return probe_k8s_with_workload_logs(kubeconfig, timeout=180)
+
+        with tempfile.TemporaryDirectory(prefix="act-pulumi-state-") as backend:
+            o1 = run_pulumi_against(target, FPGA_BOOT_FLOW_PROGRAM, backend, probe_fn=probe)
+            assert o1.failure is None, f"first up failed: {o1.failure}"
+            probed_1 = o1.probed or {}
+            o2 = run_pulumi_against(target, FPGA_BOOT_FLOW_PROGRAM, backend, probe_fn=probe)
+            assert o2.failure is None, f"second up failed: {o2.failure}"
+            probed_2 = o2.probed or {}
+
+        # The iverilog $display lines must appear and match across runs.
+        logs_1 = probed_1.get("_act_workload_logs", {})
+        logs_2 = probed_2.get("_act_workload_logs", {})
+        assert "iverilog-boot-flow" in logs_1, f"no iverilog log captured: {logs_1}"
+        assert logs_1["iverilog-boot-flow"] == logs_2["iverilog-boot-flow"], (
+            "iverilog output diverged across runs:\n"
+            f"run1:\n{logs_1['iverilog-boot-flow']}\n"
+            f"run2:\n{logs_2['iverilog-boot-flow']}"
+        )
+        assert "DONE" in logs_1["iverilog-boot-flow"], (
+            f"expected DONE marker in iverilog output, got:\n{logs_1['iverilog-boot-flow']}"
+        )
     finally:
         target.teardown()

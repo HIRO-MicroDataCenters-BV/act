@@ -79,6 +79,7 @@ class RuntimeCheckResult:
 class PulumiUpOutcome:
     outputs: dict
     failure: Optional[RuntimeCheckFailure] = None
+    probed: Optional[dict] = None
 
 
 def run_pulumi_against(
@@ -86,6 +87,7 @@ def run_pulumi_against(
     program_path: str,
     backend_dir: str,
     project_name: str = "act-runtime-check",
+    probe_fn: Optional[callable] = None,  # type: ignore[valid-type]
 ) -> PulumiUpOutcome:
     """Run `pulumi up` against the provisioned target, then `destroy`.
 
@@ -95,6 +97,11 @@ def run_pulumi_against(
     cleanup against real clusters and trips an "Event loop stopped before
     Future completed" error even on a first up. Project mode dodges that
     entirely at the cost of one temp dir + one file copy per run.
+
+    When `probe_fn` is provided it runs between `stack.up()` and
+    `stack.destroy()` — important for workloads (Jobs, short-lived Pods)
+    whose state only exists while the stack is up. The probe's return
+    value lands in the `probed` field of the outcome.
     """
     stack_name = f"act-{uuid.uuid4().hex[:8]}"
     work_dir = Path(tempfile.mkdtemp(prefix="act-pulumi-prog-"))
@@ -131,9 +138,15 @@ def run_pulumi_against(
 
         failure: Optional[RuntimeCheckFailure] = None
         outputs: dict = {}
+        probed: Optional[dict] = None
         try:
             up_result = stack.up()
             outputs = {k: getattr(v, "value", v) for k, v in (up_result.outputs or {}).items()}
+            if probe_fn is not None:
+                try:
+                    probed = probe_fn(target.endpoint)
+                except Exception as exc:
+                    failure = RuntimeCheckFailure(stage="probe_failed", detail=str(exc))
         except Exception as exc:
             failure = RuntimeCheckFailure(stage="pulumi_up_failed", detail=str(exc))
         finally:
@@ -143,7 +156,7 @@ def run_pulumi_against(
                 if failure is None:
                     failure = RuntimeCheckFailure(stage="teardown_failed", detail=str(exc))
 
-        return PulumiUpOutcome(outputs=outputs, failure=failure)
+        return PulumiUpOutcome(outputs=outputs, failure=failure, probed=probed)
     finally:
         shutil.rmtree(work_dir, ignore_errors=True)
 
@@ -187,6 +200,25 @@ def _mentions_cxl(outputs: dict) -> bool:
     return "cxl" in json.dumps(outputs, default=str).lower()
 
 
+# System-managed objects that show up in the `default` namespace but
+# aren't user-deployed. Filtered out of probe results so they don't
+# create timing-dependent diffs between runs (e.g. `kube-root-ca.crt`
+# is created by kube-controller-manager shortly after the namespace
+# exists; a probe that lands before its creation sees one fewer item).
+_SYSTEM_NAMESPACE_OBJECTS: frozenset[tuple[str, str]] = frozenset({
+    ("Service", "kubernetes"),
+    ("ConfigMap", "kube-root-ca.crt"),
+    ("Endpoints", "kubernetes"),
+    ("EndpointSlice", "kubernetes"),
+})
+
+
+def _is_system_managed(item: dict) -> bool:
+    name = item.get("metadata", {}).get("name", "")
+    kind = item.get("kind", "")
+    return (kind, name) in _SYSTEM_NAMESPACE_OBJECTS
+
+
 def probe_k8s(kubeconfig: str, namespace: str = "default", timeout: int = 60) -> dict:
     """Capture user-deployed state in the named namespace.
 
@@ -195,6 +227,10 @@ def probe_k8s(kubeconfig: str, namespace: str = "default", timeout: int = 60) ->
     statuses, transient conditions) drifts between probes and would
     surface as spurious reproducibility violations. Capture covers the
     resource kinds a CAPE Pulumi program is most likely to deploy.
+    System-managed objects present in the default namespace
+    (`kubernetes` Service, `kube-root-ca.crt` ConfigMap) are filtered
+    out — their lifecycle is driven by control-plane controllers and
+    races with our probe timing.
     """
     kinds = "pods,services,deployments,statefulsets,daemonsets,configmaps,secrets,jobs,cronjobs"
     result = subprocess.run(
@@ -203,7 +239,102 @@ def probe_k8s(kubeconfig: str, namespace: str = "default", timeout: int = 60) ->
         check=True,
         timeout=timeout,
     )
-    return json.loads(result.stdout)
+    payload = json.loads(result.stdout)
+    items = payload.get("items", [])
+    payload["items"] = [item for item in items if not _is_system_managed(item)]
+    return payload
+
+
+# Pod-name prefixes that identify cluster-system pods (k3s defaults). When
+# capturing workload logs we skip these — their output drifts between
+# probes (timestamps, readiness counters) and would mask user-workload
+# determinism.
+_SYSTEM_POD_PREFIXES: tuple[str, ...] = (
+    "coredns-",
+    "local-path-provisioner-",
+    "metrics-server-",
+    "traefik-",
+    "svclb-",
+    "helm-install-",
+)
+
+# Trailing random suffix that Jobs/Deployments append to Pod names.
+# `iverilog-boot-flow-7fkx2` -> `iverilog-boot-flow`. Stripping these
+# makes the workload-logs dict's keys deterministic across runs.
+_POD_NAME_SUFFIX = re.compile(r"-[a-z0-9]{5,10}(?:-[a-z0-9]{5,10})?$")
+
+
+def _strip_pod_suffix(name: str) -> str:
+    return _POD_NAME_SUFFIX.sub("", name)
+
+
+def _wait_for_jobs(kubeconfig: str, namespace: str, timeout: int) -> None:
+    """Wait until every Job in the namespace has succeeded or failed.
+
+    No-op when no Jobs are present.
+    """
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        result = subprocess.run(
+            ["kubectl", "--kubeconfig", kubeconfig, "get", "jobs",
+             "-n", namespace, "-o", "json"],
+            capture_output=True, check=True, timeout=15,
+        )
+        items = json.loads(result.stdout).get("items", [])
+        if not items:
+            return
+        all_done = True
+        for job in items:
+            status = job.get("status", {})
+            succeeded = status.get("succeeded", 0)
+            failed = status.get("failed", 0)
+            if succeeded == 0 and failed == 0:
+                all_done = False
+                break
+        if all_done:
+            return
+        time.sleep(2)
+    raise TimeoutError(f"jobs in namespace {namespace!r} did not complete within {timeout}s")
+
+
+def _capture_workload_logs(kubeconfig: str, namespace: str, timeout: int) -> dict:
+    """Collect logs from non-system pods in the namespace, keyed by stable prefix."""
+    pod_list = subprocess.run(
+        ["kubectl", "--kubeconfig", kubeconfig, "get", "pods",
+         "-n", namespace, "-o", "json"],
+        capture_output=True, check=True, timeout=15,
+    )
+    pods = json.loads(pod_list.stdout).get("items", [])
+    logs: dict[str, str] = {}
+    for pod in pods:
+        name = pod.get("metadata", {}).get("name", "")
+        if not name or name.startswith(_SYSTEM_POD_PREFIXES):
+            continue
+        result = subprocess.run(
+            ["kubectl", "--kubeconfig", kubeconfig, "logs", name,
+             "-n", namespace, "--all-containers=true"],
+            capture_output=True, check=False, timeout=timeout,
+        )
+        if result.returncode == 0:
+            logs[_strip_pod_suffix(name)] = result.stdout.decode()
+    return logs
+
+
+def probe_k8s_with_workload_logs(
+    kubeconfig: str, namespace: str = "default", timeout: int = 60,
+) -> dict:
+    """Like `probe_k8s` but also waits for Jobs and captures workload pod logs.
+
+    Returns the same shape as `probe_k8s` with an extra `_act_workload_logs`
+    key — a dict keyed by stable pod-name prefix (random suffix stripped)
+    mapping to the pod's stdout/stderr. Used by FPGA boot-flow style
+    workloads where the deterministic value is the simulator's output,
+    not just the resource manifests.
+    """
+    _wait_for_jobs(kubeconfig, namespace, timeout)
+    state = probe_k8s(kubeconfig, namespace, timeout)
+    state["_act_workload_logs"] = _capture_workload_logs(kubeconfig, namespace, timeout)
+    return state
 
 
 def _strip_volatile_values(value: str) -> str:
@@ -266,8 +397,13 @@ def _diff_paths(a: Any, b: Any, prefix: str = "") -> list[str]:
 
 
 class RuntimeCheck:
-    def __init__(self, substrates: list[Substrate]):
+    def __init__(
+        self,
+        substrates: list[Substrate],
+        probe_fn: Optional[callable] = None,  # type: ignore[valid-type]
+    ):
         self._substrates = substrates
+        self._probe_fn = probe_fn or probe_k8s
 
     def _pick_substrate(self, spec: TargetSpec) -> tuple[Optional[Substrate], Optional[RuntimeCheckFailure]]:
         unavailable: list[str] = []
@@ -328,18 +464,19 @@ class RuntimeCheck:
         try:
             provisioned = substrate.provision(spec)
 
-            for run_index in range(2):
+            for _run_index in range(2):
                 outcome = run_pulumi_against(
                     target=provisioned,
                     program_path=program_path,
                     backend_dir=backend_root,
+                    probe_fn=self._probe_fn,
                 )
                 if outcome.failure is not None:
                     failures.append(outcome.failure)
                     break
 
                 try:
-                    probed = probe_k8s(provisioned.endpoint)
+                    probed = outcome.probed if outcome.probed is not None else self._probe_fn(provisioned.endpoint)
                 except subprocess.SubprocessError as exc:
                     failures.append(RuntimeCheckFailure(stage="probe_failed", detail=str(exc)))
                     break

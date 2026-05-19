@@ -27,11 +27,11 @@ mechanism is identical regardless of vendor.
 
 from __future__ import annotations
 
-import json
-import subprocess
-import time
 from dataclasses import dataclass
 
+from act.reproducibility.substrates._extended_resource import (
+    patch_node_extended_resource,
+)
 from act.reproducibility.substrates.base import ProvisionedTarget, TargetSpec
 from act.reproducibility.substrates.docker import DockerSubstrate
 
@@ -60,60 +60,13 @@ class GpuSubstrate(DockerSubstrate):
     def provision(self, spec: TargetSpec) -> ProvisionedTarget:
         target = super().provision(spec)
         try:
-            self._declare_extended_resource(target.endpoint)
+            patch_node_extended_resource(
+                target.endpoint,
+                self.resource_name,
+                self.gpu_count,
+                api_ready_timeout=self.api_ready_timeout,
+            )
         except Exception:
             target.teardown()
             raise
         return target
-
-    def _declare_extended_resource(self, kubeconfig: str) -> None:
-        """Patch the node's status to advertise the configured resource as schedulable.
-
-        Patches both `.status.capacity` and `.status.allocatable` in one
-        JSON-Patch — scheduler picks resources from `allocatable`, kubelet
-        leaves `capacity` alone. JSON Patch encodes "/" inside the resource
-        name as "~1". `--subresource=status` requires kubectl >= 1.24.
-        """
-        node = self._wait_for_node(kubeconfig)
-
-        encoded_name = self.resource_name.replace("/", "~1")
-        value = str(self.gpu_count)
-        patch = json.dumps([
-            {"op": "add", "path": f"/status/capacity/{encoded_name}", "value": value},
-            {"op": "add", "path": f"/status/allocatable/{encoded_name}", "value": value},
-        ])
-        subprocess.run(
-            [
-                "kubectl", "--kubeconfig", kubeconfig,
-                "--insecure-skip-tls-verify",
-                "patch", "node", node,
-                "--subresource=status", "--type=json",
-                "-p", patch,
-            ],
-            capture_output=True, check=True, timeout=30,
-        )
-
-    def _wait_for_node(self, kubeconfig: str) -> str:
-        """Poll until the API server is reachable and a node has been registered."""
-        deadline = time.monotonic() + self.api_ready_timeout
-        last_err: str = ""
-        while time.monotonic() < deadline:
-            result = subprocess.run(
-                [
-                    "kubectl", "--kubeconfig", kubeconfig,
-                    "--insecure-skip-tls-verify",
-                    "get", "nodes",
-                    "-o", "jsonpath={.items[0].metadata.name}",
-                ],
-                capture_output=True, check=False, timeout=10,
-            )
-            if result.returncode == 0:
-                name = result.stdout.decode().strip()
-                if name:
-                    return name
-            last_err = result.stderr.decode().strip()
-            time.sleep(2)
-        raise TimeoutError(
-            f"kubectl get nodes did not return a registered node within "
-            f"{self.api_ready_timeout}s (last stderr: {last_err!r})"
-        )
