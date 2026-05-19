@@ -12,7 +12,7 @@ from act.reproducibility.substrates.base import (
     TargetSpec,
 )
 
-SUPPORTED_ARCHES: frozenset[str] = frozenset({"x86_64-linux"})
+SUPPORTED_ARCHES: frozenset[str] = frozenset({"x86_64-linux", "aarch64-linux"})
 SUPPORTED_FLAVOURS: frozenset[str] = frozenset({"docker", "vm-ramdisk"})
 
 _K8S_COMPOSITION_TEMPLATE = """\

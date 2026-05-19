@@ -40,6 +40,10 @@ def test_does_not_match_riscv64(substrate):
     assert substrate.matches(TargetSpec(arch="riscv64-linux", orchestrator="k8s")) is False
 
 
+def test_matches_aarch64_k8s(substrate):
+    assert substrate.matches(TargetSpec(arch="aarch64-linux", orchestrator="k8s")) is True
+
+
 def test_does_not_match_when_features_include_cxl(substrate):
     spec = TargetSpec(arch="x86_64-linux", orchestrator="k8s", features=["cxl"])
     assert substrate.matches(spec) is False

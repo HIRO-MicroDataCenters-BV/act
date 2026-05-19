@@ -20,6 +20,7 @@ from act.reproducibility.substrates.nixos_compose import NixOSComposeSubstrate
 
 DOCKERFILE_DIR = Path(__file__).parent / "integration" / "nixos_compose"
 IMAGE_TAG = "act-nxc:integration"
+IMAGE_TAG_AMD64 = "act-nxc:amd64"
 
 
 def _docker_available() -> bool:
@@ -56,6 +57,26 @@ def _ensure_image() -> None:
         return
     subprocess.run(
         ["docker", "build", "-t", IMAGE_TAG, str(DOCKERFILE_DIR)],
+        check=True,
+        timeout=1800,
+    )
+
+
+def _ensure_amd64_image() -> None:
+    """Build the explicit amd64 variant so nxc evaluates and builds natively
+    for the x86_64-linux target our substrate emits. On an aarch64 host this
+    runs under QEMU emulation — slow but completes."""
+    try:
+        result = subprocess.run(
+            ["docker", "image", "inspect", IMAGE_TAG_AMD64],
+            capture_output=True, check=False, timeout=10,
+        )
+        if result.returncode == 0:
+            return
+    except (subprocess.SubprocessError, FileNotFoundError):
+        pass
+    subprocess.run(
+        ["docker", "build", "--platform", "linux/amd64", "-t", IMAGE_TAG_AMD64, str(DOCKERFILE_DIR)],
         check=True,
         timeout=1800,
     )
@@ -103,15 +124,14 @@ def test_nxc_is_present_and_runs():
 def test_nxc_accepts_init_build_pipeline_against_rendered_composition(tmp_path):
     """Exercises `nxc init` then `nxc build` against our rendered composition.
 
-    `nxc build` will fail at the cross-compile derivation step when run on an
-    aarch64 host targeting x86_64 without binary-cache hits — that's expected
-    and out of scope for this substrate (the substrate's contract is producing
-    a flake nxc understands, not driving a successful cross-build).
+    Smoke-level check on the CLI shape: nxc accepts both subcommands and
+    progresses *into* the derivation evaluation phase. Errors like
+    'unrecognized arg' or 'composition environment missing' would mean the
+    substrate's CLI invocation order or flags are wrong.
 
-    The acceptance criterion is therefore: nxc accepts both subcommands and
-    progresses *into* the derivation evaluation phase. Errors like 'unrecognized
-    arg' or 'composition environment missing' would mean the substrate's CLI
-    shape is wrong.
+    Uses x86_64-linux; on an aarch64 host the cross-compile build will fail
+    after evaluation, which is fine for this check — we're verifying nxc
+    accepts our flake, not that the build completes.
     """
     _ensure_image()
 
@@ -141,11 +161,67 @@ def test_nxc_accepts_init_build_pipeline_against_rendered_composition(tmp_path):
     )
 
     out = result.stdout.decode() + result.stderr.decode()
-    # nxc init must succeed.
     assert "INIT_FAILED" not in out, f"nxc init rejected the composition:\n{out}"
-    # nxc build must progress past CLI parsing — these strings would indicate a
-    # substrate bug (wrong flag, wrong workflow order).
     assert "No such option" not in out, f"nxc rejected a flag we passed:\n{out}"
     assert "Missing nixos composition environment" not in out, (
         f"nxc build ran without nxc init first:\n{out}"
+    )
+
+
+def test_full_nxc_build_completes_for_x86_64_under_emulation(tmp_path):
+    """End-to-end: nxc init + nxc build run to completion against the substrate's
+    x86_64-linux composition. Proves the substrate produces a build-able flake
+    that nxc actually consumes and produces a docker-compose deliverable.
+
+    On Apple Silicon the amd64 image runs under QEMU emulation; expect ~5 min.
+    On an x86_64 host this is native (~2 min). Image building (one-off): ~5 min.
+
+    Requires the host docker socket because nxc's docker flavour invokes
+    `docker save` inside the final derivation to materialise the image layer.
+    """
+    _ensure_amd64_image()
+
+    spec = TargetSpec(arch="x86_64-linux", orchestrator="k8s")
+    composition = NixOSComposeSubstrate()._render_composition(spec, flavour="docker")
+    (tmp_path / "flake.nix").write_text(composition)
+
+    script = (
+        "set -uxo pipefail\n"
+        "cd /work\n"
+        "rm -rf nxc build nxc.json flake.lock\n"
+        "nxc init -f docker\n"
+        "nxc build -f docker /work/flake.nix\n"
+        "build_exit=$?\n"
+        "echo BUILD_EXIT=$build_exit\n"
+        "ls -la nxc/build/ 2>&1\n"
+        "exit $build_exit\n"
+    )
+
+    result = subprocess.run(
+        [
+            "docker", "run", "--rm",
+            "--platform", "linux/amd64",
+            "-v", f"{tmp_path}:/work",
+            "-v", "/var/run/docker.sock:/var/run/docker.sock",
+            "-w", "/work",
+            IMAGE_TAG_AMD64,
+            "bash", "-c", script,
+        ],
+        capture_output=True,
+        timeout=1800,
+    )
+
+    out = result.stdout.decode() + result.stderr.decode()
+    assert "BUILD_EXIT=0" in out, (
+        "nxc build did not complete:\n"
+        f"--- stdout (tail) ---\n{result.stdout.decode()[-2000:]}\n"
+        f"--- stderr (tail) ---\n{result.stderr.decode()[-2000:]}"
+    )
+    # The build symlink convention is `nxc/build/<composition-name>::<flavour>`.
+    assert "::docker" in out, (
+        f"nxc build did not produce a docker-flavoured symlink:\n{out[-1500:]}"
+    )
+    # The build must invoke docker to materialise the image layer.
+    assert "Docker Image loaded" in out or "Build completed" in out, (
+        f"nxc build did not reach docker-image-load step:\n{out[-1500:]}"
     )
