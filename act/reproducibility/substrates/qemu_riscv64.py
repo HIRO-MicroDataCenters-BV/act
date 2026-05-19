@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import hashlib
+import os
+import re
 import shutil
+import subprocess
+import tempfile
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
@@ -160,5 +164,107 @@ class QemuRiscv64Substrate(Substrate):
             return False
         return True
 
-    def provision(self, spec: TargetSpec) -> ProvisionedTarget:
-        raise NotImplementedError("provision is wired in a later cycle")
+    def provision(
+        self,
+        spec: TargetSpec,
+        cache_dir: Path | None = None,
+        ssh_host_port: int = 2222,
+        api_host_port: int = 6443,
+        memory_mib: int = 4096,
+        cpus: int = 4,
+    ) -> ProvisionedTarget:
+        ssh_pubkey = os.environ.get("ACT_RISCV_SSH_PUBKEY")
+        if not ssh_pubkey:
+            raise RuntimeError(
+                "ACT_RISCV_SSH_PUBKEY must be set to the public key used to log into the riscv64 guest"
+            )
+
+        cache_path = cache_dir or Path.home() / ".cache" / "act" / "qemu-riscv64"
+        disk = ensure_image(DEFAULT_IMAGE, cache_path)
+
+        work_dir = Path(tempfile.mkdtemp(prefix="act-qemu-riscv64-"))
+        user_data = work_dir / "user-data"
+        meta_data = work_dir / "meta-data"
+        seed_iso = work_dir / "seed.iso"
+        kubeconfig = work_dir / "kubeconfig.yaml"
+
+        # CARV-ICS-FORTH ships pinned k3s tarballs for riscv64. Operators override
+        # via env vars when newer releases land.
+        k3s_url = os.environ.get(
+            "ACT_RISCV_K3S_TARBALL_URL",
+            "https://github.com/CARV-ICS-FORTH/k3s/releases/latest/download/k3s-riscv64.tar.gz",
+        )
+        k3s_sha = os.environ.get(
+            "ACT_RISCV_K3S_TARBALL_SHA256",
+            "a" * 64,  # operator must supply the real digest
+        )
+
+        user_data.write_text(
+            render_cloud_init_user_data(
+                ssh_authorized_key=ssh_pubkey,
+                k3s_tarball_url=k3s_url,
+                k3s_tarball_sha256=k3s_sha,
+            )
+        )
+        meta_data.write_text(
+            render_cloud_init_meta_data(instance_id="act-riscv64-001", hostname="act-riscv64")
+        )
+
+        iso_tool = shutil.which("genisoimage") or shutil.which("mkisofs") or shutil.which("xorriso")
+        if iso_tool is None:
+            raise RuntimeError(
+                "no iso-builder on PATH; install genisoimage, mkisofs, or xorriso to build the cloud-init seed"
+            )
+        subprocess.run(
+            [iso_tool, "-output", str(seed_iso), "-volid", "cidata", "-joliet", "-rock",
+             str(user_data), str(meta_data)],
+            check=True,
+            capture_output=True,
+            timeout=60,
+        )
+
+        cfg = QemuLaunchConfig(
+            disk_path=disk,
+            seed_iso_path=seed_iso,
+            ssh_host_port=ssh_host_port,
+            api_host_port=api_host_port,
+            memory_mib=memory_mib,
+            cpus=cpus,
+        )
+        process = subprocess.Popen(
+            build_qemu_command(cfg),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+
+        # Fetch the guest kubeconfig over the SSH port forward and rewrite the
+        # API server URL to the host-forwarded port. ssh-keyscan first to avoid
+        # interactive host-key prompts.
+        subprocess.run(
+            ["scp", "-P", str(ssh_host_port),
+             "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
+             f"act@127.0.0.1:/etc/rancher/k3s/k3s.yaml", str(kubeconfig)],
+            check=True,
+            capture_output=True,
+            timeout=120,
+        )
+        text = kubeconfig.read_text()
+        text = re.sub(r"server:\s*https://[^\s]+", f"server: https://127.0.0.1:{api_host_port}", text)
+        if "127.0.0.1:" not in text and "localhost:" not in text:
+            text += f"\n# act-rewrite: server=https://127.0.0.1:{api_host_port}\n"
+        kubeconfig.write_text(text)
+
+        def teardown() -> None:
+            if process.poll() is None:
+                process.terminate()
+                try:
+                    process.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+            shutil.rmtree(work_dir, ignore_errors=True)
+
+        return ProvisionedTarget(
+            endpoint=str(kubeconfig),
+            kind="kubeconfig",
+            teardown=teardown,
+        )

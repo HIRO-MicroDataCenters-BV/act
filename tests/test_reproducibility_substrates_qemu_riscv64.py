@@ -1,6 +1,8 @@
 import hashlib
 import shutil
+import subprocess
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -260,3 +262,103 @@ def test_build_qemu_command_passes_memory_and_cpus():
     cmd = build_qemu_command(cfg)
     assert "-m" in cmd and cmd[cmd.index("-m") + 1] == "8192"
     assert "-smp" in cmd and cmd[cmd.index("-smp") + 1] == "8"
+
+
+# ---- provision + teardown ---------------------------------------------------
+
+
+@pytest.fixture
+def riscv64_spec() -> TargetSpec:
+    return TargetSpec(arch="riscv64-linux", orchestrator="k8s")
+
+
+def _stub_qemu_pipeline(monkeypatch, tmp_path, calls):
+    """Stubs out ensure_image, genisoimage, Popen, scp, sed. Tests inject call observation."""
+    image_path = tmp_path / "image.img"
+    image_path.write_bytes(b"img")
+
+    monkeypatch.setattr(
+        "act.reproducibility.substrates.qemu_riscv64.ensure_image",
+        lambda image, cache_dir: image_path,
+    )
+
+    monkeypatch.setattr(
+        "act.reproducibility.substrates.qemu_riscv64.shutil.which",
+        lambda name: "/usr/bin/" + name,
+    )
+
+    popen_instance = MagicMock()
+    popen_instance.poll.return_value = None
+    popen_instance.pid = 12345
+
+    def fake_run(cmd, *args, **kwargs):
+        calls.append(list(cmd))
+        # If asked to fetch kubeconfig (scp ... kubeconfig.yaml), drop a fake file.
+        if cmd[0] == "scp":
+            dest = Path(cmd[-1])
+            dest.write_text("apiVersion: v1\nkind: Config\nclusters:\n- name: act\n")
+        return subprocess.CompletedProcess(cmd, 0, stdout=b"", stderr=b"")
+
+    def fake_popen(cmd, *args, **kwargs):
+        calls.append(list(cmd))
+        return popen_instance
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr(subprocess, "Popen", fake_popen)
+    return popen_instance
+
+
+def test_provision_invokes_qemu_and_builds_seed_iso(monkeypatch, tmp_path, riscv64_spec, substrate):
+    calls: list[list[str]] = []
+    _stub_qemu_pipeline(monkeypatch, tmp_path, calls)
+    monkeypatch.setenv("ACT_RISCV_SSH_PUBKEY", "ssh-ed25519 AAAA test@act")
+    monkeypatch.setattr(
+        "act.reproducibility.substrates.qemu_riscv64.tempfile.mkdtemp",
+        lambda **kw: str(tmp_path),
+    )
+
+    target = substrate.provision(riscv64_spec)
+
+    qemu_calls = [c for c in calls if c[0] == "qemu-system-riscv64"]
+    iso_calls = [c for c in calls if Path(c[0]).name in {"genisoimage", "mkisofs", "xorriso"}]
+    assert len(qemu_calls) == 1
+    assert len(iso_calls) == 1
+    assert target.kind == "kubeconfig"
+    assert target.endpoint.endswith("kubeconfig.yaml")
+
+
+def test_provision_returns_kubeconfig_with_rewritten_server_url(monkeypatch, tmp_path, riscv64_spec, substrate):
+    calls: list[list[str]] = []
+    _stub_qemu_pipeline(monkeypatch, tmp_path, calls)
+    monkeypatch.setenv("ACT_RISCV_SSH_PUBKEY", "ssh-ed25519 AAAA test@act")
+    monkeypatch.setattr(
+        "act.reproducibility.substrates.qemu_riscv64.tempfile.mkdtemp",
+        lambda **kw: str(tmp_path),
+    )
+
+    target = substrate.provision(riscv64_spec)
+
+    kubeconfig = Path(target.endpoint).read_text()
+    # The substrate rewrites the API server URL to the host-forwarded port.
+    assert "127.0.0.1:" in kubeconfig or "localhost:" in kubeconfig
+
+
+def test_provision_raises_when_ssh_pubkey_missing(monkeypatch, tmp_path, riscv64_spec, substrate):
+    monkeypatch.delenv("ACT_RISCV_SSH_PUBKEY", raising=False)
+    with pytest.raises(RuntimeError, match="ACT_RISCV_SSH_PUBKEY"):
+        substrate.provision(riscv64_spec)
+
+
+def test_teardown_kills_qemu_process(monkeypatch, tmp_path, riscv64_spec, substrate):
+    calls: list[list[str]] = []
+    popen_instance = _stub_qemu_pipeline(monkeypatch, tmp_path, calls)
+    monkeypatch.setenv("ACT_RISCV_SSH_PUBKEY", "ssh-ed25519 AAAA test@act")
+    monkeypatch.setattr(
+        "act.reproducibility.substrates.qemu_riscv64.tempfile.mkdtemp",
+        lambda **kw: str(tmp_path),
+    )
+
+    target = substrate.provision(riscv64_spec)
+    target.teardown()
+
+    assert popen_instance.terminate.called or popen_instance.kill.called

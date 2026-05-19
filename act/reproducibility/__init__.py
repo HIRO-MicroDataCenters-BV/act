@@ -16,6 +16,7 @@ from act.reproducibility.substrates.base import (
     TargetSpec,
 )
 from act.reproducibility.substrates.nixos_compose import NixOSComposeSubstrate
+from act.reproducibility.substrates.qemu_riscv64 import QemuRiscv64Substrate
 
 __all__ = [
     "DeploymentArchCheck",
@@ -25,6 +26,7 @@ __all__ = [
     "PlanCheck",
     "PlanCheckResult",
     "ProvisionedTarget",
+    "QemuRiscv64Substrate",
     "ReproducibilityArtefact",
     "RuntimeCheck",
     "RuntimeCheckFailure",

@@ -28,6 +28,7 @@ from act.reproducibility import (
     NixOSComposeSubstrate,
     PlanCheck,
     PlanCheckResult,
+    QemuRiscv64Substrate,
     ReproducibilityArtefact,
     RuntimeCheck,
     RuntimeCheckResult,
@@ -141,7 +142,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 
 def _default_substrates() -> list:
-    return [NixOSComposeSubstrate()]
+    return [NixOSComposeSubstrate(), QemuRiscv64Substrate()]
 
 
 def _run_runtime_check(
