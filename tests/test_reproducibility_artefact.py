@@ -9,6 +9,8 @@ from act.reproducibility import (
     ReproducibilityArtefact,
     write_artefact,
 )
+from act.reproducibility.runtime_check import RuntimeCheckResult
+from act.reproducibility.substrates.base import TargetSpec
 
 CAPE_PROGRAM = "tests/fixtures/cape/path_a_valid.py"
 CAPE_SCHEMA = "tests/fixtures/cape/schema.json"
@@ -82,3 +84,40 @@ def test_write_creates_missing_directory(tmp_path):
     )
     path = write_artefact(artefact, str(nested))
     assert os.path.exists(path)
+
+
+def test_artefact_round_trips_runtime_check(tmp_path):
+    plan = PlanCheck().run(CAPE_PROGRAM, CAPE_SCHEMA)
+    spec = TargetSpec(arch="x86_64-linux", orchestrator="k8s")
+    runtime = RuntimeCheckResult(
+        passed=True,
+        substrate="nixos-compose",
+        spec=spec,
+        hash_1="aaa",
+        hash_2="aaa",
+        capture_duration_ms=12345,
+    )
+    artefact = ReproducibilityArtefact(
+        program_path=CAPE_PROGRAM,
+        schemas=[CAPE_SCHEMA],
+        plan_check=plan,
+        runtime_check=runtime,
+    )
+    write_artefact(artefact, str(tmp_path))
+
+    parsed = _read_artefact(str(tmp_path))
+    assert parsed["runtime_check"]["passed"] is True
+    assert parsed["runtime_check"]["substrate"] == "nixos-compose"
+    assert parsed["runtime_check"]["spec"]["arch"] == "x86_64-linux"
+    assert parsed["runtime_check"]["hash_1"] == "aaa"
+    assert parsed["runtime_check"]["capture_duration_ms"] == 12345
+
+
+def test_artefact_runtime_check_absent_by_default(tmp_path):
+    plan = PlanCheck().run(CAPE_PROGRAM, CAPE_SCHEMA)
+    artefact = ReproducibilityArtefact(
+        program_path=CAPE_PROGRAM, schemas=[CAPE_SCHEMA], plan_check=plan
+    )
+    write_artefact(artefact, str(tmp_path))
+    parsed = _read_artefact(str(tmp_path))
+    assert parsed["runtime_check"] is None

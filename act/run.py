@@ -25,9 +25,12 @@ from act.integrations.checkov_adapter import load_checkov_rules
 from act.reproducibility import (
     DeploymentArchCheck,
     DeploymentArchResult,
+    NixOSComposeSubstrate,
     PlanCheck,
     PlanCheckResult,
     ReproducibilityArtefact,
+    RuntimeCheck,
+    RuntimeCheckResult,
     write_artefact,
 )
 from act.rules import auto_load
@@ -58,6 +61,9 @@ class _JsonFormatter(logging.Formatter):
         "capture_duration_ms",
         "artefact_path",
         "unhandled_tokens",
+        "substrate",
+        "stage",
+        "spec",
     )
 
     def format(self, record: logging.LogRecord) -> str:
@@ -124,7 +130,62 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Smoke-boot every image referenced by the deployment under linux/<ARCH> using QEMU. "
         "Example: --check-deployment-arch riscv64. Requires docker + binfmt_misc.",
     )
+    parser.add_argument(
+        "--check-deployment-runtime",
+        action="store_true",
+        help="Spin up an ephemeral target environment via a substrate, run pulumi up "
+        "against it twice, hash the probed outputs, and compare. Requires nxc + nix "
+        "for the default nixos-compose substrate.",
+    )
     return parser
+
+
+def _default_substrates() -> list:
+    return [NixOSComposeSubstrate()]
+
+
+def _run_runtime_check(
+    program: str, schemas: list[str], log: logging.Logger
+) -> RuntimeCheckResult:
+    check = RuntimeCheck(substrates=_default_substrates())
+    result = check.run(program, schemas)
+
+    substrate_unavailable = any(f.stage == "substrate_unavailable" for f in result.failures)
+    spec_unsupported = any(f.stage == "spec_unsupported" for f in result.failures)
+
+    if substrate_unavailable or spec_unsupported:
+        log.warning(
+            "runtime_check_skipped",
+            extra={
+                "check": "deployment_runtime",
+                "substrate": result.substrate,
+                "stage": result.failures[0].stage if result.failures else "unknown",
+                "detail": result.failures[0].detail if result.failures else "",
+            },
+        )
+    elif result.passed:
+        log.info(
+            "runtime_check_ok",
+            extra={
+                "check": "deployment_runtime",
+                "substrate": result.substrate,
+                "hash_1": result.hash_1,
+                "hash_2": result.hash_2,
+                "capture_duration_ms": result.capture_duration_ms,
+            },
+        )
+    else:
+        for failure in result.failures:
+            log.warning(
+                "runtime_check_failure",
+                extra={
+                    "check": "deployment_runtime",
+                    "substrate": result.substrate,
+                    "stage": failure.stage,
+                    "detail": failure.detail,
+                },
+            )
+    return result
 
 
 def _run_plan_check(program: str, schemas: list[str], log: logging.Logger) -> PlanCheckResult:
@@ -215,12 +276,21 @@ def main(argv=None) -> int:
             if not arch_result.passed:
                 exit_code = max(exit_code, 1)
 
+        runtime_result = None
+        if args.check_deployment_runtime:
+            runtime_result = _run_runtime_check(args.program, args.schema, log)
+            skip_stages = {"substrate_unavailable", "spec_unsupported"}
+            is_skip = any(f.stage in skip_stages for f in runtime_result.failures)
+            if not runtime_result.passed and not is_skip:
+                exit_code = max(exit_code, 1)
+
         if args.output:
             artefact = ReproducibilityArtefact(
                 program_path=args.program,
                 schemas=list(args.schema),
                 plan_check=plan_result,
                 deployment_arch=arch_result,
+                runtime_check=runtime_result,
             )
             path = write_artefact(artefact, args.output)
             log.info("artefact_written", extra={"artefact_path": path})
