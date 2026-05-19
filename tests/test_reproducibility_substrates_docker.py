@@ -158,3 +158,32 @@ def test_provision_propagates_docker_run_failure(monkeypatch, tmp_path, amd64_su
     )
     with pytest.raises(subprocess.CalledProcessError):
         amd64_substrate.provision(TargetSpec(arch="x86_64-linux", orchestrator="k8s"))
+
+
+def test_provision_passes_extra_docker_args_and_command(monkeypatch, tmp_path):
+    sub = DockerSubstrate(
+        image="rancher/k3s:v1.32.1-k3s1",
+        platform="linux/amd64",
+        spec_arch="x86_64-linux",
+        extra_docker_args=("--privileged", "--tmpfs", "/run"),
+        command=("server", "--disable=traefik"),
+    )
+    calls = _setup_provision_mocks(monkeypatch, tmp_path)
+    sub.provision(TargetSpec(arch="x86_64-linux", orchestrator="k8s"))
+
+    run_call = next(c for c in calls if c[:3] == ["docker", "run", "-d"])
+    # Extra args land between the docker-run flags and the image.
+    assert "--privileged" in run_call
+    assert "--tmpfs" in run_call
+    # The command lands AFTER the image.
+    image_index = run_call.index(sub.image)
+    assert run_call[image_index + 1] == "server"
+    assert run_call[image_index + 2] == "--disable=traefik"
+
+
+def test_extra_docker_args_default_to_empty():
+    sub = DockerSubstrate(
+        image="x", platform="linux/amd64", spec_arch="x86_64-linux",
+    )
+    assert sub.extra_docker_args == ()
+    assert sub.command == ()
