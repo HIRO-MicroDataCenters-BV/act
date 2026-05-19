@@ -10,6 +10,8 @@ from act.reproducibility.substrates.qemu_riscv64 import (
     GuestImage,
     QemuRiscv64Substrate,
     ensure_image,
+    render_cloud_init_user_data,
+    render_cloud_init_meta_data,
 )
 
 
@@ -143,3 +145,54 @@ def test_ensure_image_rejects_sha_mismatch(tmp_path, monkeypatch):
 
     with pytest.raises(RuntimeError, match="sha256"):
         ensure_image(image, cache_dir=tmp_path)
+
+
+# ---- Cloud-init seed --------------------------------------------------------
+
+
+def test_user_data_starts_with_cloud_config_header():
+    rendered = render_cloud_init_user_data(
+        ssh_authorized_key="ssh-ed25519 AAAA...key act-test",
+        k3s_tarball_url="https://example.com/k3s-riscv64.tar.gz",
+        k3s_tarball_sha256="abc" * 21 + "d",  # 64 chars
+    )
+    assert rendered.splitlines()[0] == "#cloud-config"
+
+
+def test_user_data_pins_ssh_authorized_key():
+    rendered = render_cloud_init_user_data(
+        ssh_authorized_key="ssh-ed25519 AAAA... mykey",
+        k3s_tarball_url="https://example.com/k3s",
+        k3s_tarball_sha256="a" * 64,
+    )
+    assert "ssh-ed25519 AAAA... mykey" in rendered
+    # Must land under a known cloud-init schema key, not as a free comment.
+    assert "ssh_authorized_keys" in rendered
+
+
+def test_user_data_installs_k3s_with_pinned_sha():
+    sha = "deadbeef" * 8
+    rendered = render_cloud_init_user_data(
+        ssh_authorized_key="ssh-ed25519 KEY",
+        k3s_tarball_url="https://example.com/k3s.tar.gz",
+        k3s_tarball_sha256=sha,
+    )
+    assert "https://example.com/k3s.tar.gz" in rendered
+    assert sha in rendered
+    # Must verify the tarball before installing.
+    assert "sha256sum" in rendered or "sha256" in rendered
+
+
+def test_user_data_rejects_bogus_sha():
+    with pytest.raises(ValueError, match="sha256"):
+        render_cloud_init_user_data(
+            ssh_authorized_key="ssh-ed25519 KEY",
+            k3s_tarball_url="https://example.com/k3s",
+            k3s_tarball_sha256="too-short",
+        )
+
+
+def test_meta_data_has_instance_id_and_hostname():
+    rendered = render_cloud_init_meta_data(instance_id="act-001", hostname="act-riscv64")
+    assert "instance-id: act-001" in rendered
+    assert "local-hostname: act-riscv64" in rendered

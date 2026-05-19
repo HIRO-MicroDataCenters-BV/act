@@ -46,6 +46,56 @@ def _sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 
+_USER_DATA_TEMPLATE = """\
+#cloud-config
+hostname: act-riscv64
+users:
+  - name: act
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    shell: /bin/bash
+    ssh_authorized_keys:
+      - {ssh_authorized_key}
+ssh_pwauth: false
+
+write_files:
+  - path: /usr/local/bin/install-k3s.sh
+    permissions: '0755'
+    owner: root:root
+    content: |
+      #!/usr/bin/env bash
+      set -euxo pipefail
+      curl -fsSL -o /tmp/k3s.tar.gz {k3s_tarball_url}
+      echo "{k3s_tarball_sha256}  /tmp/k3s.tar.gz" | sha256sum -c -
+      tar -xzf /tmp/k3s.tar.gz -C /usr/local/bin/
+      chmod +x /usr/local/bin/k3s
+      /usr/local/bin/k3s server \\
+        --disable=traefik \\
+        --write-kubeconfig-mode=644 \\
+        --write-kubeconfig=/etc/rancher/k3s/k3s.yaml &
+
+runcmd:
+  - /usr/local/bin/install-k3s.sh
+"""
+
+
+def render_cloud_init_user_data(
+    *, ssh_authorized_key: str, k3s_tarball_url: str, k3s_tarball_sha256: str
+) -> str:
+    if len(k3s_tarball_sha256) != 64 or not all(c in "0123456789abcdef" for c in k3s_tarball_sha256.lower()):
+        raise ValueError(
+            f"k3s_tarball_sha256 must be a 64-char hex digest; got {k3s_tarball_sha256!r}"
+        )
+    return _USER_DATA_TEMPLATE.format(
+        ssh_authorized_key=ssh_authorized_key,
+        k3s_tarball_url=k3s_tarball_url,
+        k3s_tarball_sha256=k3s_tarball_sha256,
+    )
+
+
+def render_cloud_init_meta_data(*, instance_id: str, hostname: str) -> str:
+    return f"instance-id: {instance_id}\nlocal-hostname: {hostname}\n"
+
+
 def ensure_image(image: GuestImage, cache_dir: Path) -> Path:
     cache_dir.mkdir(parents=True, exist_ok=True)
     target = cache_dir / image.filename
