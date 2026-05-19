@@ -15,18 +15,16 @@ from act.reproducibility.substrates.base import (
     Substrate,
     TargetSpec,
 )
-from act.reproducibility.substrates.nixos_compose import NixOSComposeSubstrate
-from act.reproducibility.substrates.qemu_riscv64 import QemuRiscv64Substrate
+from act.reproducibility.substrates.docker import DockerSubstrate
 
 __all__ = [
     "DeploymentArchCheck",
     "DeploymentArchResult",
+    "DockerSubstrate",
     "ImageBootFailure",
-    "NixOSComposeSubstrate",
     "PlanCheck",
     "PlanCheckResult",
     "ProvisionedTarget",
-    "QemuRiscv64Substrate",
     "ReproducibilityArtefact",
     "RuntimeCheck",
     "RuntimeCheckFailure",

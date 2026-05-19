@@ -1,12 +1,15 @@
-"""Opt-in docker-backed integration test for NixOSComposeSubstrate.
+"""Image-build pipeline validation: nxc + nix consume our rendered k8s flake.
 
-Builds a tiny container with nix + nxc pre-installed (`tests/integration/nixos_compose/Dockerfile`)
-and uses it to verify that the substrate's rendered composition is a valid Nix
-flake that exposes `packages.x86_64-linux.default` — the input shape `nxc build`
-expects.
+Builds a tiny container with nix + nxc pre-installed
+(`tests/integration/nixos_compose/Dockerfile`) and uses it to verify that
+`image_helpers.nxc_compose.render_k8s_composition` produces a Nix flake that
+exposes `packages.x86_64-linux.default` — the input shape `nxc build` expects.
 
-Skipped automatically when docker isn't available so unit-test suites stay green
-on contributor machines without docker.
+These checks belong with the image-build pipeline (the helpers are used by CI
+to produce the runtime substrate images consumed by DockerSubstrate).
+
+Skipped automatically when docker isn't available so unit-test suites stay
+green on contributor machines without docker.
 """
 
 import shutil
@@ -15,8 +18,7 @@ from pathlib import Path
 
 import pytest
 
-from act.reproducibility.substrates.base import TargetSpec
-from act.reproducibility.substrates.nixos_compose import NixOSComposeSubstrate
+from act.reproducibility.image_helpers.nxc_compose import render_k8s_composition
 
 DOCKERFILE_DIR = Path(__file__).parent / "integration" / "nixos_compose"
 IMAGE_TAG = "act-nxc:integration"
@@ -85,8 +87,7 @@ def _ensure_amd64_image() -> None:
 def test_rendered_composition_is_a_valid_flake(tmp_path):
     _ensure_image()
 
-    spec = TargetSpec(arch="x86_64-linux", orchestrator="k8s")
-    composition = NixOSComposeSubstrate()._render_composition(spec, flavour="docker")
+    composition = render_k8s_composition(arch="x86_64-linux", flavour="docker")
     (tmp_path / "flake.nix").write_text(composition)
 
     result = subprocess.run(
@@ -135,8 +136,7 @@ def test_nxc_accepts_init_build_pipeline_against_rendered_composition(tmp_path):
     """
     _ensure_image()
 
-    spec = TargetSpec(arch="x86_64-linux", orchestrator="k8s")
-    composition = NixOSComposeSubstrate()._render_composition(spec, flavour="docker")
+    composition = render_k8s_composition(arch="x86_64-linux", flavour="docker")
     (tmp_path / "flake.nix").write_text(composition)
 
     script = (
@@ -181,8 +181,7 @@ def test_full_nxc_build_completes_for_x86_64_under_emulation(tmp_path):
     """
     _ensure_amd64_image()
 
-    spec = TargetSpec(arch="x86_64-linux", orchestrator="k8s")
-    composition = NixOSComposeSubstrate()._render_composition(spec, flavour="docker")
+    composition = render_k8s_composition(arch="x86_64-linux", flavour="docker")
     (tmp_path / "flake.nix").write_text(composition)
 
     script = (

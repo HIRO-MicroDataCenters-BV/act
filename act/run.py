@@ -15,6 +15,7 @@ Exit codes:
 import argparse
 import json
 import logging
+import os
 import sys
 
 from act.core.mock_generator import MockGenerator
@@ -25,10 +26,9 @@ from act.integrations.checkov_adapter import load_checkov_rules
 from act.reproducibility import (
     DeploymentArchCheck,
     DeploymentArchResult,
-    NixOSComposeSubstrate,
+    DockerSubstrate,
     PlanCheck,
     PlanCheckResult,
-    QemuRiscv64Substrate,
     ReproducibilityArtefact,
     RuntimeCheck,
     RuntimeCheckResult,
@@ -141,8 +141,33 @@ def build_arg_parser() -> argparse.ArgumentParser:
     return parser
 
 
+_K3S_IMAGE_REGISTRY = os.environ.get("ACT_K3S_IMAGE_REGISTRY", "ghcr.io/act/act-k3s")
+
+
 def _default_substrates() -> list:
-    return [NixOSComposeSubstrate(), QemuRiscv64Substrate()]
+    """Substrate registry. Each row is a pinned-digest image + platform + arch.
+
+    Image digests are produced by a separate image-build pipeline (see
+    `act/reproducibility/image_helpers/`) and pinned here. Adding a new
+    architecture or feature is one row.
+    """
+    return [
+        DockerSubstrate(
+            image=f"{_K3S_IMAGE_REGISTRY}:amd64-latest",
+            platform="linux/amd64",
+            spec_arch="x86_64-linux",
+        ),
+        DockerSubstrate(
+            image=f"{_K3S_IMAGE_REGISTRY}:arm64-latest",
+            platform="linux/arm64",
+            spec_arch="aarch64-linux",
+        ),
+        DockerSubstrate(
+            image=f"{_K3S_IMAGE_REGISTRY}:riscv64-latest",
+            platform="linux/riscv64",
+            spec_arch="riscv64-linux",
+        ),
+    ]
 
 
 def _run_runtime_check(
