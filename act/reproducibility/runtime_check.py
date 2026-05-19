@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import hashlib
 import json
-import os
+import re
+import subprocess
 import uuid
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Literal, Optional
+from typing import TYPE_CHECKING, Any, Literal, Optional
 
 from pulumi import automation
 
@@ -12,6 +14,25 @@ from act.reproducibility.substrates.base import ProvisionedTarget, TargetSpec
 
 if TYPE_CHECKING:
     from act.core.mock_generator import MockGenerator
+
+
+VOLATILE_KEYS: frozenset[str] = frozenset({
+    "creationTimestamp",
+    "resourceVersion",
+    "uid",
+    "generation",
+    "selfLink",
+    "managedFields",
+    "lastTransitionTime",
+    "startTime",
+    "completionTime",
+})
+
+VOLATILE_VALUE_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"pid:\s*\d+", flags=re.IGNORECASE),
+    re.compile(r"\b\d{10,}\b"),  # epoch-shaped numbers
+    re.compile(r":\b[0-9]{5}\b"),  # ephemeral ports
+)
 
 
 RuntimeCheckStage = Literal[
@@ -141,6 +162,42 @@ def _resource_arch(outputs: dict) -> str | None:
 
 def _mentions_cxl(outputs: dict) -> bool:
     return "cxl" in json.dumps(outputs, default=str).lower()
+
+
+def probe_k8s(kubeconfig: str, timeout: int = 60) -> dict:
+    result = subprocess.run(
+        ["kubectl", "--kubeconfig", kubeconfig, "get", "pods", "--all-namespaces", "-o", "json"],
+        capture_output=True,
+        check=True,
+        timeout=timeout,
+    )
+    return json.loads(result.stdout)
+
+
+def _strip_volatile_values(value: str) -> str:
+    for pattern in VOLATILE_VALUE_PATTERNS:
+        value = pattern.sub("", value)
+    return value
+
+
+def normalise_output(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {
+            k: normalise_output(v)
+            for k, v in value.items()
+            if k not in VOLATILE_KEYS
+        }
+    if isinstance(value, list):
+        return [normalise_output(v) for v in value]
+    if isinstance(value, str):
+        return _strip_volatile_values(value)
+    return value
+
+
+def hash_output(value: Any) -> str:
+    normalised = normalise_output(value)
+    canonical = json.dumps(normalised, sort_keys=True, default=str)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 def extract_target_spec(plan: dict, mg: "MockGenerator") -> TargetSpec:

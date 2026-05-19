@@ -1,3 +1,4 @@
+import json
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -6,6 +7,9 @@ from act.reproducibility.runtime_check import (
     RuntimeCheckFailure,
     RuntimeCheckResult,
     extract_target_spec,
+    hash_output,
+    normalise_output,
+    probe_k8s,
     run_pulumi_against,
 )
 from act.reproducibility.substrates.base import ProvisionedTarget, TargetSpec
@@ -173,6 +177,65 @@ def test_run_pulumi_against_destroys_on_up_failure(tmp_path):
     assert outcome.failure.stage == "pulumi_up_failed"
     assert "provider rejected manifest" in outcome.failure.detail
     stack.destroy.assert_called_once()
+
+
+def test_probe_k8s_returns_parsed_pod_list():
+    sample = {
+        "items": [
+            {
+                "metadata": {"name": "nginx-1", "namespace": "default"},
+                "spec": {"containers": [{"image": "nginx:1.25"}]},
+            }
+        ]
+    }
+    with patch(
+        "act.reproducibility.runtime_check.subprocess.run",
+        return_value=MagicMock(stdout=json.dumps(sample).encode(), returncode=0),
+    ):
+        out = probe_k8s("/tmp/kube.config")
+
+    assert out == sample
+
+
+def test_normalise_strips_volatile_keys():
+    raw = {
+        "items": [
+            {
+                "metadata": {
+                    "name": "nginx-1",
+                    "namespace": "default",
+                    "creationTimestamp": "2026-05-19T10:00:00Z",
+                    "resourceVersion": "12345",
+                    "uid": "abc-123",
+                }
+            }
+        ]
+    }
+    cleaned = normalise_output(raw)
+    metadata = cleaned["items"][0]["metadata"]
+    assert "creationTimestamp" not in metadata
+    assert "resourceVersion" not in metadata
+    assert "uid" not in metadata
+    assert metadata["name"] == "nginx-1"
+
+
+def test_normalise_strips_volatile_string_values():
+    raw = {"log": "pid: 1234 started ok at 1716123456"}
+    cleaned = normalise_output(raw)
+    assert "1234" not in cleaned["log"]
+    assert "1716123456" not in cleaned["log"]
+
+
+def test_hash_stable_for_normalised_output():
+    a = {"items": [{"name": "x"}]}
+    b = {"items": [{"name": "x"}]}
+    assert hash_output(a) == hash_output(b)
+
+
+def test_hash_changes_when_substantive_field_differs():
+    a = {"replicas": 2}
+    b = {"replicas": 3}
+    assert hash_output(a) != hash_output(b)
 
 
 def test_run_pulumi_against_sets_kubeconfig_config(tmp_path):
