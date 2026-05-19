@@ -1,11 +1,14 @@
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 from act.reproducibility.runtime_check import (
     RuntimeCheckFailure,
     RuntimeCheckResult,
     extract_target_spec,
+    run_pulumi_against,
 )
-from act.reproducibility.substrates.base import TargetSpec
+from act.reproducibility.substrates.base import ProvisionedTarget, TargetSpec
 
 
 def _mg_returning_types(types: dict[str, str]) -> MagicMock:
@@ -121,3 +124,72 @@ def test_runtime_check_result_holds_failures():
     result = RuntimeCheckResult(passed=False, substrate="nixos-compose", spec=spec, failures=failures)
     assert len(result.failures) == 1
     assert result.failures[0].stage == "substrate_unavailable"
+
+
+def _provisioned() -> ProvisionedTarget:
+    return ProvisionedTarget(
+        endpoint="/tmp/kube.config",
+        kind="kubeconfig",
+        teardown=lambda: None,
+    )
+
+
+def test_run_pulumi_against_invokes_up_and_destroy(tmp_path):
+    stack = MagicMock()
+    stack.up.return_value = MagicMock(outputs={"endpoint": MagicMock(value="ok")})
+    stack.destroy.return_value = MagicMock()
+
+    with patch(
+        "act.reproducibility.runtime_check.automation.create_or_select_stack",
+        return_value=stack,
+    ):
+        outcome = run_pulumi_against(
+            target=_provisioned(),
+            program_path="some.py",
+            backend_dir=str(tmp_path),
+        )
+
+    assert outcome.failure is None
+    stack.up.assert_called_once()
+    stack.destroy.assert_called_once()
+
+
+def test_run_pulumi_against_destroys_on_up_failure(tmp_path):
+    stack = MagicMock()
+    stack.up.side_effect = RuntimeError("provider rejected manifest")
+    stack.destroy.return_value = MagicMock()
+
+    with patch(
+        "act.reproducibility.runtime_check.automation.create_or_select_stack",
+        return_value=stack,
+    ):
+        outcome = run_pulumi_against(
+            target=_provisioned(),
+            program_path="some.py",
+            backend_dir=str(tmp_path),
+        )
+
+    assert outcome.failure is not None
+    assert outcome.failure.stage == "pulumi_up_failed"
+    assert "provider rejected manifest" in outcome.failure.detail
+    stack.destroy.assert_called_once()
+
+
+def test_run_pulumi_against_sets_kubeconfig_config(tmp_path):
+    stack = MagicMock()
+    stack.up.return_value = MagicMock(outputs={})
+    stack.destroy.return_value = MagicMock()
+
+    with patch(
+        "act.reproducibility.runtime_check.automation.create_or_select_stack",
+        return_value=stack,
+    ):
+        run_pulumi_against(
+            target=_provisioned(),
+            program_path="some.py",
+            backend_dir=str(tmp_path),
+        )
+
+    set_config_calls = stack.set_config.call_args_list
+    keys = [call.args[0] for call in set_config_calls]
+    assert "kubernetes:kubeconfig" in keys
