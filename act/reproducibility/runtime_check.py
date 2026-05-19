@@ -1,12 +1,43 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Literal
 
 from act.reproducibility.substrates.base import TargetSpec
 
 if TYPE_CHECKING:
     from act.core.mock_generator import MockGenerator
+
+
+RuntimeCheckStage = Literal[
+    "substrate_unavailable",
+    "spec_unsupported",
+    "provision_failed",
+    "pulumi_up_failed",
+    "probe_failed",
+    "timeout",
+    "output_mismatch",
+    "teardown_failed",
+]
+
+
+@dataclass
+class RuntimeCheckFailure:
+    stage: RuntimeCheckStage
+    detail: str
+
+
+@dataclass
+class RuntimeCheckResult:
+    passed: bool
+    substrate: str
+    spec: TargetSpec
+    hash_1: str = ""
+    hash_2: str = ""
+    diff: list[str] = field(default_factory=list)
+    failures: list[RuntimeCheckFailure] = field(default_factory=list)
+    capture_duration_ms: int = 0
 
 
 _ARCH_NORMALISE = {

@@ -1,6 +1,11 @@
 from unittest.mock import MagicMock
 
-from act.reproducibility.runtime_check import extract_target_spec
+from act.reproducibility.runtime_check import (
+    RuntimeCheckFailure,
+    RuntimeCheckResult,
+    extract_target_spec,
+)
+from act.reproducibility.substrates.base import TargetSpec
 
 
 def _mg_returning_types(types: dict[str, str]) -> MagicMock:
@@ -89,3 +94,30 @@ def test_spec_features_include_cxl_when_program_mentions_it():
     spec = extract_target_spec(plan, mg)
 
     assert "cxl" in spec.features
+
+
+def test_runtime_check_result_default_fields():
+    spec = TargetSpec(arch="x86_64-linux", orchestrator="k8s")
+    result = RuntimeCheckResult(passed=True, substrate="nixos-compose", spec=spec)
+    assert result.passed is True
+    assert result.substrate == "nixos-compose"
+    assert result.spec.arch == "x86_64-linux"
+    assert result.hash_1 == ""
+    assert result.hash_2 == ""
+    assert result.diff == []
+    assert result.failures == []
+    assert result.capture_duration_ms == 0
+
+
+def test_runtime_check_failure_classifies_stage():
+    failure = RuntimeCheckFailure(stage="provision_failed", detail="nxc build exit 1")
+    assert failure.stage == "provision_failed"
+    assert "nxc" in failure.detail
+
+
+def test_runtime_check_result_holds_failures():
+    spec = TargetSpec(arch="riscv64-linux", orchestrator="k8s")
+    failures = [RuntimeCheckFailure(stage="substrate_unavailable", detail="nxc not found")]
+    result = RuntimeCheckResult(passed=False, substrate="nixos-compose", spec=spec, failures=failures)
+    assert len(result.failures) == 1
+    assert result.failures[0].stage == "substrate_unavailable"
