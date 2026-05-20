@@ -25,6 +25,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 
 import pytest
@@ -35,6 +36,7 @@ from act.reproducibility.runtime_check import (
     run_pulumi_against,
 )
 from act.reproducibility.substrates.base import TargetSpec
+from act.reproducibility.substrates.cxl import CxlSubstrate
 from act.reproducibility.substrates.docker import DockerSubstrate
 from act.reproducibility.substrates.fpga import FpgaSubstrate
 from act.reproducibility.substrates.gpu import GpuSubstrate
@@ -51,6 +53,8 @@ K3S_IMAGE = os.environ.get("ACT_K3S_IMAGE", "rancher/k3s:v1.32.1-k3s1")
 K3S_RISCV64_IMAGE = os.environ.get("ACT_K3S_RISCV64_IMAGE", "act-k3s:riscv64")
 FPGA_IVERILOG_IMAGE = os.environ.get("ACT_FPGA_IVERILOG_IMAGE", "act-fpga:iverilog")
 FPGA_BOOT_FLOW_PROGRAM = str(REPO_ROOT / "tests" / "fixtures" / "kubernetes" / "fpga_boot_flow.py")
+CXL_QEMU_IMAGE = os.environ.get("ACT_CXL_QEMU_IMAGE", "act-cxl:qemu")
+CXL_BOOT_FLOW_PROGRAM = str(REPO_ROOT / "tests" / "fixtures" / "kubernetes" / "cxl_boot_flow.py")
 K3S_DOCKER_ARGS = ("--privileged", "--tmpfs", "/run", "--tmpfs", "/var/run")
 K3S_COMMAND = (
     "server",
@@ -103,6 +107,17 @@ def _fpga_iverilog_image_present() -> bool:
     try:
         result = subprocess.run(
             ["docker", "image", "inspect", FPGA_IVERILOG_IMAGE],
+            capture_output=True, check=False, timeout=10,
+        )
+        return result.returncode == 0
+    except (subprocess.SubprocessError, FileNotFoundError):
+        return False
+
+
+def _cxl_qemu_image_present() -> bool:
+    try:
+        result = subprocess.run(
+            ["docker", "image", "inspect", CXL_QEMU_IMAGE],
             capture_output=True, check=False, timeout=10,
         )
         return result.returncode == 0
@@ -391,6 +406,155 @@ def test_runtime_check_twice_and_hash_against_real_fpga_cluster(monkeypatch):
         )
         assert "DONE" in logs_1["iverilog-boot-flow"], (
             f"expected DONE marker in iverilog output, got:\n{logs_1['iverilog-boot-flow']}"
+        )
+    finally:
+        target.teardown()
+
+
+def _capture_cxl_guest_output(container_name: str, deadline_s: int = 120) -> str:
+    """Run the CXL guest once and capture the `cxl list -v` block."""
+    subprocess.run(
+        ["docker", "run", "--platform", "linux/amd64", "-d",
+         "--name", container_name, CXL_QEMU_IMAGE],
+        capture_output=True, check=True, timeout=30,
+    )
+    try:
+        deadline = time.monotonic() + deadline_s
+        while time.monotonic() < deadline:
+            status = subprocess.run(
+                ["docker", "inspect", "-f", "{{.State.Status}}", container_name],
+                capture_output=True, check=True, timeout=10,
+            ).stdout.decode().strip()
+            if status == "exited":
+                break
+            time.sleep(2)
+        logs = subprocess.run(
+            ["docker", "logs", container_name],
+            capture_output=True, check=True, timeout=15,
+        ).stdout.decode()
+    finally:
+        subprocess.run(["docker", "rm", "-f", container_name], capture_output=True, timeout=30)
+
+    # Extract just the `cxl list -v` block — strips boot banner + dmesg noise
+    # so the hash is over the substantive payload.
+    start = logs.find("=== cxl list -v ===")
+    end = logs.find("=== DONE ===")
+    assert start >= 0 and end > start, f"cxl list block not found in logs:\n{logs[-2000:]}"
+    return logs[start:end]
+
+
+@pytest.mark.skipif(
+    not _cxl_qemu_image_present(),
+    reason="act-cxl:qemu not built; run tests/integration/cxl/build.sh first",
+)
+def test_cxl_substrate_twice_and_hash_against_real_qemu_emulation():
+    """Real CXL Type 3 device emulation is deterministic across two runs.
+
+    Drives the workload image directly via docker (without the k3s
+    wrapper) because k3s + the amd64 act-cxl:qemu workload pod can't
+    coexist under Docker Desktop's Rosetta translation on Apple Silicon
+    (containerd hits a "seccomp is not supported" error). The substantive
+    claim — real CXL Type 3 emulation produces deterministic topology
+    output across runs — is what twice-and-hash needs to verify, and
+    that's exactly what this test does end-to-end against the QEMU guest.
+
+    The k3s-wrapped path is what `CxlSubstrate` is built for; that path
+    works on native x86_64 hosts and is exercised in CI runners where
+    the host arch matches.
+    """
+    cxl_1 = _capture_cxl_guest_output("act-cxl-r1", deadline_s=120)
+    cxl_2 = _capture_cxl_guest_output("act-cxl-r2", deadline_s=120)
+
+    assert cxl_1 == cxl_2, (
+        "CXL guest output diverged across runs:\n"
+        f"run1:\n{cxl_1}\n"
+        f"run2:\n{cxl_2}\n"
+    )
+    assert "decoder0.0" in cxl_1, f"expected CXL decoder0.0 in guest output, got:\n{cxl_1}"
+    assert "volatile_capable" in cxl_1, f"expected volatile_capable in topology, got:\n{cxl_1}"
+
+
+@pytest.mark.skipif(
+    not _cxl_qemu_image_present() or _arm64_host(),
+    reason=(
+        "Full RuntimeCheck path requires a native x86_64 host so containerd "
+        "inside k3s can unpack the linux/amd64 act-cxl:qemu image without "
+        "Rosetta-related seccomp issues. Built image present + x86_64 host required."
+    ),
+)
+def test_runtime_check_twice_and_hash_against_real_cxl_cluster(monkeypatch):
+    """Full RuntimeCheck.run end-to-end on a CXL Type 3 boot-flow workload.
+
+    Runs only on native x86_64 hosts (CI runners). The substrate declares
+    cape.eu/cxl as schedulable; the IaC fixture deploys a Job that runs
+    qemu-system-x86_64 with a CXL Type 3 memory device, boots a Linux
+    6.8 guest, runs `cxl list -v`, and halts. The probe captures the
+    guest's serial output and includes it in the hashed deployed state.
+    """
+    monkeypatch.setenv("ACT_CXL_QEMU_IMAGE", CXL_QEMU_IMAGE)
+
+    # CXL substrate must run k3s on linux/amd64 so containerd can unpack
+    # the linux/amd64 act-cxl:qemu image natively. On Apple Silicon this
+    # runs under Docker Desktop's Rosetta translation (slower but works).
+    platform, spec_arch = "linux/amd64", "x86_64-linux"
+
+    substrate = CxlSubstrate(
+        image=K3S_IMAGE,
+        platform=platform,
+        spec_arch=spec_arch,
+        features=frozenset({"cxl"}),
+        cxl_count=1,
+        api_host_port=16455,
+        startup_timeout=300,
+        extra_docker_args=K3S_DOCKER_ARGS,
+        command=K3S_COMMAND,
+    )
+
+    spec = TargetSpec(arch=spec_arch, orchestrator="k8s", features=["cxl"])
+    target = substrate.provision(spec)
+
+    try:
+        # Import the linux/amd64 CXL image into the k3s containerd so the
+        # Pod can pull it. (The k3s container may be linux/arm64 on Apple
+        # Silicon; containerd accepts amd64 images and runs them via
+        # Rosetta translation inside Docker Desktop.)
+        ps = subprocess.run(
+            ["docker", "ps", "--filter", "ancestor=" + K3S_IMAGE,
+             "--filter", "publish=16455", "--format", "{{.ID}}"],
+            capture_output=True, check=True, timeout=10,
+        ).stdout.decode().strip().split("\n")[0]
+        save = subprocess.run(
+            ["docker", "save", CXL_QEMU_IMAGE],
+            capture_output=True, check=True, timeout=120,
+        )
+        subprocess.run(
+            ["docker", "exec", "-i", ps, "ctr", "-n", "k8s.io", "images", "import", "-"],
+            input=save.stdout, capture_output=True, check=True, timeout=180,
+        )
+
+        # Probe runs between up and destroy so the workload Pod logs survive.
+        def probe(kubeconfig: str) -> dict:
+            return probe_k8s_with_workload_logs(kubeconfig, timeout=300)
+
+        with tempfile.TemporaryDirectory(prefix="act-pulumi-state-") as backend:
+            o1 = run_pulumi_against(target, CXL_BOOT_FLOW_PROGRAM, backend, probe_fn=probe)
+            assert o1.failure is None, f"first up failed: {o1.failure}"
+            probed_1 = o1.probed or {}
+            o2 = run_pulumi_against(target, CXL_BOOT_FLOW_PROGRAM, backend, probe_fn=probe)
+            assert o2.failure is None, f"second up failed: {o2.failure}"
+            probed_2 = o2.probed or {}
+
+        logs_1 = probed_1.get("_act_workload_logs", {})
+        logs_2 = probed_2.get("_act_workload_logs", {})
+        assert "cxl-boot-flow" in logs_1, f"no cxl boot-flow log captured: {logs_1}"
+        # The cxl list output must match across runs (deterministic CXL topology).
+        assert logs_1["cxl-boot-flow"] == logs_2["cxl-boot-flow"], (
+            "CXL guest output diverged across runs:\n"
+            f"run1 last lines:\n{logs_1['cxl-boot-flow'][-2000:]}\n"
+            f"run2 last lines:\n{logs_2['cxl-boot-flow'][-2000:]}"
+        )
+        assert "decoder0.0" in logs_1["cxl-boot-flow"], (
+            f"expected CXL decoder0.0 in guest output, got:\n{logs_1['cxl-boot-flow'][-2000:]}"
         )
     finally:
         target.teardown()
