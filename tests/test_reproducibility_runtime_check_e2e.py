@@ -1,20 +1,20 @@
-"""End-to-end integration: substrate + pulumi up + probe against real k3s.
+"""End-to-end integration: full RuntimeCheck.run pipeline against real k3s.
 
 The mocked tests in test_reproducibility_runtime_check.py cover the
 orchestration logic in isolation. This file proves the integration glue
-works against a real ephemeral cluster:
+works against a real ephemeral cluster, including the substantive
+twice-and-hash claim from D4.2 §2.3.7:
 
-  DockerSubstrate.provision (real k3s container) →
-    run_pulumi_against (real `pulumi up` via Automation API) →
-      probe_k8s (real `kubectl get pods`) →
-        teardown.
+  MockGenerator (capture plan) →
+    extract_target_spec →
+      DockerSubstrate.provision (real k3s container) →
+        run_pulumi_against (real `pulumi up` via Automation API, twice) →
+          probe_k8s (real `kubectl get pods`) →
+            normalise + sha256 + compare →
+              teardown.
 
-Scope deliberately stops at a *single* pulumi up. Running pulumi up twice
-in the same Python process via the in-process Automation API hits a
-known grpc engine race that requires a separate fix (subprocess-based
-pulumi up, or LocalWorkspace project mode). The substantive
-twice-and-hash claim from D4.2 §2.3.7 stays under the mocked tests until
-that race is resolved.
+Arch coverage mirrors the substrate-only e2e: amd64 unconditional,
+arm64 on arm64 hosts, riscv64 when the pinned image has been built.
 
 Skipped when any of docker, kubectl, or the pulumi CLI is missing.
 """
@@ -42,12 +42,20 @@ CONFIGMAP_PROGRAM = str(REPO_ROOT / "tests" / "fixtures" / "kubernetes" / "confi
 K8S_SCHEMA = str(REPO_ROOT / "examples" / "kubernetes" / "schema.json")
 
 K3S_IMAGE = os.environ.get("ACT_K3S_IMAGE", "rancher/k3s:v1.32.1-k3s1")
+K3S_RISCV64_IMAGE = os.environ.get("ACT_K3S_RISCV64_IMAGE", "act-k3s:riscv64")
 K3S_DOCKER_ARGS = ("--privileged", "--tmpfs", "/run", "--tmpfs", "/var/run")
 K3S_COMMAND = (
     "server",
     "--disable=traefik",
     "--write-kubeconfig-mode=644",
     "--snapshotter=native",
+)
+# riscv64 under QEMU user-mode emulation cannot run iptables; the image
+# ships a bridge CNI conflist so the node still reaches Ready.
+K3S_RISCV64_COMMAND = K3S_COMMAND + (
+    "--disable-kube-proxy",
+    "--flannel-backend=none",
+    "--disable-network-policy",
 )
 
 
@@ -65,10 +73,52 @@ def _docker_daemon_available() -> bool:
     return True
 
 
+def _arm64_host() -> bool:
+    out = subprocess.run(
+        ["uname", "-m"], capture_output=True, check=False, timeout=5
+    ).stdout.decode().strip()
+    return out in ("arm64", "aarch64")
+
+
+def _riscv64_image_present() -> bool:
+    try:
+        result = subprocess.run(
+            ["docker", "image", "inspect", K3S_RISCV64_IMAGE],
+            capture_output=True, check=False, timeout=10,
+        )
+        return result.returncode == 0
+    except (subprocess.SubprocessError, FileNotFoundError):
+        return False
+
+
 pytestmark = pytest.mark.skipif(
     not (_docker_daemon_available() and _binary_available("kubectl") and _binary_available("pulumi")),
     reason="needs docker + kubectl + pulumi CLI on PATH",
 )
+
+
+def _assert_twice_and_hash_passes(substrate: DockerSubstrate, expected_arch: str, expected_substrate_name: str) -> None:
+    """Drive RuntimeCheck.run against one substrate and assert all reproducibility invariants hold."""
+    result = RuntimeCheck(substrates=[substrate]).run(
+        CONFIGMAP_PROGRAM, K8S_SCHEMA, arch_override=expected_arch
+    )
+
+    # Surface orchestration failures first; they carry the most diagnostic value.
+    assert not result.failures, (
+        f"orchestration failures: {[(f.stage, f.detail) for f in result.failures]}"
+    )
+    assert result.substrate == expected_substrate_name, (
+        f"unexpected substrate picked: {result.substrate}"
+    )
+    assert result.spec.arch == expected_arch
+    assert result.spec.orchestrator == "k8s"
+    assert result.hash_1 and result.hash_2, (
+        f"both runs should produce hashes: hash_1={result.hash_1!r} hash_2={result.hash_2!r}"
+    )
+    assert result.passed, (
+        f"twice-and-hash mismatch — diff paths: {result.diff}"
+    )
+    assert result.hash_1 == result.hash_2
 
 
 def test_pulumi_up_against_real_amd64_k3s_substrate():
@@ -126,40 +176,56 @@ def test_pulumi_up_against_real_amd64_k3s_substrate():
 
 
 def test_runtime_check_twice_and_hash_against_real_amd64_k3s_cluster():
-    """Full RuntimeCheck.run end-to-end: twice-and-hash on a real cluster.
+    """Full RuntimeCheck.run end-to-end: twice-and-hash on a real amd64 cluster."""
+    substrate = DockerSubstrate(
+        image=K3S_IMAGE,
+        platform="linux/amd64",
+        spec_arch="x86_64-linux",
+        api_host_port=16449,
+        startup_timeout=240,
+        extra_docker_args=K3S_DOCKER_ARGS,
+        command=K3S_COMMAND,
+    )
+    _assert_twice_and_hash_passes(substrate, "x86_64-linux", "docker:linux/amd64")
 
-    Exercises the substantive reproducibility claim from D4.2 §2.3.7
-    ("executing the same program twice on the target platform and
-    comparing the output hashes") against a real ephemeral k3s cluster.
 
-    Uses a single-substrate registry pinned to amd64 so the test doesn't
-    depend on which architectures happen to be available locally.
+@pytest.mark.skipif(
+    not _arm64_host(),
+    reason="arm64 e2e runs only on arm64 hosts (privileged k3s under binfmt is too slow / unstable)",
+)
+def test_runtime_check_twice_and_hash_against_real_arm64_k3s_cluster():
+    """Full RuntimeCheck.run end-to-end: twice-and-hash on a real arm64 cluster."""
+    substrate = DockerSubstrate(
+        image=K3S_IMAGE,
+        platform="linux/arm64",
+        spec_arch="aarch64-linux",
+        api_host_port=16450,
+        startup_timeout=240,
+        extra_docker_args=K3S_DOCKER_ARGS,
+        command=K3S_COMMAND,
+    )
+    _assert_twice_and_hash_passes(substrate, "aarch64-linux", "docker:linux/arm64")
+
+
+@pytest.mark.skipif(
+    not _riscv64_image_present(),
+    reason="riscv64 substrate image not built; run tests/integration/k3s_riscv64/build.sh first",
+)
+def test_runtime_check_twice_and_hash_against_real_riscv64_k3s_cluster():
+    """Full RuntimeCheck.run end-to-end: twice-and-hash on a real riscv64 cluster.
+
+    riscv64 runs under QEMU user-mode binfmt emulation. The pinned image
+    bundles CNI + bridge conflist so the node still reaches Ready; the
+    workload (a ConfigMap) doesn't need pod scheduling, so the slower
+    emulated control plane doesn't dominate the test.
     """
-    substrates = [
-        DockerSubstrate(
-            image=K3S_IMAGE,
-            platform="linux/amd64",
-            spec_arch="x86_64-linux",
-            api_host_port=16449,
-            startup_timeout=240,
-            extra_docker_args=K3S_DOCKER_ARGS,
-            command=K3S_COMMAND,
-        ),
-    ]
-    result = RuntimeCheck(substrates=substrates).run(CONFIGMAP_PROGRAM, K8S_SCHEMA)
-
-    assert result.substrate == "docker:linux/amd64", (
-        f"unexpected substrate picked: {result.substrate}"
+    substrate = DockerSubstrate(
+        image=K3S_RISCV64_IMAGE,
+        platform="linux/riscv64",
+        spec_arch="riscv64-linux",
+        api_host_port=16451,
+        startup_timeout=600,
+        extra_docker_args=K3S_DOCKER_ARGS,
+        command=K3S_RISCV64_COMMAND,
     )
-    assert result.spec.arch == "x86_64-linux"
-    assert result.spec.orchestrator == "k8s"
-    assert not result.failures, (
-        f"orchestration failures: {[(f.stage, f.detail) for f in result.failures]}"
-    )
-    assert result.hash_1 and result.hash_2, (
-        f"both runs should produce hashes: hash_1={result.hash_1!r} hash_2={result.hash_2!r}"
-    )
-    assert result.passed, (
-        f"twice-and-hash mismatch — diff paths: {result.diff}"
-    )
-    assert result.hash_1 == result.hash_2
+    _assert_twice_and_hash_passes(substrate, "riscv64-linux", "docker:linux/riscv64")
