@@ -126,10 +126,9 @@ def _riscv64_image_present() -> bool:
 
 # riscv64 under QEMU user-mode binfmt emulation can't run iptables-dependent
 # components reliably (kube-proxy crashes, flannel depends on kube-proxy).
-# We disable both, which means no CNI is installed and the node will *register*
-# but never reach Ready. The substrate's contract (return a kubeconfig pointing
-# at a reachable API server) is still met — Ready transition needs native
-# riscv64 silicon or a non-iptables CNI we don't ship today.
+# We disable both. The image ships the reference CNI plugins + a bridge
+# conflist so kubelet still satisfies NetworkReady — without that the node
+# would register but never become Ready.
 _K3S_RISCV64_COMMAND = (
     "server",
     "--disable=traefik",
@@ -146,18 +145,6 @@ _K3S_RISCV64_COMMAND = (
     reason="riscv64 substrate image not built; run tests/integration/k3s_riscv64/build.sh first",
 )
 def test_e2e_riscv64_k3s_cluster_provisions_and_serves_kubeconfig():
-    """Verify the riscv64 substrate satisfies its contract under QEMU emulation.
-
-    Asserts:
-      - provision returns a kubeconfig path
-      - the API server is reachable via kubectl (a node row appears)
-
-    Does NOT assert the node reaches Ready: that requires a CNI, but the only
-    CNI shipped by k3s (flannel) needs iptables, which isn't usable under
-    user-mode QEMU emulation. On native riscv64 silicon the same image runs
-    with the default `K3S_COMMAND` and the node does reach Ready — out of
-    scope for laptop CI.
-    """
     image = os.environ.get("ACT_K3S_RISCV64_IMAGE", "act-k3s:riscv64")
     sub = DockerSubstrate(
         image=image,
@@ -172,22 +159,7 @@ def test_e2e_riscv64_k3s_cluster_provisions_and_serves_kubeconfig():
     target = sub.provision(spec)
     try:
         assert target.kind == "kubeconfig"
-        deadline = time.monotonic() + 300
-        last_output = ""
-        while time.monotonic() < deadline:
-            result = subprocess.run(
-                ["kubectl", "--kubeconfig", target.endpoint,
-                 "--insecure-skip-tls-verify", "get", "nodes", "--no-headers"],
-                capture_output=True, check=False, timeout=15,
-            )
-            last_output = (result.stdout + result.stderr).decode()
-            if result.returncode == 0 and "control-plane" in last_output:
-                break
-            time.sleep(3)
-        else:
-            raise TimeoutError(
-                f"node row never appeared via kubectl:\n{last_output}"
-            )
-        assert "control-plane" in last_output, last_output
+        out = _wait_for_ready_node(target.endpoint, deadline_seconds=300)
+        assert " Ready " in out
     finally:
         target.teardown()

@@ -29,6 +29,44 @@ RUN set -eux; \
     rm -f /tmp/k3s.gz.* /tmp/k3s; \
     /usr/local/bin/k3s --version
 
+# Install the reference CNI plugins so the kubelet can satisfy NetworkReady
+# without flannel. Flannel itself can't run under user-mode QEMU emulation
+# because its vxlan/host-gw backends need iptables, which is unreliable under
+# emulation. The `bridge` + `host-local` + `loopback` plugins provide a flat
+# L2 bridge network that doesn't touch iptables at all — enough for kubelet
+# to report Ready.
+ARG CNI_VERSION=v1.9.1
+ARG CNI_TGZ_SHA256=8ae4f284805187106596678959807df8c61a2f7bd12d323b45c5f0c1f51d41cd
+ARG CNI_BASE_URL=https://github.com/containernetworking/plugins/releases/download
+RUN set -eux; \
+    cd /tmp; \
+    curl -fsSL -o cni.tgz \
+        "${CNI_BASE_URL}/${CNI_VERSION}/cni-plugins-linux-riscv64-${CNI_VERSION}.tgz"; \
+    echo "${CNI_TGZ_SHA256}  cni.tgz" | sha256sum -c -; \
+    mkdir -p /opt/cni/bin; \
+    tar -xzf cni.tgz -C /opt/cni/bin; \
+    rm -f cni.tgz
+
+RUN mkdir -p /etc/cni/net.d && \
+    printf '%s\n' '{' \
+      '  "cniVersion": "1.0.0",' \
+      '  "name": "act-bridge",' \
+      '  "plugins": [' \
+      '    {' \
+      '      "type": "bridge",' \
+      '      "bridge": "cni0",' \
+      '      "isDefaultGateway": true,' \
+      '      "ipMasq": false,' \
+      '      "hairpinMode": true,' \
+      '      "ipam": {' \
+      '        "type": "host-local",' \
+      '        "ranges": [[{"subnet": "10.42.0.0/24"}]]' \
+      '      }' \
+      '    },' \
+      '    { "type": "loopback" }' \
+      '  ]' \
+      '}' > /etc/cni/net.d/10-act-bridge.conflist
+
 EXPOSE 6443
 ENTRYPOINT ["/usr/local/bin/k3s"]
 CMD ["server", "--disable=traefik", "--write-kubeconfig-mode=644"]
