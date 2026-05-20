@@ -3,11 +3,14 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import shutil
 import subprocess
+import sys
 import tempfile
 import time
 import uuid
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
 from pulumi import automation
@@ -78,61 +81,71 @@ class PulumiUpOutcome:
     failure: Optional[RuntimeCheckFailure] = None
 
 
-def _program_loader(program_path: str):
-    import importlib.util
-    import sys
-    from pathlib import Path
-
-    def load() -> None:
-        path = Path(program_path)
-        spec = importlib.util.spec_from_file_location("_act_runtime_prog", path)
-        if spec is None or spec.loader is None:
-            raise RuntimeError(f"could not load program at {path}")
-        module = importlib.util.module_from_spec(spec)
-        sys.modules[spec.name] = module
-        spec.loader.exec_module(module)
-
-    return load
-
-
 def run_pulumi_against(
     target: ProvisionedTarget,
     program_path: str,
     backend_dir: str,
     project_name: str = "act-runtime-check",
 ) -> PulumiUpOutcome:
+    """Run `pulumi up` against the provisioned target, then `destroy`.
+
+    Uses LocalWorkspace project mode rather than inline programs: each pulumi
+    invocation runs as a subprocess of the host Python. Inline mode
+    (`create_or_select_stack(program=...)`) races with Pulumi's grpc engine
+    cleanup against real clusters and trips an "Event loop stopped before
+    Future completed" error even on a first up. Project mode dodges that
+    entirely at the cost of one temp dir + one file copy per run.
+    """
     stack_name = f"act-{uuid.uuid4().hex[:8]}"
-    env_vars = {
-        "PULUMI_BACKEND_URL": f"file://{backend_dir}",
-        "PULUMI_CONFIG_PASSPHRASE": "",
-    }
-    workspace_opts = automation.LocalWorkspaceOptions(env_vars=env_vars)
+    work_dir = Path(tempfile.mkdtemp(prefix="act-pulumi-prog-"))
 
-    stack = automation.create_or_select_stack(
-        stack_name=stack_name,
-        project_name=project_name,
-        program=_program_loader(program_path),
-        opts=workspace_opts,
-    )
-
-    if target.kind == "kubeconfig":
-        stack.set_config("kubernetes:kubeconfig", automation.ConfigValue(value=target.endpoint))
-
-    failure: Optional[RuntimeCheckFailure] = None
-    outputs: dict = {}
     try:
-        up_result = stack.up()
-        outputs = {k: getattr(v, "value", v) for k, v in (up_result.outputs or {}).items()}
-    except Exception as exc:
-        failure = RuntimeCheckFailure(stage="pulumi_up_failed", detail=str(exc))
-    finally:
-        try:
-            stack.destroy()
-        except Exception as exc:
-            if failure is None:
-                failure = RuntimeCheckFailure(stage="teardown_failed", detail=str(exc))
+        # Point Pulumi at the active venv (sys.prefix). Pulumi defaults to
+        # `toolchain: pip` and runs `python -m pip list --format json` to
+        # discover provider packages — that venv must therefore carry pip.
+        # uv-managed venvs need `uv pip install pip` once to satisfy this.
+        (work_dir / "Pulumi.yaml").write_text(
+            "name: " + project_name + "\n"
+            "runtime:\n"
+            "  name: python\n"
+            "  options:\n"
+            "    virtualenv: " + sys.prefix + "\n"
+            "description: act runtime check\n"
+        )
+        shutil.copy(program_path, work_dir / "__main__.py")
 
-    return PulumiUpOutcome(outputs=outputs, failure=failure)
+        env_vars = {
+            "PULUMI_BACKEND_URL": f"file://{backend_dir}",
+            "PULUMI_CONFIG_PASSPHRASE": "",
+        }
+        workspace_opts = automation.LocalWorkspaceOptions(env_vars=env_vars)
+
+        stack = automation.create_or_select_stack(
+            stack_name=stack_name,
+            work_dir=str(work_dir),
+            opts=workspace_opts,
+        )
+
+        if target.kind == "kubeconfig":
+            stack.set_config("kubernetes:kubeconfig", automation.ConfigValue(value=target.endpoint))
+
+        failure: Optional[RuntimeCheckFailure] = None
+        outputs: dict = {}
+        try:
+            up_result = stack.up()
+            outputs = {k: getattr(v, "value", v) for k, v in (up_result.outputs or {}).items()}
+        except Exception as exc:
+            failure = RuntimeCheckFailure(stage="pulumi_up_failed", detail=str(exc))
+        finally:
+            try:
+                stack.destroy()
+            except Exception as exc:
+                if failure is None:
+                    failure = RuntimeCheckFailure(stage="teardown_failed", detail=str(exc))
+
+        return PulumiUpOutcome(outputs=outputs, failure=failure)
+    finally:
+        shutil.rmtree(work_dir, ignore_errors=True)
 
 
 _ARCH_NORMALISE = {
