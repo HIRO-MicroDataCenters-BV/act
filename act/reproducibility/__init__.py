@@ -17,11 +17,13 @@ from act.reproducibility.substrates.base import (
     Substrate,
     TargetSpec,
 )
+from act.reproducibility.substrates.cxl import CxlSubstrate
 from act.reproducibility.substrates.docker import DockerSubstrate
 from act.reproducibility.substrates.fpga import FpgaSubstrate
 from act.reproducibility.substrates.gpu import GpuSubstrate
 
 __all__ = [
+    "CxlSubstrate",
     "DeploymentArchCheck",
     "DeploymentArchResult",
     "DockerSubstrate",

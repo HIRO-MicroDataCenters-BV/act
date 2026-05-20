@@ -24,6 +24,7 @@ from act.core.pipeline import ACTPipeline
 from act.gate.ci_gate import CIGate
 from act.integrations.checkov_adapter import load_checkov_rules
 from act.reproducibility import (
+    CxlSubstrate,
     DeploymentArchCheck,
     DeploymentArchResult,
     DockerSubstrate,
@@ -221,6 +222,19 @@ def _default_substrates() -> list:
             platform="linux/amd64",
             spec_arch="x86_64-linux",
             features=frozenset({"fpga"}),
+            extra_docker_args=_K3S_DOCKER_ARGS,
+            command=_K3S_COMMAND,
+        ),
+        # CXL substrate: declares cape.eu/cxl as a schedulable Extended
+        # Resource. The CXL Type 3 device emulation runs inside the user's
+        # workload Pod via qemu-system-x86_64 (act-cxl:qemu image); the
+        # `cxl list -v` output from the guest is captured by
+        # probe_k8s_with_workload_logs.
+        CxlSubstrate(
+            image=_K3S_IMAGE,
+            platform="linux/amd64",
+            spec_arch="x86_64-linux",
+            features=frozenset({"cxl"}),
             extra_docker_args=_K3S_DOCKER_ARGS,
             command=_K3S_COMMAND,
         ),
