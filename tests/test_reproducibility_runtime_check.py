@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from act.reproducibility.runtime_check import (
+    PulumiUpOutcome,
     RuntimeCheck,
     RuntimeCheckFailure,
     RuntimeCheckResult,
@@ -296,17 +297,23 @@ class _FakeSubstrate(Substrate):
 
 
 def _patched_check_dependencies(probe_responses):
-    """Patches MockGenerator, run_pulumi_against, probe_k8s for orchestrator tests."""
+    """Patches MockGenerator and run_pulumi_against for orchestrator tests.
+
+    The mocked `run_pulumi_against` returns a `PulumiUpOutcome` whose
+    `.probed` carries the next probe response — mirroring the real flow
+    where the probe runs between `up` and `destroy` and is attached to
+    the outcome.
+    """
     plan_responses = iter(probe_responses)
+
+    def fake_run_pulumi_against(*args, **kwargs):
+        return PulumiUpOutcome(outputs={}, failure=None, probed=next(plan_responses))
+
     return [
         patch("act.reproducibility.runtime_check.MockGenerator", autospec=True),
         patch(
             "act.reproducibility.runtime_check.run_pulumi_against",
-            return_value=MagicMock(outputs={}, failure=None),
-        ),
-        patch(
-            "act.reproducibility.runtime_check.probe_k8s",
-            side_effect=lambda kube: next(plan_responses),
+            side_effect=fake_run_pulumi_against,
         ),
     ]
 
@@ -315,8 +322,8 @@ def test_runtime_check_passes_when_two_probes_match(tmp_path):
     sub = _FakeSubstrate(matches_fn=lambda s: s.orchestrator == "k8s")
     probes = [{"items": [{"metadata": {"name": "a"}}]}, {"items": [{"metadata": {"name": "a"}}]}]
 
-    mg_patch, pulumi_patch, probe_patch = _patched_check_dependencies(probes)
-    with mg_patch as mg_cls, pulumi_patch, probe_patch:
+    mg_patch, pulumi_patch = _patched_check_dependencies(probes)
+    with mg_patch as mg_cls, pulumi_patch:
         mg = mg_cls.return_value
         mg.run_with_mocks.return_value = {"nginx": {}}
         mg.get_resource_type.return_value = "kubernetes:apps/v1:Deployment"
@@ -339,8 +346,8 @@ def test_runtime_check_fails_when_probes_differ(tmp_path):
         {"items": [{"metadata": {"name": "b"}}]},
     ]
 
-    mg_patch, pulumi_patch, probe_patch = _patched_check_dependencies(probes)
-    with mg_patch as mg_cls, pulumi_patch, probe_patch:
+    mg_patch, pulumi_patch = _patched_check_dependencies(probes)
+    with mg_patch as mg_cls, pulumi_patch:
         mg = mg_cls.return_value
         mg.run_with_mocks.return_value = {"nginx": {}}
         mg.get_resource_type.return_value = "kubernetes:apps/v1:Deployment"
@@ -395,3 +402,71 @@ def test_runtime_check_teardown_runs_on_pulumi_failure(tmp_path):
     assert result.passed is False
     assert any(f.stage == "pulumi_up_failed" for f in result.failures)
     assert sub.teardown_calls == 1
+
+
+def test_runtime_check_uses_custom_probe_fn(tmp_path):
+    """RuntimeCheck honours an injected probe_fn — passed into run_pulumi_against."""
+    sub = _FakeSubstrate(matches_fn=lambda s: s.orchestrator == "k8s")
+    custom_probe = MagicMock(return_value={"_act_workload_logs": {"iverilog": "DONE\n"}})
+
+    captured_probe_fns = []
+
+    def fake_run_pulumi_against(*args, **kwargs):
+        captured_probe_fns.append(kwargs.get("probe_fn"))
+        # Mirror real behaviour: run the probe_fn ourselves so the test
+        # observes the same data flow as production.
+        target = kwargs["target"]
+        probed = kwargs["probe_fn"](target.endpoint) if kwargs.get("probe_fn") else None
+        return PulumiUpOutcome(outputs={}, failure=None, probed=probed)
+
+    with patch("act.reproducibility.runtime_check.MockGenerator", autospec=True) as mg_cls, \
+            patch("act.reproducibility.runtime_check.run_pulumi_against", side_effect=fake_run_pulumi_against):
+        mg = mg_cls.return_value
+        mg.run_with_mocks.return_value = {"nginx": {}}
+        mg.get_resource_type.return_value = "kubernetes:apps/v1:Deployment"
+
+        check = RuntimeCheck(substrates=[sub], probe_fn=custom_probe)
+        result = check.run("some.py", "schema.json", backend_dir=str(tmp_path))
+
+    # run_pulumi_against was called twice, each time with our custom probe_fn.
+    assert len(captured_probe_fns) == 2
+    assert all(fn is custom_probe for fn in captured_probe_fns)
+    assert result.passed is True
+    assert result.hash_1 == result.hash_2
+
+
+def test_probe_k8s_with_workload_logs_waits_for_jobs_and_captures_logs():
+    """probe_k8s_with_workload_logs combines existing probe + jobs wait + logs capture."""
+    job_running = {"items": [{"status": {"succeeded": 0, "failed": 0}}]}
+    job_done = {"items": [{"status": {"succeeded": 1}}]}
+    base_state = {"items": [{"kind": "ConfigMap", "metadata": {"name": "fpga-rtl"}}]}
+    pod_list = {"items": [
+        {"metadata": {"name": "iverilog-boot-flow-7fkx2"}},
+        {"metadata": {"name": "coredns-abc12"}},
+    ]}
+
+    calls = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd)
+        if "jobs" in cmd:
+            payload = job_running if len([c for c in calls if "jobs" in c]) == 1 else job_done
+            return MagicMock(stdout=json.dumps(payload).encode(), returncode=0)
+        if "get" in cmd and any("pods,services" in c for c in cmd):
+            return MagicMock(stdout=json.dumps(base_state).encode(), returncode=0)
+        if "get" in cmd and "pods" in cmd:
+            return MagicMock(stdout=json.dumps(pod_list).encode(), returncode=0)
+        if "logs" in cmd:
+            return MagicMock(stdout=b"Test: counter=1\nDONE\n", returncode=0)
+        return MagicMock(stdout=b"", returncode=0)
+
+    from act.reproducibility.runtime_check import probe_k8s_with_workload_logs
+
+    with patch("act.reproducibility.runtime_check.subprocess.run", side_effect=fake_run):
+        state = probe_k8s_with_workload_logs("/tmp/kube.config", namespace="default", timeout=5)
+
+    assert "_act_workload_logs" in state
+    # Random suffix stripped, system pod skipped.
+    assert state["_act_workload_logs"] == {
+        "iverilog-boot-flow": "Test: counter=1\nDONE\n",
+    }

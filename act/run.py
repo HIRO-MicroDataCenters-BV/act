@@ -27,6 +27,7 @@ from act.reproducibility import (
     DeploymentArchCheck,
     DeploymentArchResult,
     DockerSubstrate,
+    FpgaSubstrate,
     GpuSubstrate,
     PlanCheck,
     PlanCheckResult,
@@ -208,6 +209,18 @@ def _default_substrates() -> list:
             platform="linux/amd64",
             spec_arch="x86_64-linux",
             features=frozenset({"gpu"}),
+            extra_docker_args=_K3S_DOCKER_ARGS,
+            command=_K3S_COMMAND,
+        ),
+        # FPGA substrate: declares cape.eu/fpga as a schedulable Extended
+        # Resource. The boot-flow simulation itself runs inside the user's
+        # workload Pod (typically the act-fpga:iverilog image) and its
+        # $display output is captured by probe_k8s_with_workload_logs.
+        FpgaSubstrate(
+            image=_K3S_IMAGE,
+            platform="linux/amd64",
+            spec_arch="x86_64-linux",
+            features=frozenset({"fpga"}),
             extra_docker_args=_K3S_DOCKER_ARGS,
             command=_K3S_COMMAND,
         ),
