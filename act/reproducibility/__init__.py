@@ -16,11 +16,13 @@ from act.reproducibility.substrates.base import (
     TargetSpec,
 )
 from act.reproducibility.substrates.docker import DockerSubstrate
+from act.reproducibility.substrates.gpu import GpuSubstrate
 
 __all__ = [
     "DeploymentArchCheck",
     "DeploymentArchResult",
     "DockerSubstrate",
+    "GpuSubstrate",
     "ImageBootFailure",
     "PlanCheck",
     "PlanCheckResult",
