@@ -283,7 +283,7 @@ def test_gpu_substrate_provisions_cluster_with_nvidia_gpu_extended_resource():
         platform="linux/amd64",
         spec_arch="x86_64-linux",
         features=frozenset({"gpu"}),
-        gpu_count=1,
+        count=1,
         api_host_port=16453,
         startup_timeout=240,
         extra_docker_args=K3S_DOCKER_ARGS,
@@ -351,7 +351,7 @@ def test_runtime_check_twice_and_hash_against_real_fpga_cluster(monkeypatch):
         platform=platform,
         spec_arch=spec_arch,
         features=frozenset({"fpga"}),
-        fpga_count=1,
+        count=1,
         api_host_port=16454,
         startup_timeout=240,
         extra_docker_args=K3S_DOCKER_ARGS,
@@ -384,8 +384,8 @@ def test_runtime_check_twice_and_hash_against_real_fpga_cluster(monkeypatch):
         # Reuse the already-imaged cluster — pass the probe inside
         # run_pulumi_against so it runs between `up` and `destroy` while
         # the iverilog Job's Pod still exists.
-        def probe(kubeconfig: str) -> dict:
-            return probe_k8s_with_workload_logs(kubeconfig, timeout=180)
+        def probe(t) -> dict:
+            return probe_k8s_with_workload_logs(t, timeout=180)
 
         with tempfile.TemporaryDirectory(prefix="act-pulumi-state-") as backend:
             o1 = run_pulumi_against(target, FPGA_BOOT_FLOW_PROGRAM, backend, probe_fn=probe)
@@ -503,7 +503,7 @@ def test_runtime_check_twice_and_hash_against_real_cxl_cluster(monkeypatch):
         platform=platform,
         spec_arch=spec_arch,
         features=frozenset({"cxl"}),
-        cxl_count=1,
+        count=1,
         api_host_port=16455,
         startup_timeout=300,
         extra_docker_args=K3S_DOCKER_ARGS,
@@ -533,8 +533,8 @@ def test_runtime_check_twice_and_hash_against_real_cxl_cluster(monkeypatch):
         )
 
         # Probe runs between up and destroy so the workload Pod logs survive.
-        def probe(kubeconfig: str) -> dict:
-            return probe_k8s_with_workload_logs(kubeconfig, timeout=300)
+        def probe(t) -> dict:
+            return probe_k8s_with_workload_logs(t, timeout=300)
 
         with tempfile.TemporaryDirectory(prefix="act-pulumi-state-") as backend:
             o1 = run_pulumi_against(target, CXL_BOOT_FLOW_PROGRAM, backend, probe_fn=probe)

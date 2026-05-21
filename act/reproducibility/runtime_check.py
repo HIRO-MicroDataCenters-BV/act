@@ -144,7 +144,7 @@ def run_pulumi_against(
             outputs = {k: getattr(v, "value", v) for k, v in (up_result.outputs or {}).items()}
             if probe_fn is not None:
                 try:
-                    probed = probe_fn(target.endpoint)
+                    probed = probe_fn(target)
                 except Exception as exc:
                     failure = RuntimeCheckFailure(stage="probe_failed", detail=str(exc))
         except Exception as exc:
@@ -219,7 +219,19 @@ def _is_system_managed(item: dict) -> bool:
     return (kind, name) in _SYSTEM_NAMESPACE_OBJECTS
 
 
-def probe_k8s(kubeconfig: str, namespace: str = "default", timeout: int = 60) -> dict:
+def _kubeconfig_path(target) -> str:
+    """Accept either a ProvisionedTarget or a raw kubeconfig path string.
+
+    The probe functions historically took a raw string; passing the full
+    `ProvisionedTarget` is cleaner (the signature no longer lies about
+    what it depends on) and opens the door for future SSH/HTTP probes
+    that need other fields on the target.
+    """
+    endpoint = getattr(target, "endpoint", None)
+    return endpoint if endpoint is not None else target
+
+
+def probe_k8s(target, namespace: str = "default", timeout: int = 60) -> dict:
     """Capture user-deployed state in the named namespace.
 
     Scoped to a single (non-system) namespace because `--all-namespaces`
@@ -231,7 +243,10 @@ def probe_k8s(kubeconfig: str, namespace: str = "default", timeout: int = 60) ->
     (`kubernetes` Service, `kube-root-ca.crt` ConfigMap) are filtered
     out — their lifecycle is driven by control-plane controllers and
     races with our probe timing.
+
+    Accepts either a `ProvisionedTarget` or a raw kubeconfig path string.
     """
+    kubeconfig = _kubeconfig_path(target)
     kinds = "pods,services,deployments,statefulsets,daemonsets,configmaps,secrets,jobs,cronjobs"
     result = subprocess.run(
         ["kubectl", "--kubeconfig", kubeconfig, "get", kinds, "-n", namespace, "-o", "json"],
@@ -321,16 +336,19 @@ def _capture_workload_logs(kubeconfig: str, namespace: str, timeout: int) -> dic
 
 
 def probe_k8s_with_workload_logs(
-    kubeconfig: str, namespace: str = "default", timeout: int = 60,
+    target, namespace: str = "default", timeout: int = 60,
 ) -> dict:
     """Like `probe_k8s` but also waits for Jobs and captures workload pod logs.
 
     Returns the same shape as `probe_k8s` with an extra `_act_workload_logs`
     key — a dict keyed by stable pod-name prefix (random suffix stripped)
-    mapping to the pod's stdout/stderr. Used by FPGA boot-flow style
+    mapping to the pod's stdout/stderr. Used by FPGA / CXL boot-flow style
     workloads where the deterministic value is the simulator's output,
     not just the resource manifests.
+
+    Accepts either a `ProvisionedTarget` or a raw kubeconfig path string.
     """
+    kubeconfig = _kubeconfig_path(target)
     _wait_for_jobs(kubeconfig, namespace, timeout)
     state = probe_k8s(kubeconfig, namespace, timeout)
     state["_act_workload_logs"] = _capture_workload_logs(kubeconfig, namespace, timeout)
@@ -475,12 +493,11 @@ class RuntimeCheck:
                     failures.append(outcome.failure)
                     break
 
-                try:
-                    probed = outcome.probed if outcome.probed is not None else self._probe_fn(provisioned.endpoint)
-                except subprocess.SubprocessError as exc:
-                    failures.append(RuntimeCheckFailure(stage="probe_failed", detail=str(exc)))
-                    break
-
+                # probe_fn runs inside run_pulumi_against (between up and
+                # destroy). If it raises, outcome.failure is set with
+                # stage=probe_failed and we break above. So if we reach
+                # here, outcome.probed is the captured dict.
+                probed = outcome.probed or {}
                 normalised = normalise_output(probed)
                 last_normalised.append(normalised)
                 hashes.append(hash_output(probed))

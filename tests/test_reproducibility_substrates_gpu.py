@@ -72,7 +72,7 @@ def test_provision_patches_node_status_with_extended_resource(gpu_substrate):
     )
 
     with patch(
-        "act.reproducibility.substrates.gpu.DockerSubstrate.provision",
+        "act.reproducibility.substrates.accelerator.DockerSubstrate.provision",
         return_value=parent_target,
     ) as mock_parent, patch(
         "act.reproducibility.substrates._extended_resource.subprocess.run"
@@ -116,7 +116,7 @@ def test_provision_calls_teardown_when_patch_fails(gpu_substrate):
     )
 
     with patch(
-        "act.reproducibility.substrates.gpu.DockerSubstrate.provision",
+        "act.reproducibility.substrates.accelerator.DockerSubstrate.provision",
         return_value=parent_target,
     ), patch(
         "act.reproducibility.substrates._extended_resource.subprocess.run",
@@ -135,13 +135,13 @@ def test_custom_resource_name_is_honoured():
         spec_arch="x86_64-linux",
         features=frozenset({"gpu"}),
         resource_name="amd.com/gpu",
-        gpu_count=4,
+        count=4,
     )
     parent_target = ProvisionedTarget(
         endpoint="/tmp/k", kind="kubeconfig", teardown=MagicMock(),
     )
     with patch(
-        "act.reproducibility.substrates.gpu.DockerSubstrate.provision",
+        "act.reproducibility.substrates.accelerator.DockerSubstrate.provision",
         return_value=parent_target,
     ), patch(
         "act.reproducibility.substrates._extended_resource.subprocess.run"
