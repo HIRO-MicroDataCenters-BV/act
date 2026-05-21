@@ -62,7 +62,7 @@ def test_provision_patches_node_status_with_fpga_extended_resource(fpga_substrat
     )
 
     with patch(
-        "act.reproducibility.substrates.fpga.DockerSubstrate.provision",
+        "act.reproducibility.substrates.accelerator.DockerSubstrate.provision",
         return_value=parent_target,
     ) as mock_parent, patch(
         "act.reproducibility.substrates._extended_resource.subprocess.run"
@@ -96,7 +96,7 @@ def test_provision_calls_teardown_when_patch_fails(fpga_substrate):
     )
 
     with patch(
-        "act.reproducibility.substrates.fpga.DockerSubstrate.provision",
+        "act.reproducibility.substrates.accelerator.DockerSubstrate.provision",
         return_value=parent_target,
     ), patch(
         "act.reproducibility.substrates._extended_resource.subprocess.run",
@@ -115,13 +115,13 @@ def test_custom_resource_name_and_count_honoured():
         spec_arch="x86_64-linux",
         features=frozenset({"fpga"}),
         resource_name="xilinx.com/fpga",
-        fpga_count=2,
+        count=2,
     )
     parent_target = ProvisionedTarget(
         endpoint="/tmp/k", kind="kubeconfig", teardown=MagicMock(),
     )
     with patch(
-        "act.reproducibility.substrates.fpga.DockerSubstrate.provision",
+        "act.reproducibility.substrates.accelerator.DockerSubstrate.provision",
         return_value=parent_target,
     ), patch(
         "act.reproducibility.substrates._extended_resource.subprocess.run"

@@ -62,7 +62,7 @@ def test_provision_patches_node_status_with_cxl_extended_resource(cxl_substrate)
     )
 
     with patch(
-        "act.reproducibility.substrates.cxl.DockerSubstrate.provision",
+        "act.reproducibility.substrates.accelerator.DockerSubstrate.provision",
         return_value=parent_target,
     ) as mock_parent, patch(
         "act.reproducibility.substrates._extended_resource.subprocess.run"
@@ -95,7 +95,7 @@ def test_provision_calls_teardown_when_patch_fails(cxl_substrate):
     )
 
     with patch(
-        "act.reproducibility.substrates.cxl.DockerSubstrate.provision",
+        "act.reproducibility.substrates.accelerator.DockerSubstrate.provision",
         return_value=parent_target,
     ), patch(
         "act.reproducibility.substrates._extended_resource.subprocess.run",
