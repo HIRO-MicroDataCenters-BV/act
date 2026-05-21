@@ -58,10 +58,16 @@ class DockerSubstrate(Substrate):
 
         subprocess.run(
             [
-                "docker", "run", "-d", "--rm",
-                "--platform", self.platform,
-                "--name", container_id,
-                "-p", f"{self.api_host_port}:6443",
+                "docker",
+                "run",
+                "-d",
+                "--rm",
+                "--platform",
+                self.platform,
+                "--name",
+                container_id,
+                "-p",
+                f"{self.api_host_port}:6443",
                 *self.extra_docker_args,
                 self.image,
                 *self.command,
@@ -123,6 +129,4 @@ class DockerSubstrate(Substrate):
             if check.returncode == 0:
                 return
             time.sleep(1)
-        raise TimeoutError(
-            f"k3s did not produce /etc/rancher/k3s/k3s.yaml within {self.startup_timeout}s"
-        )
+        raise TimeoutError(f"k3s did not produce /etc/rancher/k3s/k3s.yaml within {self.startup_timeout}s")

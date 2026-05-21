@@ -60,8 +60,7 @@ def _wait_for_ready_node(kubeconfig: str, deadline_seconds: int = 180) -> str:
     last_output = ""
     while time.monotonic() < deadline:
         result = subprocess.run(
-            ["kubectl", "--kubeconfig", kubeconfig, "--insecure-skip-tls-verify",
-             "get", "nodes", "--no-headers"],
+            ["kubectl", "--kubeconfig", kubeconfig, "--insecure-skip-tls-verify", "get", "nodes", "--no-headers"],
             capture_output=True,
             check=False,
             timeout=15,
@@ -98,8 +97,8 @@ def test_e2e_amd64_k3s_cluster_provisions_and_serves_kubeconfig():
 
 
 @pytest.mark.skipif(
-    subprocess.run(["uname", "-m"], capture_output=True, check=False, timeout=5)
-    .stdout.decode().strip() not in ("arm64", "aarch64"),
+    subprocess.run(["uname", "-m"], capture_output=True, check=False, timeout=5).stdout.decode().strip()
+    not in ("arm64", "aarch64"),
     reason="arm64 e2e runs only on arm64 hosts (otherwise binfmt + privileged k3s is too slow / unstable)",
 )
 def test_e2e_arm64_k3s_cluster_provisions_and_serves_kubeconfig():
@@ -117,7 +116,9 @@ def _riscv64_image_present() -> bool:
     try:
         result = subprocess.run(
             ["docker", "image", "inspect", image],
-            capture_output=True, check=False, timeout=10,
+            capture_output=True,
+            check=False,
+            timeout=10,
         )
         return result.returncode == 0
     except (subprocess.SubprocessError, FileNotFoundError):

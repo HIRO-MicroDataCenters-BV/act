@@ -241,9 +241,7 @@ def _default_substrates() -> list:
     ]
 
 
-def _run_runtime_check(
-    program: str, schemas: list[str], log: logging.Logger
-) -> RuntimeCheckResult:
+def _run_runtime_check(program: str, schemas: list[str], log: logging.Logger) -> RuntimeCheckResult:
     check = RuntimeCheck(substrates=_default_substrates())
     result = check.run(program, schemas)
 
@@ -367,9 +365,7 @@ def main(argv=None) -> int:
 
         arch_result = None
         if args.check_deployment_arch:
-            arch_result = _run_deployment_arch_check(
-                args.program, args.schema, args.check_deployment_arch, log
-            )
+            arch_result = _run_deployment_arch_check(args.program, args.schema, args.check_deployment_arch, log)
             if not arch_result.passed:
                 exit_code = max(exit_code, 1)
 

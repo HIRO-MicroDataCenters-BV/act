@@ -78,25 +78,26 @@ job = Job(
                 # boot-flow test portable across hosts; the workload is a
                 # trivial iverilog simulation, no syscall surface to harden.
                 "securityContext": {"seccompProfile": {"type": "Unconfined"}},
-                "containers": [{
-                    "name": "iverilog",
-                    "image": IMAGE,
-                    "imagePullPolicy": "IfNotPresent",
-                    "command": ["/bin/bash", "-c"],
-                    "args": [
-                        "iverilog -o /tmp/sim /work/counter.v /work/tb_counter.v "
-                        "&& /tmp/sim"
-                    ],
-                    "resources": {
-                        "limits": {"cape.eu/fpga": "1"},
-                        "requests": {"cape.eu/fpga": "1"},
-                    },
-                    "volumeMounts": [{"name": "rtl", "mountPath": "/work"}],
-                }],
-                "volumes": [{
-                    "name": "rtl",
-                    "configMap": {"name": "fpga-rtl"},
-                }],
+                "containers": [
+                    {
+                        "name": "iverilog",
+                        "image": IMAGE,
+                        "imagePullPolicy": "IfNotPresent",
+                        "command": ["/bin/bash", "-c"],
+                        "args": ["iverilog -o /tmp/sim /work/counter.v /work/tb_counter.v " "&& /tmp/sim"],
+                        "resources": {
+                            "limits": {"cape.eu/fpga": "1"},
+                            "requests": {"cape.eu/fpga": "1"},
+                        },
+                        "volumeMounts": [{"name": "rtl", "mountPath": "/work"}],
+                    }
+                ],
+                "volumes": [
+                    {
+                        "name": "rtl",
+                        "configMap": {"name": "fpga-rtl"},
+                    }
+                ],
             },
         },
     },

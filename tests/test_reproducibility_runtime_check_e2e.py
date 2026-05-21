@@ -86,9 +86,7 @@ def _docker_daemon_available() -> bool:
 
 
 def _arm64_host() -> bool:
-    out = subprocess.run(
-        ["uname", "-m"], capture_output=True, check=False, timeout=5
-    ).stdout.decode().strip()
+    out = subprocess.run(["uname", "-m"], capture_output=True, check=False, timeout=5).stdout.decode().strip()
     return out in ("arm64", "aarch64")
 
 
@@ -96,7 +94,9 @@ def _riscv64_image_present() -> bool:
     try:
         result = subprocess.run(
             ["docker", "image", "inspect", K3S_RISCV64_IMAGE],
-            capture_output=True, check=False, timeout=10,
+            capture_output=True,
+            check=False,
+            timeout=10,
         )
         return result.returncode == 0
     except (subprocess.SubprocessError, FileNotFoundError):
@@ -107,7 +107,9 @@ def _fpga_iverilog_image_present() -> bool:
     try:
         result = subprocess.run(
             ["docker", "image", "inspect", FPGA_IVERILOG_IMAGE],
-            capture_output=True, check=False, timeout=10,
+            capture_output=True,
+            check=False,
+            timeout=10,
         )
         return result.returncode == 0
     except (subprocess.SubprocessError, FileNotFoundError):
@@ -118,7 +120,9 @@ def _cxl_qemu_image_present() -> bool:
     try:
         result = subprocess.run(
             ["docker", "image", "inspect", CXL_QEMU_IMAGE],
-            capture_output=True, check=False, timeout=10,
+            capture_output=True,
+            check=False,
+            timeout=10,
         )
         return result.returncode == 0
     except (subprocess.SubprocessError, FileNotFoundError):
@@ -133,25 +137,17 @@ pytestmark = pytest.mark.skipif(
 
 def _assert_twice_and_hash_passes(substrate: DockerSubstrate, expected_arch: str, expected_substrate_name: str) -> None:
     """Drive RuntimeCheck.run against one substrate and assert all reproducibility invariants hold."""
-    result = RuntimeCheck(substrates=[substrate]).run(
-        CONFIGMAP_PROGRAM, K8S_SCHEMA, arch_override=expected_arch
-    )
+    result = RuntimeCheck(substrates=[substrate]).run(CONFIGMAP_PROGRAM, K8S_SCHEMA, arch_override=expected_arch)
 
     # Surface orchestration failures first; they carry the most diagnostic value.
-    assert not result.failures, (
-        f"orchestration failures: {[(f.stage, f.detail) for f in result.failures]}"
-    )
-    assert result.substrate == expected_substrate_name, (
-        f"unexpected substrate picked: {result.substrate}"
-    )
+    assert not result.failures, f"orchestration failures: {[(f.stage, f.detail) for f in result.failures]}"
+    assert result.substrate == expected_substrate_name, f"unexpected substrate picked: {result.substrate}"
     assert result.spec.arch == expected_arch
     assert result.spec.orchestrator == "k8s"
-    assert result.hash_1 and result.hash_2, (
-        f"both runs should produce hashes: hash_1={result.hash_1!r} hash_2={result.hash_2!r}"
-    )
-    assert result.passed, (
-        f"twice-and-hash mismatch — diff paths: {result.diff}"
-    )
+    assert (
+        result.hash_1 and result.hash_2
+    ), f"both runs should produce hashes: hash_1={result.hash_1!r} hash_2={result.hash_2!r}"
+    assert result.passed, f"twice-and-hash mismatch — diff paths: {result.diff}"
     assert result.hash_1 == result.hash_2
 
 
@@ -187,24 +183,36 @@ def test_pulumi_up_against_real_amd64_k3s_substrate():
 
         assert outcome.failure is None, (
             f"pulumi up failed: stage={outcome.failure.stage} detail={outcome.failure.detail}"
-            if outcome.failure else "unreachable"
+            if outcome.failure
+            else "unreachable"
         )
-        assert outcome.outputs.get("name") == "act-runtime-probe", (
-            f"expected configmap 'name' output, got: {outcome.outputs}"
-        )
+        assert (
+            outcome.outputs.get("name") == "act-runtime-probe"
+        ), f"expected configmap 'name' output, got: {outcome.outputs}"
 
         # destroy already ran; the ConfigMap should be gone. Re-running up
         # would prove twice-and-hash but is gated on RuntimeCheck.run, not
         # on this single-up integration. Verify instead that destroy left
         # the cluster clean.
         check = subprocess.run(
-            ["kubectl", "--kubeconfig", target.endpoint, "get", "configmap",
-             "act-runtime-probe", "-n", "default", "--ignore-not-found", "-o", "name"],
-            capture_output=True, check=True, timeout=15,
+            [
+                "kubectl",
+                "--kubeconfig",
+                target.endpoint,
+                "get",
+                "configmap",
+                "act-runtime-probe",
+                "-n",
+                "default",
+                "--ignore-not-found",
+                "-o",
+                "name",
+            ],
+            capture_output=True,
+            check=True,
+            timeout=15,
         )
-        assert check.stdout.strip() == b"", (
-            f"configmap survived destroy: {check.stdout!r}"
-        )
+        assert check.stdout.strip() == b"", f"configmap survived destroy: {check.stdout!r}"
     finally:
         target.teardown()
 
@@ -296,27 +304,47 @@ def test_gpu_substrate_provisions_cluster_with_nvidia_gpu_extended_resource():
         assert target.kind == "kubeconfig"
 
         # Verify the Extended Resource is now schedulable on the node.
-        out = subprocess.run(
-            [
-                "kubectl", "--kubeconfig", target.endpoint,
-                "--insecure-skip-tls-verify",
-                "get", "nodes",
-                "-o", r"jsonpath={.items[0].status.allocatable.nvidia\.com/gpu}",
-            ],
-            capture_output=True, check=True, timeout=15,
-        ).stdout.decode().strip()
+        out = (
+            subprocess.run(
+                [
+                    "kubectl",
+                    "--kubeconfig",
+                    target.endpoint,
+                    "--insecure-skip-tls-verify",
+                    "get",
+                    "nodes",
+                    "-o",
+                    r"jsonpath={.items[0].status.allocatable.nvidia\.com/gpu}",
+                ],
+                capture_output=True,
+                check=True,
+                timeout=15,
+            )
+            .stdout.decode()
+            .strip()
+        )
         assert out == "1", f"expected nvidia.com/gpu=1 in node allocatable, got {out!r}"
 
         # Confirm capacity too (Extended Resources mirror across both fields).
-        capacity_out = subprocess.run(
-            [
-                "kubectl", "--kubeconfig", target.endpoint,
-                "--insecure-skip-tls-verify",
-                "get", "nodes",
-                "-o", r"jsonpath={.items[0].status.capacity.nvidia\.com/gpu}",
-            ],
-            capture_output=True, check=True, timeout=15,
-        ).stdout.decode().strip()
+        capacity_out = (
+            subprocess.run(
+                [
+                    "kubectl",
+                    "--kubeconfig",
+                    target.endpoint,
+                    "--insecure-skip-tls-verify",
+                    "get",
+                    "nodes",
+                    "-o",
+                    r"jsonpath={.items[0].status.capacity.nvidia\.com/gpu}",
+                ],
+                capture_output=True,
+                check=True,
+                timeout=15,
+            )
+            .stdout.decode()
+            .strip()
+        )
         assert capacity_out == "1", f"expected nvidia.com/gpu=1 in node capacity, got {capacity_out!r}"
     finally:
         target.teardown()
@@ -367,18 +395,38 @@ def test_runtime_check_twice_and_hash_against_real_fpga_cluster(monkeypatch):
     try:
         # Get the k3s container ID from the kubeconfig path's parent dir naming convention,
         # then import the local image into containerd.
-        ps = subprocess.run(
-            ["docker", "ps", "--filter", "ancestor=" + K3S_IMAGE,
-             "--filter", "publish=16454", "--format", "{{.ID}}"],
-            capture_output=True, check=True, timeout=10,
-        ).stdout.decode().strip().split("\n")[0]
+        ps = (
+            subprocess.run(
+                [
+                    "docker",
+                    "ps",
+                    "--filter",
+                    "ancestor=" + K3S_IMAGE,
+                    "--filter",
+                    "publish=16454",
+                    "--format",
+                    "{{.ID}}",
+                ],
+                capture_output=True,
+                check=True,
+                timeout=10,
+            )
+            .stdout.decode()
+            .strip()
+            .split("\n")[0]
+        )
         save = subprocess.run(
             ["docker", "save", FPGA_IVERILOG_IMAGE],
-            capture_output=True, check=True, timeout=60,
+            capture_output=True,
+            check=True,
+            timeout=60,
         )
         subprocess.run(
             ["docker", "exec", "-i", ps, "ctr", "-n", "k8s.io", "images", "import", "-"],
-            input=save.stdout, capture_output=True, check=True, timeout=120,
+            input=save.stdout,
+            capture_output=True,
+            check=True,
+            timeout=120,
         )
 
         # Reuse the already-imaged cluster — pass the probe inside
@@ -404,9 +452,9 @@ def test_runtime_check_twice_and_hash_against_real_fpga_cluster(monkeypatch):
             f"run1:\n{logs_1['iverilog-boot-flow']}\n"
             f"run2:\n{logs_2['iverilog-boot-flow']}"
         )
-        assert "DONE" in logs_1["iverilog-boot-flow"], (
-            f"expected DONE marker in iverilog output, got:\n{logs_1['iverilog-boot-flow']}"
-        )
+        assert (
+            "DONE" in logs_1["iverilog-boot-flow"]
+        ), f"expected DONE marker in iverilog output, got:\n{logs_1['iverilog-boot-flow']}"
     finally:
         target.teardown()
 
@@ -414,23 +462,32 @@ def test_runtime_check_twice_and_hash_against_real_fpga_cluster(monkeypatch):
 def _capture_cxl_guest_output(container_name: str, deadline_s: int = 120) -> str:
     """Run the CXL guest once and capture the `cxl list -v` block."""
     subprocess.run(
-        ["docker", "run", "--platform", "linux/amd64", "-d",
-         "--name", container_name, CXL_QEMU_IMAGE],
-        capture_output=True, check=True, timeout=30,
+        ["docker", "run", "--platform", "linux/amd64", "-d", "--name", container_name, CXL_QEMU_IMAGE],
+        capture_output=True,
+        check=True,
+        timeout=30,
     )
     try:
         deadline = time.monotonic() + deadline_s
         while time.monotonic() < deadline:
-            status = subprocess.run(
-                ["docker", "inspect", "-f", "{{.State.Status}}", container_name],
-                capture_output=True, check=True, timeout=10,
-            ).stdout.decode().strip()
+            status = (
+                subprocess.run(
+                    ["docker", "inspect", "-f", "{{.State.Status}}", container_name],
+                    capture_output=True,
+                    check=True,
+                    timeout=10,
+                )
+                .stdout.decode()
+                .strip()
+            )
             if status == "exited":
                 break
             time.sleep(2)
         logs = subprocess.run(
             ["docker", "logs", container_name],
-            capture_output=True, check=True, timeout=15,
+            capture_output=True,
+            check=True,
+            timeout=15,
         ).stdout.decode()
     finally:
         subprocess.run(["docker", "rm", "-f", container_name], capture_output=True, timeout=30)
@@ -465,11 +522,7 @@ def test_cxl_substrate_twice_and_hash_against_real_qemu_emulation():
     cxl_1 = _capture_cxl_guest_output("act-cxl-r1", deadline_s=120)
     cxl_2 = _capture_cxl_guest_output("act-cxl-r2", deadline_s=120)
 
-    assert cxl_1 == cxl_2, (
-        "CXL guest output diverged across runs:\n"
-        f"run1:\n{cxl_1}\n"
-        f"run2:\n{cxl_2}\n"
-    )
+    assert cxl_1 == cxl_2, "CXL guest output diverged across runs:\n" f"run1:\n{cxl_1}\n" f"run2:\n{cxl_2}\n"
     assert "decoder0.0" in cxl_1, f"expected CXL decoder0.0 in guest output, got:\n{cxl_1}"
     assert "volatile_capable" in cxl_1, f"expected volatile_capable in topology, got:\n{cxl_1}"
 
@@ -518,18 +571,38 @@ def test_runtime_check_twice_and_hash_against_real_cxl_cluster(monkeypatch):
         # Pod can pull it. (The k3s container may be linux/arm64 on Apple
         # Silicon; containerd accepts amd64 images and runs them via
         # Rosetta translation inside Docker Desktop.)
-        ps = subprocess.run(
-            ["docker", "ps", "--filter", "ancestor=" + K3S_IMAGE,
-             "--filter", "publish=16455", "--format", "{{.ID}}"],
-            capture_output=True, check=True, timeout=10,
-        ).stdout.decode().strip().split("\n")[0]
+        ps = (
+            subprocess.run(
+                [
+                    "docker",
+                    "ps",
+                    "--filter",
+                    "ancestor=" + K3S_IMAGE,
+                    "--filter",
+                    "publish=16455",
+                    "--format",
+                    "{{.ID}}",
+                ],
+                capture_output=True,
+                check=True,
+                timeout=10,
+            )
+            .stdout.decode()
+            .strip()
+            .split("\n")[0]
+        )
         save = subprocess.run(
             ["docker", "save", CXL_QEMU_IMAGE],
-            capture_output=True, check=True, timeout=120,
+            capture_output=True,
+            check=True,
+            timeout=120,
         )
         subprocess.run(
             ["docker", "exec", "-i", ps, "ctr", "-n", "k8s.io", "images", "import", "-"],
-            input=save.stdout, capture_output=True, check=True, timeout=180,
+            input=save.stdout,
+            capture_output=True,
+            check=True,
+            timeout=180,
         )
 
         # Probe runs between up and destroy so the workload Pod logs survive.
@@ -553,8 +626,8 @@ def test_runtime_check_twice_and_hash_against_real_cxl_cluster(monkeypatch):
             f"run1 last lines:\n{logs_1['cxl-boot-flow'][-2000:]}\n"
             f"run2 last lines:\n{logs_2['cxl-boot-flow'][-2000:]}"
         )
-        assert "decoder0.0" in logs_1["cxl-boot-flow"], (
-            f"expected CXL decoder0.0 in guest output, got:\n{logs_1['cxl-boot-flow'][-2000:]}"
-        )
+        assert (
+            "decoder0.0" in logs_1["cxl-boot-flow"]
+        ), f"expected CXL decoder0.0 in guest output, got:\n{logs_1['cxl-boot-flow'][-2000:]}"
     finally:
         target.teardown()

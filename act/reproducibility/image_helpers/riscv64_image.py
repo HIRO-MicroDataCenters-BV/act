@@ -51,24 +51,30 @@ class QemuLaunchConfig:
 
 
 def build_qemu_command(cfg: QemuLaunchConfig) -> list[str]:
-    netdev = (
-        "user,id=net0,"
-        f"hostfwd=tcp::{cfg.ssh_host_port}-:22,"
-        f"hostfwd=tcp::{cfg.api_host_port}-:6443"
-    )
+    netdev = "user,id=net0," f"hostfwd=tcp::{cfg.ssh_host_port}-:22," f"hostfwd=tcp::{cfg.api_host_port}-:6443"
     return [
         "qemu-system-riscv64",
-        "-M", "virt",
-        "-cpu", "rv64",
-        "-smp", str(cfg.cpus),
-        "-m", str(cfg.memory_mib),
+        "-M",
+        "virt",
+        "-cpu",
+        "rv64",
+        "-smp",
+        str(cfg.cpus),
+        "-m",
+        str(cfg.memory_mib),
         "-nographic",
-        "-bios", "default",
-        "-kernel", "default",
-        "-drive", f"file={cfg.disk_path},format=qcow2,if=virtio",
-        "-drive", f"file={cfg.seed_iso_path},format=raw,if=virtio",
-        "-device", "virtio-net-device,netdev=net0",
-        "-netdev", netdev,
+        "-bios",
+        "default",
+        "-kernel",
+        "default",
+        "-drive",
+        f"file={cfg.disk_path},format=qcow2,if=virtio",
+        "-drive",
+        f"file={cfg.seed_iso_path},format=raw,if=virtio",
+        "-device",
+        "virtio-net-device,netdev=net0",
+        "-netdev",
+        netdev,
     ]
 
 
@@ -104,15 +110,9 @@ runcmd:
 """
 
 
-def render_cloud_init_user_data(
-    *, ssh_authorized_key: str, k3s_tarball_url: str, k3s_tarball_sha256: str
-) -> str:
-    if len(k3s_tarball_sha256) != 64 or not all(
-        c in "0123456789abcdef" for c in k3s_tarball_sha256.lower()
-    ):
-        raise ValueError(
-            f"k3s_tarball_sha256 must be a 64-char hex digest; got {k3s_tarball_sha256!r}"
-        )
+def render_cloud_init_user_data(*, ssh_authorized_key: str, k3s_tarball_url: str, k3s_tarball_sha256: str) -> str:
+    if len(k3s_tarball_sha256) != 64 or not all(c in "0123456789abcdef" for c in k3s_tarball_sha256.lower()):
+        raise ValueError(f"k3s_tarball_sha256 must be a 64-char hex digest; got {k3s_tarball_sha256!r}")
     return _USER_DATA_TEMPLATE.format(
         ssh_authorized_key=ssh_authorized_key,
         k3s_tarball_url=k3s_tarball_url,
@@ -135,7 +135,5 @@ def ensure_image(image: GuestImage, cache_dir: Path) -> Path:
     digest = _sha256_file(target)
     if digest != image.sha256:
         target.unlink(missing_ok=True)
-        raise RuntimeError(
-            f"sha256 mismatch for {image.filename}: expected {image.sha256}, got {digest}"
-        )
+        raise RuntimeError(f"sha256 mismatch for {image.filename}: expected {image.sha256}, got {digest}")
     return target

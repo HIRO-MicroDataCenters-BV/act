@@ -8,8 +8,6 @@ nixos-compose or Pulumi.
 import json
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from act.reproducibility import (
     RuntimeCheckFailure,
     RuntimeCheckResult,
@@ -27,8 +25,10 @@ def _spec() -> TargetSpec:
 
 def _argv(*extra: str) -> list[str]:
     return [
-        "--program", CAPE_PROGRAM,
-        "--schema", CAPE_SCHEMA,
+        "--program",
+        CAPE_PROGRAM,
+        "--schema",
+        CAPE_SCHEMA,
         *extra,
     ]
 
@@ -98,11 +98,15 @@ def test_cli_writes_runtime_check_to_artefact(tmp_path):
     rc.run.return_value = fake_result
 
     with patch("act.run.RuntimeCheck", return_value=rc):
-        exit_code = main(_argv(
-            "--check-deployment-runtime",
-            "--output", str(tmp_path),
-            "--log-level", "ERROR",
-        ))
+        exit_code = main(
+            _argv(
+                "--check-deployment-runtime",
+                "--output",
+                str(tmp_path),
+                "--log-level",
+                "ERROR",
+            )
+        )
 
     assert exit_code == 0
     artefacts = list(tmp_path.glob("act_run_*.json"))

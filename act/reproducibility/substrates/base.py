@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from typing import Callable, ClassVar, Literal, Optional
+
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Callable, ClassVar, Literal, Optional
 
 ProvisionedKind = Literal["kubeconfig", "ssh", "http"]
 

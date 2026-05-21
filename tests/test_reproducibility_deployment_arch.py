@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 import pytest
 
-from act.reproducibility import DeploymentArchCheck, DeploymentArchResult, ImageBootFailure
+from act.reproducibility import DeploymentArchCheck, DeploymentArchResult
 from act.reproducibility.deployment_arch import IMAGE_EXTRACTORS, _extract_k8s_containers
 
 K8S_NGINX_PROGRAM = "tests/fixtures/kubernetes/nginx_deployment.py"

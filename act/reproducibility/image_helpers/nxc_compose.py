@@ -45,11 +45,8 @@ _K8S_COMPOSITION_TEMPLATE = """\
 def render_k8s_composition(arch: str, flavour: str = "docker") -> str:
     if arch not in SUPPORTED_ARCHES:
         raise NotImplementedError(
-            f"no k8s composition template for arch {arch!r}; "
-            f"expected one of {sorted(SUPPORTED_ARCHES)}"
+            f"no k8s composition template for arch {arch!r}; " f"expected one of {sorted(SUPPORTED_ARCHES)}"
         )
     if flavour not in SUPPORTED_FLAVOURS:
-        raise ValueError(
-            f"unsupported flavour {flavour!r}; expected one of {sorted(SUPPORTED_FLAVOURS)}"
-        )
+        raise ValueError(f"unsupported flavour {flavour!r}; expected one of {sorted(SUPPORTED_FLAVOURS)}")
     return _K8S_COMPOSITION_TEMPLATE.format(arch=arch, flavour=flavour)

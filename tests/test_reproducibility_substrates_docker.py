@@ -1,6 +1,5 @@
 import shutil
 import subprocess
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -139,7 +138,7 @@ def test_provision_teardown_stops_container(monkeypatch, tmp_path, amd64_substra
 
     pre_teardown = list(calls)
     target.teardown()
-    post_teardown = calls[len(pre_teardown):]
+    post_teardown = calls[len(pre_teardown) :]
 
     stop_calls = [c for c in post_teardown if c[:2] == ["docker", "stop"]]
     assert len(stop_calls) == 1
@@ -183,7 +182,9 @@ def test_provision_passes_extra_docker_args_and_command(monkeypatch, tmp_path):
 
 def test_extra_docker_args_default_to_empty():
     sub = DockerSubstrate(
-        image="x", platform="linux/amd64", spec_arch="x86_64-linux",
+        image="x",
+        platform="linux/amd64",
+        spec_arch="x86_64-linux",
     )
     assert sub.extra_docker_args == ()
     assert sub.command == ()

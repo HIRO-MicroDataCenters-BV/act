@@ -71,7 +71,9 @@ def _ensure_amd64_image() -> None:
     try:
         result = subprocess.run(
             ["docker", "image", "inspect", IMAGE_TAG_AMD64],
-            capture_output=True, check=False, timeout=10,
+            capture_output=True,
+            check=False,
+            timeout=10,
         )
         if result.returncode == 0:
             return
@@ -92,11 +94,19 @@ def test_rendered_composition_is_a_valid_flake(tmp_path):
 
     result = subprocess.run(
         [
-            "docker", "run", "--rm",
-            "-v", f"{tmp_path}:/work",
-            "-w", "/work",
+            "docker",
+            "run",
+            "--rm",
+            "-v",
+            f"{tmp_path}:/work",
+            "-w",
+            "/work",
             IMAGE_TAG,
-            "nix", "flake", "show", "path:/work", "--no-write-lock-file",
+            "nix",
+            "flake",
+            "show",
+            "path:/work",
+            "--no-write-lock-file",
         ],
         capture_output=True,
         check=True,
@@ -150,11 +160,17 @@ def test_nxc_accepts_init_build_pipeline_against_rendered_composition(tmp_path):
 
     result = subprocess.run(
         [
-            "docker", "run", "--rm",
-            "-v", f"{tmp_path}:/work",
-            "-w", "/work",
+            "docker",
+            "run",
+            "--rm",
+            "-v",
+            f"{tmp_path}:/work",
+            "-w",
+            "/work",
             IMAGE_TAG,
-            "bash", "-c", script,
+            "bash",
+            "-c",
+            script,
         ],
         capture_output=True,
         timeout=300,
@@ -163,9 +179,7 @@ def test_nxc_accepts_init_build_pipeline_against_rendered_composition(tmp_path):
     out = result.stdout.decode() + result.stderr.decode()
     assert "INIT_FAILED" not in out, f"nxc init rejected the composition:\n{out}"
     assert "No such option" not in out, f"nxc rejected a flag we passed:\n{out}"
-    assert "Missing nixos composition environment" not in out, (
-        f"nxc build ran without nxc init first:\n{out}"
-    )
+    assert "Missing nixos composition environment" not in out, f"nxc build ran without nxc init first:\n{out}"
 
 
 def test_full_nxc_build_completes_for_x86_64_under_emulation(tmp_path):
@@ -198,13 +212,21 @@ def test_full_nxc_build_completes_for_x86_64_under_emulation(tmp_path):
 
     result = subprocess.run(
         [
-            "docker", "run", "--rm",
-            "--platform", "linux/amd64",
-            "-v", f"{tmp_path}:/work",
-            "-v", "/var/run/docker.sock:/var/run/docker.sock",
-            "-w", "/work",
+            "docker",
+            "run",
+            "--rm",
+            "--platform",
+            "linux/amd64",
+            "-v",
+            f"{tmp_path}:/work",
+            "-v",
+            "/var/run/docker.sock:/var/run/docker.sock",
+            "-w",
+            "/work",
             IMAGE_TAG_AMD64,
-            "bash", "-c", script,
+            "bash",
+            "-c",
+            script,
         ],
         capture_output=True,
         timeout=1800,
@@ -217,10 +239,8 @@ def test_full_nxc_build_completes_for_x86_64_under_emulation(tmp_path):
         f"--- stderr (tail) ---\n{result.stderr.decode()[-2000:]}"
     )
     # The build symlink convention is `nxc/build/<composition-name>::<flavour>`.
-    assert "::docker" in out, (
-        f"nxc build did not produce a docker-flavoured symlink:\n{out[-1500:]}"
-    )
+    assert "::docker" in out, f"nxc build did not produce a docker-flavoured symlink:\n{out[-1500:]}"
     # The build must invoke docker to materialise the image layer.
-    assert "Docker Image loaded" in out or "Build completed" in out, (
-        f"nxc build did not reach docker-image-load step:\n{out[-1500:]}"
-    )
+    assert (
+        "Docker Image loaded" in out or "Build completed" in out
+    ), f"nxc build did not reach docker-image-load step:\n{out[-1500:]}"

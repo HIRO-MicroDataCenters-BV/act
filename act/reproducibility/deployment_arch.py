@@ -5,11 +5,12 @@ Answers: "Do all images this deployment references actually start under linux/<a
 
 from __future__ import annotations
 
+from typing import Callable, Literal
+
 import shutil
 import subprocess
 import time
 from dataclasses import dataclass, field
-from typing import Callable, Literal
 
 from act.core.mock_generator import MockGenerator
 
@@ -52,18 +53,10 @@ def _extract_k8s_containers(outputs: dict, container_path: list[str]) -> list[st
 
 IMAGE_EXTRACTORS: dict[str, Callable[[dict], list[str]]] = {
     "kubernetes:core/v1:Pod": lambda o: _extract_k8s_containers(o, ["spec", "containers"]),
-    "kubernetes:apps/v1:Deployment": lambda o: _extract_k8s_containers(
-        o, ["spec", "template", "spec", "containers"]
-    ),
-    "kubernetes:apps/v1:StatefulSet": lambda o: _extract_k8s_containers(
-        o, ["spec", "template", "spec", "containers"]
-    ),
-    "kubernetes:apps/v1:DaemonSet": lambda o: _extract_k8s_containers(
-        o, ["spec", "template", "spec", "containers"]
-    ),
-    "kubernetes:batch/v1:Job": lambda o: _extract_k8s_containers(
-        o, ["spec", "template", "spec", "containers"]
-    ),
+    "kubernetes:apps/v1:Deployment": lambda o: _extract_k8s_containers(o, ["spec", "template", "spec", "containers"]),
+    "kubernetes:apps/v1:StatefulSet": lambda o: _extract_k8s_containers(o, ["spec", "template", "spec", "containers"]),
+    "kubernetes:apps/v1:DaemonSet": lambda o: _extract_k8s_containers(o, ["spec", "template", "spec", "containers"]),
+    "kubernetes:batch/v1:Job": lambda o: _extract_k8s_containers(o, ["spec", "template", "spec", "containers"]),
 }
 
 
@@ -89,7 +82,11 @@ class DeploymentArchCheck:
                     ImageBootFailure(
                         image=img,
                         reason="docker_missing",
-                        detail="docker binary not found; install docker + run `docker run --privileged --rm tonistiigi/binfmt --install all` to enable QEMU emulation",
+                        detail=(
+                            "docker binary not found; install docker + run "
+                            "`docker run --privileged --rm tonistiigi/binfmt --install all` "
+                            "to enable QEMU emulation"
+                        ),
                     )
                     for img in images
                 ],
@@ -143,7 +140,5 @@ class DeploymentArchCheck:
         if result.returncode == 0:
             return None
         stderr = result.stderr.decode(errors="replace").strip()
-        reason: ImageBootReason = (
-            "no_arch_variant" if "no matching manifest" in stderr.lower() else "boot_failed"
-        )
+        reason: ImageBootReason = "no_arch_variant" if "no matching manifest" in stderr.lower() else "boot_failed"
         return ImageBootFailure(image=image, reason=reason, detail=stderr)

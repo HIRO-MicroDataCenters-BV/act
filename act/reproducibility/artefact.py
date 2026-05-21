@@ -7,6 +7,8 @@ timestamp.
 
 from __future__ import annotations
 
+from typing import Optional
+
 import dataclasses
 import importlib.metadata
 import json
@@ -14,7 +16,6 @@ import os
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
 
 from act.reproducibility.deployment_arch import DeploymentArchResult
 from act.reproducibility.plan_check import PlanCheckResult

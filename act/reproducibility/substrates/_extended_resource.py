@@ -37,19 +37,29 @@ def patch_node_extended_resource(
     # JSON Patch encodes "/" inside the resource name as "~1".
     encoded = resource_name.replace("/", "~1")
     value = str(count)
-    patch = json.dumps([
-        {"op": "add", "path": f"/status/capacity/{encoded}", "value": value},
-        {"op": "add", "path": f"/status/allocatable/{encoded}", "value": value},
-    ])
+    patch = json.dumps(
+        [
+            {"op": "add", "path": f"/status/capacity/{encoded}", "value": value},
+            {"op": "add", "path": f"/status/allocatable/{encoded}", "value": value},
+        ]
+    )
     subprocess.run(
         [
-            "kubectl", "--kubeconfig", kubeconfig,
+            "kubectl",
+            "--kubeconfig",
+            kubeconfig,
             "--insecure-skip-tls-verify",
-            "patch", "node", node,
-            "--subresource=status", "--type=json",
-            "-p", patch,
+            "patch",
+            "node",
+            node,
+            "--subresource=status",
+            "--type=json",
+            "-p",
+            patch,
         ],
-        capture_output=True, check=True, timeout=30,
+        capture_output=True,
+        check=True,
+        timeout=30,
     )
 
 
@@ -59,12 +69,18 @@ def _wait_for_node(kubeconfig: str, timeout: int) -> str:
     while time.monotonic() < deadline:
         result = subprocess.run(
             [
-                "kubectl", "--kubeconfig", kubeconfig,
+                "kubectl",
+                "--kubeconfig",
+                kubeconfig,
                 "--insecure-skip-tls-verify",
-                "get", "nodes",
-                "-o", "jsonpath={.items[0].metadata.name}",
+                "get",
+                "nodes",
+                "-o",
+                "jsonpath={.items[0].metadata.name}",
             ],
-            capture_output=True, check=False, timeout=10,
+            capture_output=True,
+            check=False,
+            timeout=10,
         )
         if result.returncode == 0:
             name = result.stdout.decode().strip()
@@ -73,6 +89,5 @@ def _wait_for_node(kubeconfig: str, timeout: int) -> str:
         last_err = result.stderr.decode().strip()
         time.sleep(2)
     raise TimeoutError(
-        f"kubectl get nodes did not return a registered node within "
-        f"{timeout}s (last stderr: {last_err!r})"
+        f"kubectl get nodes did not return a registered node within " f"{timeout}s (last stderr: {last_err!r})"
     )

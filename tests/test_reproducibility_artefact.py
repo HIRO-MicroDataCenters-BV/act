@@ -25,9 +25,7 @@ def _read_artefact(output_dir: str) -> dict:
 
 def test_write_returns_path_under_output_dir(tmp_path):
     plan = PlanCheck().run(CAPE_PROGRAM, CAPE_SCHEMA)
-    artefact = ReproducibilityArtefact(
-        program_path=CAPE_PROGRAM, schemas=[CAPE_SCHEMA], plan_check=plan
-    )
+    artefact = ReproducibilityArtefact(program_path=CAPE_PROGRAM, schemas=[CAPE_SCHEMA], plan_check=plan)
     path = write_artefact(artefact, str(tmp_path))
     assert path.startswith(str(tmp_path))
     assert os.path.basename(path).startswith("act_run_")
@@ -36,9 +34,7 @@ def test_write_returns_path_under_output_dir(tmp_path):
 
 def test_artefact_round_trips_plan_fields(tmp_path):
     plan = PlanCheck().run(CAPE_PROGRAM, CAPE_SCHEMA)
-    artefact = ReproducibilityArtefact(
-        program_path=CAPE_PROGRAM, schemas=[CAPE_SCHEMA], plan_check=plan
-    )
+    artefact = ReproducibilityArtefact(program_path=CAPE_PROGRAM, schemas=[CAPE_SCHEMA], plan_check=plan)
     write_artefact(artefact, str(tmp_path))
 
     parsed = _read_artefact(str(tmp_path))
@@ -79,9 +75,7 @@ def test_artefact_includes_deployment_arch_when_set(tmp_path):
 def test_write_creates_missing_directory(tmp_path):
     nested = tmp_path / "deep" / "nested" / "act_runs"
     plan = PlanCheck().run(CAPE_PROGRAM, CAPE_SCHEMA)
-    artefact = ReproducibilityArtefact(
-        program_path=CAPE_PROGRAM, schemas=[CAPE_SCHEMA], plan_check=plan
-    )
+    artefact = ReproducibilityArtefact(program_path=CAPE_PROGRAM, schemas=[CAPE_SCHEMA], plan_check=plan)
     path = write_artefact(artefact, str(nested))
     assert os.path.exists(path)
 
@@ -115,9 +109,7 @@ def test_artefact_round_trips_runtime_check(tmp_path):
 
 def test_artefact_runtime_check_absent_by_default(tmp_path):
     plan = PlanCheck().run(CAPE_PROGRAM, CAPE_SCHEMA)
-    artefact = ReproducibilityArtefact(
-        program_path=CAPE_PROGRAM, schemas=[CAPE_SCHEMA], plan_check=plan
-    )
+    artefact = ReproducibilityArtefact(program_path=CAPE_PROGRAM, schemas=[CAPE_SCHEMA], plan_check=plan)
     write_artefact(artefact, str(tmp_path))
     parsed = _read_artefact(str(tmp_path))
     assert parsed["runtime_check"] is None

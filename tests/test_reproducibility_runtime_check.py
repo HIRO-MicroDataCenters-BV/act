@@ -1,8 +1,6 @@
 import json
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from act.reproducibility.runtime_check import (
     PulumiUpOutcome,
     RuntimeCheck,
@@ -14,8 +12,7 @@ from act.reproducibility.runtime_check import (
     probe_k8s,
     run_pulumi_against,
 )
-from act.reproducibility.substrates.base import Substrate
-from act.reproducibility.substrates.base import ProvisionedTarget, TargetSpec
+from act.reproducibility.substrates.base import ProvisionedTarget, Substrate, TargetSpec
 
 
 def _mg_returning_types(types: dict[str, str]) -> MagicMock:
@@ -75,7 +72,7 @@ def test_spec_default_arch_when_no_node_selector():
 
 
 def test_spec_orchestrator_k8s_when_k8s_token_present():
-    plan = {"nginx": {}}
+    plan: dict = {"nginx": {}}
     mg = _mg_returning_types({"nginx": "kubernetes:core/v1:Pod"})
 
     spec = extract_target_spec(plan, mg)
@@ -84,7 +81,7 @@ def test_spec_orchestrator_k8s_when_k8s_token_present():
 
 
 def test_spec_orchestrator_none_for_cape_only_program():
-    plan = {"my-instance": {}}
+    plan: dict = {"my-instance": {}}
     mg = _mg_returning_types({"my-instance": "cape:compute:Instance"})
 
     spec = extract_target_spec(plan, mg)
@@ -391,8 +388,10 @@ def test_runtime_check_teardown_runs_on_pulumi_failure(tmp_path):
     sub = _FakeSubstrate(matches_fn=lambda s: True)
     failing_outcome = MagicMock(outputs={}, failure=RuntimeCheckFailure(stage="pulumi_up_failed", detail="boom"))
 
-    with patch("act.reproducibility.runtime_check.MockGenerator", autospec=True) as mg_cls, \
-         patch("act.reproducibility.runtime_check.run_pulumi_against", return_value=failing_outcome):
+    with (
+        patch("act.reproducibility.runtime_check.MockGenerator", autospec=True) as mg_cls,
+        patch("act.reproducibility.runtime_check.run_pulumi_against", return_value=failing_outcome),
+    ):
         mg = mg_cls.return_value
         mg.run_with_mocks.return_value = {"nginx": {}}
         mg.get_resource_type.return_value = "kubernetes:apps/v1:Deployment"
@@ -419,8 +418,10 @@ def test_runtime_check_uses_custom_probe_fn(tmp_path):
         probed = kwargs["probe_fn"](target.endpoint) if kwargs.get("probe_fn") else None
         return PulumiUpOutcome(outputs={}, failure=None, probed=probed)
 
-    with patch("act.reproducibility.runtime_check.MockGenerator", autospec=True) as mg_cls, \
-            patch("act.reproducibility.runtime_check.run_pulumi_against", side_effect=fake_run_pulumi_against):
+    with (
+        patch("act.reproducibility.runtime_check.MockGenerator", autospec=True) as mg_cls,
+        patch("act.reproducibility.runtime_check.run_pulumi_against", side_effect=fake_run_pulumi_against),
+    ):
         mg = mg_cls.return_value
         mg.run_with_mocks.return_value = {"nginx": {}}
         mg.get_resource_type.return_value = "kubernetes:apps/v1:Deployment"
@@ -440,10 +441,12 @@ def test_probe_k8s_with_workload_logs_waits_for_jobs_and_captures_logs():
     job_running = {"items": [{"status": {"succeeded": 0, "failed": 0}}]}
     job_done = {"items": [{"status": {"succeeded": 1}}]}
     base_state = {"items": [{"kind": "ConfigMap", "metadata": {"name": "fpga-rtl"}}]}
-    pod_list = {"items": [
-        {"metadata": {"name": "iverilog-boot-flow-7fkx2"}},
-        {"metadata": {"name": "coredns-abc12"}},
-    ]}
+    pod_list = {
+        "items": [
+            {"metadata": {"name": "iverilog-boot-flow-7fkx2"}},
+            {"metadata": {"name": "coredns-abc12"}},
+        ]
+    }
 
     calls = []
 

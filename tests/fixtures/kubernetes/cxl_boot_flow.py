@@ -30,15 +30,17 @@ job = Job(
             "spec": {
                 "restartPolicy": "Never",
                 "securityContext": {"seccompProfile": {"type": "Unconfined"}},
-                "containers": [{
-                    "name": "qemu-cxl",
-                    "image": IMAGE,
-                    "imagePullPolicy": "IfNotPresent",
-                    "resources": {
-                        "limits": {"cape.eu/cxl": "1"},
-                        "requests": {"cape.eu/cxl": "1"},
-                    },
-                }],
+                "containers": [
+                    {
+                        "name": "qemu-cxl",
+                        "image": IMAGE,
+                        "imagePullPolicy": "IfNotPresent",
+                        "resources": {
+                            "limits": {"cape.eu/cxl": "1"},
+                            "requests": {"cape.eu/cxl": "1"},
+                        },
+                    }
+                ],
             },
         },
     },

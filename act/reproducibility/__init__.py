@@ -1,4 +1,5 @@
-from act.reproducibility.artefact import ReproducibilityArtefact, write as write_artefact
+from act.reproducibility.artefact import ReproducibilityArtefact
+from act.reproducibility.artefact import write as write_artefact
 from act.reproducibility.deployment_arch import (
     DeploymentArchCheck,
     DeploymentArchResult,
@@ -12,12 +13,12 @@ from act.reproducibility.runtime_check import (
     probe_k8s,
     probe_k8s_with_workload_logs,
 )
+from act.reproducibility.substrates.accelerator import AcceleratorSubstrate
 from act.reproducibility.substrates.base import (
     ProvisionedTarget,
     Substrate,
     TargetSpec,
 )
-from act.reproducibility.substrates.accelerator import AcceleratorSubstrate
 from act.reproducibility.substrates.cxl import CxlSubstrate
 from act.reproducibility.substrates.docker import DockerSubstrate
 from act.reproducibility.substrates.fpga import FpgaSubstrate

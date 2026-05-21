@@ -61,12 +61,13 @@ def test_provision_patches_node_status_with_cxl_extended_resource(cxl_substrate)
         teardown=MagicMock(),
     )
 
-    with patch(
-        "act.reproducibility.substrates.accelerator.DockerSubstrate.provision",
-        return_value=parent_target,
-    ) as mock_parent, patch(
-        "act.reproducibility.substrates._extended_resource.subprocess.run"
-    ) as mock_run:
+    with (
+        patch(
+            "act.reproducibility.substrates.accelerator.DockerSubstrate.provision",
+            return_value=parent_target,
+        ) as mock_parent,
+        patch("act.reproducibility.substrates._extended_resource.subprocess.run") as mock_run,
+    ):
         mock_run.side_effect = [
             MagicMock(stdout=b"k3s-node-0", returncode=0),
             MagicMock(stdout=b"", returncode=0),
@@ -94,12 +95,15 @@ def test_provision_calls_teardown_when_patch_fails(cxl_substrate):
         teardown=teardown,
     )
 
-    with patch(
-        "act.reproducibility.substrates.accelerator.DockerSubstrate.provision",
-        return_value=parent_target,
-    ), patch(
-        "act.reproducibility.substrates._extended_resource.subprocess.run",
-        side_effect=subprocess.CalledProcessError(1, "kubectl"),
+    with (
+        patch(
+            "act.reproducibility.substrates.accelerator.DockerSubstrate.provision",
+            return_value=parent_target,
+        ),
+        patch(
+            "act.reproducibility.substrates._extended_resource.subprocess.run",
+            side_effect=subprocess.CalledProcessError(1, "kubectl"),
+        ),
     ):
         with pytest.raises(subprocess.CalledProcessError):
             cxl_substrate.provision(TargetSpec(arch="x86_64-linux", orchestrator="k8s", features=["cxl"]))

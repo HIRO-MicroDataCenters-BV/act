@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Any, Literal, Optional
+
 import hashlib
 import json
 import re
@@ -11,7 +13,6 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, Optional
 
 from pulumi import automation
 
@@ -26,17 +27,19 @@ if TYPE_CHECKING:  # pragma: no cover
     pass
 
 
-VOLATILE_KEYS: frozenset[str] = frozenset({
-    "creationTimestamp",
-    "resourceVersion",
-    "uid",
-    "generation",
-    "selfLink",
-    "managedFields",
-    "lastTransitionTime",
-    "startTime",
-    "completionTime",
-})
+VOLATILE_KEYS: frozenset[str] = frozenset(
+    {
+        "creationTimestamp",
+        "resourceVersion",
+        "uid",
+        "generation",
+        "selfLink",
+        "managedFields",
+        "lastTransitionTime",
+        "startTime",
+        "completionTime",
+    }
+)
 
 VOLATILE_VALUE_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"pid:\s*\d+", flags=re.IGNORECASE),
@@ -205,12 +208,14 @@ def _mentions_cxl(outputs: dict) -> bool:
 # create timing-dependent diffs between runs (e.g. `kube-root-ca.crt`
 # is created by kube-controller-manager shortly after the namespace
 # exists; a probe that lands before its creation sees one fewer item).
-_SYSTEM_NAMESPACE_OBJECTS: frozenset[tuple[str, str]] = frozenset({
-    ("Service", "kubernetes"),
-    ("ConfigMap", "kube-root-ca.crt"),
-    ("Endpoints", "kubernetes"),
-    ("EndpointSlice", "kubernetes"),
-})
+_SYSTEM_NAMESPACE_OBJECTS: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("Service", "kubernetes"),
+        ("ConfigMap", "kube-root-ca.crt"),
+        ("Endpoints", "kubernetes"),
+        ("EndpointSlice", "kubernetes"),
+    }
+)
 
 
 def _is_system_managed(item: dict) -> bool:
@@ -291,9 +296,10 @@ def _wait_for_jobs(kubeconfig: str, namespace: str, timeout: int) -> None:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         result = subprocess.run(
-            ["kubectl", "--kubeconfig", kubeconfig, "get", "jobs",
-             "-n", namespace, "-o", "json"],
-            capture_output=True, check=True, timeout=15,
+            ["kubectl", "--kubeconfig", kubeconfig, "get", "jobs", "-n", namespace, "-o", "json"],
+            capture_output=True,
+            check=True,
+            timeout=15,
         )
         items = json.loads(result.stdout).get("items", [])
         if not items:
@@ -315,9 +321,10 @@ def _wait_for_jobs(kubeconfig: str, namespace: str, timeout: int) -> None:
 def _capture_workload_logs(kubeconfig: str, namespace: str, timeout: int) -> dict:
     """Collect logs from non-system pods in the namespace, keyed by stable prefix."""
     pod_list = subprocess.run(
-        ["kubectl", "--kubeconfig", kubeconfig, "get", "pods",
-         "-n", namespace, "-o", "json"],
-        capture_output=True, check=True, timeout=15,
+        ["kubectl", "--kubeconfig", kubeconfig, "get", "pods", "-n", namespace, "-o", "json"],
+        capture_output=True,
+        check=True,
+        timeout=15,
     )
     pods = json.loads(pod_list.stdout).get("items", [])
     logs: dict[str, str] = {}
@@ -326,9 +333,10 @@ def _capture_workload_logs(kubeconfig: str, namespace: str, timeout: int) -> dic
         if not name or name.startswith(_SYSTEM_POD_PREFIXES):
             continue
         result = subprocess.run(
-            ["kubectl", "--kubeconfig", kubeconfig, "logs", name,
-             "-n", namespace, "--all-containers=true"],
-            capture_output=True, check=False, timeout=timeout,
+            ["kubectl", "--kubeconfig", kubeconfig, "logs", name, "-n", namespace, "--all-containers=true"],
+            capture_output=True,
+            check=False,
+            timeout=timeout,
         )
         if result.returncode == 0:
             logs[_strip_pod_suffix(name)] = result.stdout.decode()
@@ -336,7 +344,9 @@ def _capture_workload_logs(kubeconfig: str, namespace: str, timeout: int) -> dic
 
 
 def probe_k8s_with_workload_logs(
-    target, namespace: str = "default", timeout: int = 60,
+    target,
+    namespace: str = "default",
+    timeout: int = 60,
 ) -> dict:
     """Like `probe_k8s` but also waits for Jobs and captures workload pod logs.
 
@@ -363,11 +373,7 @@ def _strip_volatile_values(value: str) -> str:
 
 def normalise_output(value: Any) -> Any:
     if isinstance(value, dict):
-        return {
-            k: normalise_output(v)
-            for k, v in value.items()
-            if k not in VOLATILE_KEYS
-        }
+        return {k: normalise_output(v) for k, v in value.items() if k not in VOLATILE_KEYS}
     if isinstance(value, list):
         return [normalise_output(v) for v in value]
     if isinstance(value, str):
