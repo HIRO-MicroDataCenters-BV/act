@@ -29,6 +29,17 @@ jobs:
     - name: Install dependencies
       run: uv sync --frozen --dev --extra fuzzing
 
+    - name: Install pip in the venv (Pulumi Python runtime uses pip for dep discovery)
+      run: uv pip install pip
+
+    - name: Download Kubernetes provider schema
+      run: |
+        mkdir -p examples/kubernetes
+        pulumi package get-schema kubernetes > examples/kubernetes/schema.json
+
+    - name: Register QEMU binfmt for cross-arch image checks
+      run: docker run --privileged --rm tonistiigi/binfmt --install all
+
     - name: isort
       run: uv run isort act/ tests/ --check --diff
 

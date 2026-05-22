@@ -58,3 +58,6 @@ warn_unused_configs = true
 testpaths = ["tests"]
 norecursedirs = ["hooks", "*.egg", ".eggs", "dist", "build", "docs", ".tox", ".git", "__pycache__", ".hypothesis", ".venv"]
 addopts = ["--strict-markers", "--tb=short"]
+markers = [
+    "image_build: image-build pipeline validation (opt in via ACT_RUN_IMAGE_BUILD_TESTS=1)",
+]
