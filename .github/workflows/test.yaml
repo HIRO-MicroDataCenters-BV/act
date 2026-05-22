@@ -29,6 +29,9 @@ jobs:
     - name: Install dependencies
       run: uv sync --frozen --dev --extra fuzzing
 
+    - name: Install pip in the venv (Pulumi Python runtime uses pip for dep discovery)
+      run: uv pip install pip
+
     - name: Download Kubernetes provider schema
       run: |
         mkdir -p examples/kubernetes
