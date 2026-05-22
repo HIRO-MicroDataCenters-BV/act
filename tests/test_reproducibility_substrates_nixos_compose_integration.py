@@ -12,6 +12,7 @@ Skipped automatically when docker isn't available so unit-test suites stay
 green on contributor machines without docker.
 """
 
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -48,10 +49,17 @@ def _image_present() -> bool:
     return result.returncode == 0
 
 
-pytestmark = pytest.mark.skipif(
-    not _docker_available(),
-    reason="docker daemon not available; opt in by starting docker and rebuilding",
-)
+pytestmark = [
+    pytest.mark.image_build,
+    pytest.mark.skipif(
+        os.environ.get("ACT_RUN_IMAGE_BUILD_TESTS") != "1",
+        reason="image-build pipeline test; set ACT_RUN_IMAGE_BUILD_TESTS=1 to enable",
+    ),
+    pytest.mark.skipif(
+        not _docker_available(),
+        reason="docker daemon not available; opt in by starting docker and rebuilding",
+    ),
+]
 
 
 def _ensure_image() -> None:

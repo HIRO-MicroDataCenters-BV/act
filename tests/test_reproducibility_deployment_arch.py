@@ -8,7 +8,6 @@ from act.reproducibility import DeploymentArchCheck, DeploymentArchResult
 from act.reproducibility.deployment_arch import IMAGE_EXTRACTORS, _extract_k8s_containers
 
 K8S_NGINX_PROGRAM = "tests/fixtures/kubernetes/nginx_deployment.py"
-K8S_SCHEMA = "examples/kubernetes/schema.json"
 
 
 def test_k8s_deployment_extractor_finds_containers():
@@ -46,7 +45,7 @@ def test_extractor_skips_containers_without_image_field():
     assert _extract_k8s_containers(outputs, ["spec", "containers"]) == ["x:1"]
 
 
-def test_unknown_resource_token_is_skipped(monkeypatch):
+def test_unknown_resource_token_is_skipped(monkeypatch, kubernetes_schema_path):
     """An unknown token in the plan should not crash; that resource is silently skipped."""
     captured: list = []
 
@@ -57,7 +56,7 @@ def test_unknown_resource_token_is_skipped(monkeypatch):
     monkeypatch.setattr(DeploymentArchCheck, "_smoke_boot", fake_smoke_boot)
     monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/docker" if name == "docker" else None)
 
-    result = DeploymentArchCheck("riscv64").run(K8S_NGINX_PROGRAM, K8S_SCHEMA)
+    result = DeploymentArchCheck("riscv64").run(K8S_NGINX_PROGRAM, kubernetes_schema_path)
 
     assert isinstance(result, DeploymentArchResult)
     assert result.images_checked == ["nginx:1.25"]
@@ -126,9 +125,9 @@ def test_smoke_boot_passes_on_zero_exit():
         assert check._smoke_boot("multiarch:latest") is None
 
 
-def test_docker_missing_short_circuits(monkeypatch):
+def test_docker_missing_short_circuits(monkeypatch, kubernetes_schema_path):
     monkeypatch.setattr(shutil, "which", lambda name: None)
-    result = DeploymentArchCheck("riscv64").run(K8S_NGINX_PROGRAM, K8S_SCHEMA)
+    result = DeploymentArchCheck("riscv64").run(K8S_NGINX_PROGRAM, kubernetes_schema_path)
     assert result.passed is False
     assert result.images_checked == ["nginx:1.25"]
     assert len(result.failures) == 1
