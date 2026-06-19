@@ -479,7 +479,7 @@ def test_probe_k8s_with_workload_logs_waits_for_jobs_and_captures_logs():
 def test_runtime_check_removes_owned_backend_dir(tmp_path):
     """When no backend_dir is supplied, RuntimeCheck creates a tempdir and cleans it up."""
     sub = _FakeSubstrate(matches_fn=lambda s: s.orchestrator == "k8s")
-    probes = [{"items": []}, {"items": []}]
+    probes: list[dict] = [{"items": []}, {"items": []}]
     owned_dir = tmp_path / "owned-state"
     owned_dir.mkdir()
 
@@ -501,7 +501,7 @@ def test_runtime_check_removes_owned_backend_dir(tmp_path):
 def test_runtime_check_preserves_caller_backend_dir(tmp_path):
     """When the caller supplies backend_dir, RuntimeCheck must not remove it."""
     sub = _FakeSubstrate(matches_fn=lambda s: s.orchestrator == "k8s")
-    probes = [{"items": []}, {"items": []}]
+    probes: list[dict] = [{"items": []}, {"items": []}]
 
     mg_patch, pulumi_patch = _patched_check_dependencies(probes)
     with mg_patch as mg_cls, pulumi_patch:
@@ -517,7 +517,7 @@ def test_runtime_check_preserves_caller_backend_dir(tmp_path):
 def test_runtime_check_reports_internal_error_when_post_provision_raises(tmp_path):
     """Unexpected exceptions in the post-provision path classify as internal_error, not provision_failed."""
     sub = _FakeSubstrate(matches_fn=lambda s: s.orchestrator == "k8s")
-    probes = [{"items": []}]
+    probes: list[dict] = [{"items": []}]
 
     mg_patch, pulumi_patch = _patched_check_dependencies(probes)
     with (
