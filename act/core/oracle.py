@@ -92,9 +92,12 @@ class CorrectnessOracle(OraclePlugin):
             "boolean": bool,
         }
         for field, prop_schema in input_props.items():
-            if field not in inputs:
+            value = inputs.get(field)
+            # Treat absent and explicit-None the same way as the required-field
+            # check above. Otherwise a `None` value triggers both a "required"
+            # violation and a "wrong type" violation for the same field.
+            if value is None:
                 continue
-            value = inputs[field]
             expected_type = prop_schema.get("type")
             python_type = type_checks.get(expected_type)
             if python_type and not isinstance(value, python_type):

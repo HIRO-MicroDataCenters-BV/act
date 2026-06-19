@@ -175,3 +175,27 @@ def test_type_error_skips_range_check(tmp_path):
     violations = oracle.check(RTYPE, {"cpu": "eight"})  # wrong type
     fields = [v.field for v in violations]
     assert fields.count("cpu") == 1  # type error reported once, range not double-counted
+
+
+def test_explicit_none_required_field_reported_once(tmp_path):
+    """An explicit None for a required field must produce one 'required' violation, not also a 'wrong type' one."""
+    schema_path = _make_schema(
+        tmp_path,
+        {"name": {"type": "string"}},
+        required=["name"],
+    )
+    oracle = CorrectnessOracle(schema_path)
+    violations = oracle.check(RTYPE, {"name": None})
+
+    name_violations = [v for v in violations if v.field == "name"]
+    assert len(name_violations) == 1
+    assert "missing" in name_violations[0].message.lower()
+
+
+def test_explicit_none_optional_field_is_not_a_type_error(tmp_path):
+    """A None on an optional field is not a type violation."""
+    schema_path = _make_schema(tmp_path, {"label": {"type": "string"}})
+    oracle = CorrectnessOracle(schema_path)
+    violations = oracle.check(RTYPE, {"label": None})
+
+    assert violations == []
