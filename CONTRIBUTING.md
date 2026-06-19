@@ -24,7 +24,7 @@ The `cape-sdks` submodule is required for the CAPE provider tests.
 
 Use [Conventional Commits](https://www.conventionalcommits.org/):
 
-```
+```text
 feat: add CXL substrate
 fix: drain mock event loop before returning outputs
 docs: clarify runtime check semantics
