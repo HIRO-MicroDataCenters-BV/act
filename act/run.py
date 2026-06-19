@@ -17,6 +17,7 @@ import json
 import logging
 import os
 import sys
+import traceback
 
 from act.core.mock_generator import MockGenerator
 from act.core.oracle import CorrectnessOracle
@@ -390,10 +391,11 @@ def main(argv=None) -> int:
 
         return exit_code
     except FileNotFoundError as e:
-        print(f"[ERROR] {e}")
+        print(f"[ERROR] {e}", file=sys.stderr)
         return 2
     except Exception as e:
-        print(f"[ERROR] Pipeline failed: {e}")
+        print(f"[ERROR] Pipeline failed: {e}", file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
         return 2
 
 

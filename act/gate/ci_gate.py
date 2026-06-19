@@ -1,4 +1,6 @@
 import logging
+import sys
+import traceback
 
 from act.core.pipeline import ACTPipeline, PipelineResult
 
@@ -26,7 +28,8 @@ class CIGate:
             print(self.format_report(result))
             return exit_code
         except Exception as e:
-            print(f"[ERROR] Pipeline failed: {e}")
+            print(f"[ERROR] Pipeline failed: {e}", file=sys.stderr)
+            traceback.print_exc(file=sys.stderr)
             return 2
 
     def format_report(self, result: PipelineResult) -> str:

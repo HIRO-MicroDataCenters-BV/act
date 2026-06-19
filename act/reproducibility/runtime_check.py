@@ -57,6 +57,7 @@ RuntimeCheckStage = Literal[
     "timeout",
     "output_mismatch",
     "teardown_failed",
+    "internal_error",
 ]
 
 
@@ -479,51 +480,62 @@ class RuntimeCheck:
                 capture_duration_ms=int((time.monotonic_ns() - start) // 1_000_000),
             )
 
-        backend_root = backend_dir or tempfile.mkdtemp(prefix="act-pulumi-state-")
+        if backend_dir is None:
+            backend_root = tempfile.mkdtemp(prefix="act-pulumi-state-")
+            owns_backend_root = True
+        else:
+            backend_root = backend_dir
+            owns_backend_root = False
         failures: list[RuntimeCheckFailure] = []
         hashes: list[str] = []
         last_normalised: list[Any] = []
 
         provisioned: Optional[ProvisionedTarget] = None
         try:
-            provisioned = substrate.provision(spec)
+            try:
+                provisioned = substrate.provision(spec)
+            except Exception as exc:
+                failures.append(RuntimeCheckFailure(stage="provision_failed", detail=str(exc)))
 
-            for _run_index in range(2):
-                outcome = run_pulumi_against(
-                    target=provisioned,
-                    program_path=program_path,
-                    backend_dir=backend_root,
-                    probe_fn=self._probe_fn,
-                )
-                if outcome.failure is not None:
-                    failures.append(outcome.failure)
-                    break
-
-                # probe_fn runs inside run_pulumi_against (between up and
-                # destroy). If it raises, outcome.failure is set with
-                # stage=probe_failed and we break above. So if we reach
-                # here, outcome.probed is the captured dict.
-                probed = outcome.probed or {}
-                normalised = normalise_output(probed)
-                last_normalised.append(normalised)
-                hashes.append(hash_output(probed))
-
-            if len(hashes) == 2:
-                if hashes[0] != hashes[1]:
-                    failures.append(
-                        RuntimeCheckFailure(
-                            stage="output_mismatch",
-                            detail="probe output hashes differ between runs",
+            if provisioned is not None:
+                try:
+                    for _run_index in range(2):
+                        outcome = run_pulumi_against(
+                            target=provisioned,
+                            program_path=program_path,
+                            backend_dir=backend_root,
+                            probe_fn=self._probe_fn,
                         )
-                    )
-        except Exception as exc:
-            failures.append(RuntimeCheckFailure(stage="provision_failed", detail=str(exc)))
+                        if outcome.failure is not None:
+                            failures.append(outcome.failure)
+                            break
+
+                        # probe_fn runs inside run_pulumi_against (between up and
+                        # destroy). If it raises, outcome.failure is set with
+                        # stage=probe_failed and we break above. So if we reach
+                        # here, outcome.probed is the captured dict.
+                        probed = outcome.probed or {}
+                        normalised = normalise_output(probed)
+                        last_normalised.append(normalised)
+                        hashes.append(hash_output(probed))
+
+                    if len(hashes) == 2 and hashes[0] != hashes[1]:
+                        failures.append(
+                            RuntimeCheckFailure(
+                                stage="output_mismatch",
+                                detail="probe output hashes differ between runs",
+                            )
+                        )
+                except Exception as exc:
+                    failures.append(RuntimeCheckFailure(stage="internal_error", detail=str(exc)))
         finally:
             if provisioned is not None:
                 try:
                     provisioned.teardown()
                 except Exception as exc:
                     failures.append(RuntimeCheckFailure(stage="teardown_failed", detail=str(exc)))
+            if owns_backend_root:
+                shutil.rmtree(backend_root, ignore_errors=True)
 
         passed = not failures and len(hashes) == 2 and hashes[0] == hashes[1]
         diff: list[str] = []

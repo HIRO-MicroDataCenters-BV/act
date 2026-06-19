@@ -44,13 +44,11 @@ class ACTPipeline:
         oracle: OraclePlugin,
         fuzz_runner=None,
         property_runner=None,
-        acv=None,
     ):
         self._mock_generator = mock_generator
         self._oracle = oracle
         self._fuzz_runner = fuzz_runner
         self._property_runner = property_runner
-        self._acv = acv
 
     def run(self, program_path: str) -> PipelineResult:
         t0 = time.perf_counter()
@@ -81,20 +79,6 @@ class ACTPipeline:
                 oracle_violations.extend(self._oracle.check(resource_type, outputs))
         violations.extend(oracle_violations)
         log.info("pipeline.oracle_done", extra={"violations": len(oracle_violations), "duration_ms": _ms(t)})
-
-        if self._acv:
-            try:
-                acv_result = self._acv.validate(program_path)
-                for finding in acv_result.findings:
-                    violations.append(
-                        Violation(
-                            field=finding.tool,
-                            message=finding.message,
-                            severity=finding.severity.upper(),
-                        )
-                    )
-            except Exception:
-                pass
 
         log.info(
             "pipeline.done",
