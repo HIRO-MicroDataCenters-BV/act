@@ -42,9 +42,17 @@ VOLATILE_KEYS: frozenset[str] = frozenset(
 )
 
 VOLATILE_VALUE_PATTERNS: tuple[re.Pattern[str], ...] = (
+    # "pid: 12345" — process ids.
     re.compile(r"pid:\s*\d+", flags=re.IGNORECASE),
-    re.compile(r"\b\d{10,}\b"),  # epoch-shaped numbers
-    re.compile(r":\b[0-9]{5}\b"),  # ephemeral ports
+    # Unix epoch timestamps. Narrowed to "1[5-9]<8-11 digits>" so it scrubs
+    # 2017-2055 second and millisecond timestamps without blanking long
+    # numeric IDs that happen to be 10+ digits.
+    re.compile(r"\b1[5-9]\d{8,11}\b"),
+    # Ephemeral ports inside a URL-shaped host:port fragment. The fixed-width
+    # lookbehind requires a host-like character immediately before the colon,
+    # which skips JSON values like `"nodePort": 30001` while still scrubbing
+    # `127.0.0.1:34567` and `host:34567` URLs.
+    re.compile(r"(?<=[A-Za-z0-9.-]:)\b[0-9]{4,5}\b"),
 )
 
 
