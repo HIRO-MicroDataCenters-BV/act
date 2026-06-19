@@ -49,15 +49,15 @@ VOLATILE_VALUE_PATTERNS: tuple[re.Pattern[str], ...] = (
 
 
 RuntimeCheckStage = Literal[
-    "substrate_unavailable",
-    "spec_unsupported",
+    "internal_error",
+    "output_mismatch",
+    "probe_failed",
     "provision_failed",
     "pulumi_up_failed",
-    "probe_failed",
-    "timeout",
-    "output_mismatch",
+    "spec_unsupported",
+    "substrate_unavailable",
     "teardown_failed",
-    "internal_error",
+    "timeout",
 ]
 
 
@@ -528,6 +528,15 @@ class RuntimeCheck:
                         )
                 except Exception as exc:
                     failures.append(RuntimeCheckFailure(stage="internal_error", detail=str(exc)))
+            elif not failures:
+                # provision() returned None without raising — substrate contract
+                # violation. Surface it so the run isn't silently empty.
+                failures.append(
+                    RuntimeCheckFailure(
+                        stage="provision_failed",
+                        detail="substrate.provision returned None",
+                    )
+                )
         finally:
             if provisioned is not None:
                 try:

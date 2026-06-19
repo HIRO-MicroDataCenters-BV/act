@@ -1,4 +1,5 @@
 import json
+import os
 from unittest.mock import MagicMock, patch
 
 from act.reproducibility.runtime_check import (
@@ -473,3 +474,85 @@ def test_probe_k8s_with_workload_logs_waits_for_jobs_and_captures_logs():
     assert state["_act_workload_logs"] == {
         "iverilog-boot-flow": "Test: counter=1\nDONE\n",
     }
+
+
+def test_runtime_check_removes_owned_backend_dir(tmp_path):
+    """When no backend_dir is supplied, RuntimeCheck creates a tempdir and cleans it up."""
+    sub = _FakeSubstrate(matches_fn=lambda s: s.orchestrator == "k8s")
+    probes = [{"items": []}, {"items": []}]
+    owned_dir = tmp_path / "owned-state"
+    owned_dir.mkdir()
+
+    mg_patch, pulumi_patch = _patched_check_dependencies(probes)
+    with (
+        mg_patch as mg_cls,
+        pulumi_patch,
+        patch("act.reproducibility.runtime_check.tempfile.mkdtemp", return_value=str(owned_dir)),
+    ):
+        mg = mg_cls.return_value
+        mg.run_with_mocks.return_value = {"nginx": {}}
+        mg.get_resource_type.return_value = "kubernetes:apps/v1:Deployment"
+
+        RuntimeCheck(substrates=[sub]).run("some.py", "schema.json")
+
+    assert not os.path.exists(owned_dir)
+
+
+def test_runtime_check_preserves_caller_backend_dir(tmp_path):
+    """When the caller supplies backend_dir, RuntimeCheck must not remove it."""
+    sub = _FakeSubstrate(matches_fn=lambda s: s.orchestrator == "k8s")
+    probes = [{"items": []}, {"items": []}]
+
+    mg_patch, pulumi_patch = _patched_check_dependencies(probes)
+    with mg_patch as mg_cls, pulumi_patch:
+        mg = mg_cls.return_value
+        mg.run_with_mocks.return_value = {"nginx": {}}
+        mg.get_resource_type.return_value = "kubernetes:apps/v1:Deployment"
+
+        RuntimeCheck(substrates=[sub]).run("some.py", "schema.json", backend_dir=str(tmp_path))
+
+    assert os.path.exists(tmp_path)
+
+
+def test_runtime_check_reports_internal_error_when_post_provision_raises(tmp_path):
+    """Unexpected exceptions in the post-provision path classify as internal_error, not provision_failed."""
+    sub = _FakeSubstrate(matches_fn=lambda s: s.orchestrator == "k8s")
+    probes = [{"items": []}]
+
+    mg_patch, pulumi_patch = _patched_check_dependencies(probes)
+    with (
+        mg_patch as mg_cls,
+        pulumi_patch,
+        patch(
+            "act.reproducibility.runtime_check.normalise_output",
+            side_effect=RuntimeError("normaliser blew up"),
+        ),
+    ):
+        mg = mg_cls.return_value
+        mg.run_with_mocks.return_value = {"nginx": {}}
+        mg.get_resource_type.return_value = "kubernetes:apps/v1:Deployment"
+
+        result = RuntimeCheck(substrates=[sub]).run("some.py", "schema.json", backend_dir=str(tmp_path))
+
+    assert result.passed is False
+    assert any(f.stage == "internal_error" and "normaliser blew up" in f.detail for f in result.failures)
+    assert not any(f.stage == "provision_failed" for f in result.failures)
+    assert sub.teardown_calls == 1
+
+
+def test_runtime_check_reports_provision_failed_when_substrate_returns_none(tmp_path):
+    """A substrate that returns None from provision() must surface as a provision_failed, not silently pass."""
+    sub = _FakeSubstrate(matches_fn=lambda s: True)
+    sub.provision = lambda spec: None  # type: ignore[method-assign]
+
+    with patch("act.reproducibility.runtime_check.MockGenerator", autospec=True) as mg_cls:
+        mg = mg_cls.return_value
+        mg.run_with_mocks.return_value = {"nginx": {}}
+        mg.get_resource_type.return_value = "kubernetes:apps/v1:Deployment"
+
+        result = RuntimeCheck(substrates=[sub]).run("some.py", "schema.json", backend_dir=str(tmp_path))
+
+    assert result.passed is False
+    assert any(
+        f.stage == "provision_failed" and "returned None" in f.detail for f in result.failures
+    )
