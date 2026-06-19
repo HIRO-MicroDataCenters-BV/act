@@ -553,6 +553,4 @@ def test_runtime_check_reports_provision_failed_when_substrate_returns_none(tmp_
         result = RuntimeCheck(substrates=[sub]).run("some.py", "schema.json", backend_dir=str(tmp_path))
 
     assert result.passed is False
-    assert any(
-        f.stage == "provision_failed" and "returned None" in f.detail for f in result.failures
-    )
+    assert any(f.stage == "provision_failed" and "returned None" in f.detail for f in result.failures)
