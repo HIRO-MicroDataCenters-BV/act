@@ -16,6 +16,16 @@ from act.core.mock_generator import MockGenerator
 
 ImageBootReason = Literal["no_arch_variant", "boot_failed", "timeout", "docker_missing"]
 
+# Docker error fragments that mean "this image has no variant for the requested
+# platform" — drawn from the strings dockerd/buildkit emit on different versions.
+# Matched lowercase against the failed-run stderr.
+_NO_ARCH_VARIANT_FRAGMENTS: tuple[str, ...] = (
+    "no matching manifest",
+    "manifest unknown",
+    "image platform",
+    "no matching entries in manifest list",
+)
+
 
 @dataclass
 class ImageBootFailure:
@@ -140,5 +150,8 @@ class DeploymentArchCheck:
         if result.returncode == 0:
             return None
         stderr = result.stderr.decode(errors="replace").strip()
-        reason: ImageBootReason = "no_arch_variant" if "no matching manifest" in stderr.lower() else "boot_failed"
+        stderr_lower = stderr.lower()
+        reason: ImageBootReason = (
+            "no_arch_variant" if any(frag in stderr_lower for frag in _NO_ARCH_VARIANT_FRAGMENTS) else "boot_failed"
+        )
         return ImageBootFailure(image=image, reason=reason, detail=stderr)

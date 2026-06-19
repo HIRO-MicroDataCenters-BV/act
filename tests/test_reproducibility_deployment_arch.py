@@ -96,6 +96,48 @@ def test_smoke_boot_classifies_no_arch_variant():
     assert failure.image == "amd64-only:latest"
 
 
+def test_smoke_boot_classifies_no_arch_variant_manifest_unknown():
+    check = DeploymentArchCheck("riscv64")
+    fake_result = subprocess.CompletedProcess(
+        args=[],
+        returncode=125,
+        stdout=b"",
+        stderr=b"docker: manifest unknown for linux/riscv64",
+    )
+    with patch("subprocess.run", return_value=fake_result):
+        failure = check._smoke_boot("amd64-only:latest")
+    assert failure is not None
+    assert failure.reason == "no_arch_variant"
+
+
+def test_smoke_boot_classifies_no_arch_variant_image_platform_mismatch():
+    check = DeploymentArchCheck("riscv64")
+    fake_result = subprocess.CompletedProcess(
+        args=[],
+        returncode=125,
+        stdout=b"",
+        stderr=b"image platform (linux/riscv64) does not match the detected host platform",
+    )
+    with patch("subprocess.run", return_value=fake_result):
+        failure = check._smoke_boot("amd64-only:latest")
+    assert failure is not None
+    assert failure.reason == "no_arch_variant"
+
+
+def test_smoke_boot_classifies_no_arch_variant_no_matching_entries():
+    check = DeploymentArchCheck("riscv64")
+    fake_result = subprocess.CompletedProcess(
+        args=[],
+        returncode=125,
+        stdout=b"",
+        stderr=b"no matching entries in manifest list",
+    )
+    with patch("subprocess.run", return_value=fake_result):
+        failure = check._smoke_boot("amd64-only:latest")
+    assert failure is not None
+    assert failure.reason == "no_arch_variant"
+
+
 def test_smoke_boot_classifies_boot_failed():
     check = DeploymentArchCheck("riscv64")
     fake_result = subprocess.CompletedProcess(
