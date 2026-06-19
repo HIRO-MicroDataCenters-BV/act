@@ -209,7 +209,14 @@ def _resource_arch(outputs: dict) -> str | None:
 
 
 def _mentions_cxl(outputs: dict) -> bool:
-    return "cxl" in json.dumps(outputs, default=str).lower()
+    """True if the resource declares a CXL hardware marker.
+
+    Anchored to the canonical CXL labels/resource keys (`hardware.cape/cxl`
+    and `cape.eu/cxl`) so it does not match incidental occurrences of "cxl"
+    in image names, comments, or other free-text fields.
+    """
+    text = json.dumps(outputs, default=str)
+    return "hardware.cape/cxl" in text or "cape.eu/cxl" in text
 
 
 # System-managed objects that show up in the `default` namespace but

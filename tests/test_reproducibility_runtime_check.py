@@ -265,6 +265,51 @@ def test_normalise_strips_ephemeral_port_in_url_context():
     assert "34567" not in cleaned["endpoint"]
 
 
+def test_spec_features_skip_cxl_when_cxl_appears_only_in_image_name():
+    """A resource whose only mention of 'cxl' is in an image tag is NOT a CXL spec."""
+    plan = {
+        "tool": {
+            "spec": {
+                "template": {
+                    "spec": {
+                        "containers": [{"name": "tool", "image": "myorg/cxl-helpers:v1"}],
+                    }
+                }
+            }
+        }
+    }
+    mg = _mg_returning_types({"tool": "kubernetes:apps/v1:Deployment"})
+
+    spec = extract_target_spec(plan, mg)
+
+    assert "cxl" not in spec.features
+
+
+def test_spec_features_include_cxl_when_extended_resource_request_present():
+    """The canonical cape.eu/cxl resource request flips the cxl feature on."""
+    plan = {
+        "workload": {
+            "spec": {
+                "template": {
+                    "spec": {
+                        "containers": [
+                            {
+                                "name": "x",
+                                "resources": {"requests": {"cape.eu/cxl": "1"}},
+                            }
+                        ]
+                    }
+                }
+            }
+        }
+    }
+    mg = _mg_returning_types({"workload": "kubernetes:apps/v1:Deployment"})
+
+    spec = extract_target_spec(plan, mg)
+
+    assert "cxl" in spec.features
+
+
 def test_hash_stable_for_normalised_output():
     a = {"items": [{"name": "x"}]}
     b = {"items": [{"name": "x"}]}
