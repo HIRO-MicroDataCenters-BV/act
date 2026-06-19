@@ -1,4 +1,7 @@
 import time
+from unittest.mock import patch
+
+from hypothesis import strategies as st
 
 from act.core.mock_generator import MockGenerator
 from act.core.oracle import CorrectnessOracle
@@ -38,3 +41,18 @@ def test_property_runner_respects_max_examples(cape_schema_path, path_b_fixture)
     runner.run(str(path_b_fixture))
     elapsed = time.monotonic() - start
     assert elapsed < 30, f"PropertyRunner took {elapsed:.1f}s with max_examples=5"
+
+
+def test_property_runner_records_bad_status_type_as_violation(cape_schema_path, path_b_fixture):
+    """A non-str/dict status must surface as a Violation, never crash the runner."""
+    runner = _runner(cape_schema_path, max_examples=5)
+
+    with patch(
+        "act.core.property_runner.build_strategy",
+        return_value=st.just({"status": 42}),
+    ):
+        violations = runner.run(str(path_b_fixture))
+
+    assert any(
+        v.field == "status" and "got int" in v.message for v in violations
+    ), "bad status type was not recorded as a Violation"
