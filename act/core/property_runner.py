@@ -67,12 +67,23 @@ class PropertyRunner(TestGeneratorPlugin):
                     viols = orc.check(tok, inputs)
                     vlist.extend(deduplicate(viols, vseen))
 
-                    # State invariant: status must be str or dict if present
+                    # State invariant: status must be str or dict if present.
+                    # Record as a Violation instead of asserting — a hard raise
+                    # would propagate through hypothesis and crash the pipeline.
                     status = inputs.get("status")
-                    if status is not None:
-                        assert isinstance(
-                            status, (str, dict)
-                        ), f"status must be str or dict, got {type(status).__name__}"
+                    if status is not None and not isinstance(status, (str, dict)):
+                        vlist.extend(
+                            deduplicate(
+                                [
+                                    Violation(
+                                        field="status",
+                                        message=f"status must be str or dict, got {type(status).__name__}",
+                                        severity="HIGH",
+                                    )
+                                ],
+                                vseen,
+                            )
+                        )
 
                 return _check
 

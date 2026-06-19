@@ -234,6 +234,82 @@ def test_normalise_strips_volatile_string_values():
     assert "1716123456" not in cleaned["log"]
 
 
+def test_normalise_keeps_node_port_outside_url_context():
+    """5-digit ports in JSON values (e.g. nodePort) must survive normalisation."""
+    raw = {"spec": {"ports": [{"nodePort": 30001, "targetPort": 8080}]}}
+    cleaned = normalise_output(raw)
+    # Values are ints, not strings, so they're untouched anyway; but the
+    # JSON-rendered hash must still see the same number.
+    assert cleaned == raw
+
+    # And the string-rendered form keeps the number too.
+    raw_str = {"line": "nodePort=30001 targetPort=8080"}
+    cleaned_str = normalise_output(raw_str)
+    assert "30001" in cleaned_str["line"]
+    assert "8080" in cleaned_str["line"]
+
+
+def test_normalise_keeps_long_numeric_id_outside_epoch_range():
+    """A 10-digit identifier that isn't an epoch timestamp must survive."""
+    raw = {"trace_id": "9876543210", "epoch": "1716123456"}
+    cleaned = normalise_output(raw)
+    # Non-epoch-shaped ID kept; epoch-shaped stripped.
+    assert "9876543210" in cleaned["trace_id"]
+    assert "1716123456" not in cleaned["epoch"]
+
+
+def test_normalise_strips_ephemeral_port_in_url_context():
+    """Ports inside host:port URLs are scrubbed."""
+    raw = {"endpoint": "https://127.0.0.1:34567/api"}
+    cleaned = normalise_output(raw)
+    assert "34567" not in cleaned["endpoint"]
+
+
+def test_spec_features_skip_cxl_when_cxl_appears_only_in_image_name():
+    """A resource whose only mention of 'cxl' is in an image tag is NOT a CXL spec."""
+    plan = {
+        "tool": {
+            "spec": {
+                "template": {
+                    "spec": {
+                        "containers": [{"name": "tool", "image": "myorg/cxl-helpers:v1"}],
+                    }
+                }
+            }
+        }
+    }
+    mg = _mg_returning_types({"tool": "kubernetes:apps/v1:Deployment"})
+
+    spec = extract_target_spec(plan, mg)
+
+    assert "cxl" not in spec.features
+
+
+def test_spec_features_include_cxl_when_extended_resource_request_present():
+    """The canonical cape.eu/cxl resource request flips the cxl feature on."""
+    plan = {
+        "workload": {
+            "spec": {
+                "template": {
+                    "spec": {
+                        "containers": [
+                            {
+                                "name": "x",
+                                "resources": {"requests": {"cape.eu/cxl": "1"}},
+                            }
+                        ]
+                    }
+                }
+            }
+        }
+    }
+    mg = _mg_returning_types({"workload": "kubernetes:apps/v1:Deployment"})
+
+    spec = extract_target_spec(plan, mg)
+
+    assert "cxl" in spec.features
+
+
 def test_hash_stable_for_normalised_output():
     a = {"items": [{"name": "x"}]}
     b = {"items": [{"name": "x"}]}

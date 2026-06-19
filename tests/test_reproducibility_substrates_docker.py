@@ -159,6 +159,59 @@ def test_provision_propagates_docker_run_failure(monkeypatch, tmp_path, amd64_su
         amd64_substrate.provision(TargetSpec(arch="x86_64-linux", orchestrator="k8s"))
 
 
+def test_provision_cleans_up_work_dir_on_early_docker_run_failure(monkeypatch, tmp_path, amd64_substrate):
+    """The temp work_dir must be removed even when 'docker run' itself fails."""
+    work_dir = tmp_path / "act-work"
+    work_dir.mkdir()
+
+    def fake_run(cmd, *args, **kwargs):
+        if cmd[:3] == ["docker", "run", "-d"]:
+            raise subprocess.CalledProcessError(125, cmd, stderr=b"docker: error")
+        return subprocess.CompletedProcess(cmd, 0, stdout=b"", stderr=b"")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr(
+        "act.reproducibility.substrates.docker.tempfile.mkdtemp",
+        lambda **kw: str(work_dir),
+    )
+
+    with pytest.raises(subprocess.CalledProcessError):
+        amd64_substrate.provision(TargetSpec(arch="x86_64-linux", orchestrator="k8s"))
+
+    assert not work_dir.exists(), "work_dir was leaked after docker run failure"
+
+
+def test_provision_cleans_up_work_dir_on_late_failure(monkeypatch, tmp_path, amd64_substrate):
+    """A failure after the container is up must stop the container AND remove work_dir."""
+    work_dir = tmp_path / "act-work"
+    work_dir.mkdir()
+    stop_calls: list[list[str]] = []
+
+    def fake_run(cmd, *args, **kwargs):
+        if cmd[:3] == ["docker", "run", "-d"]:
+            return subprocess.CompletedProcess(cmd, 0, stdout=b"", stderr=b"")
+        if cmd[:2] == ["docker", "exec"] and cmd[3:] == ["test", "-f", "/etc/rancher/k3s/k3s.yaml"]:
+            return subprocess.CompletedProcess(cmd, 0, stdout=b"", stderr=b"")
+        if cmd[:2] == ["docker", "exec"] and "cat" in cmd:
+            raise subprocess.CalledProcessError(1, cmd, stderr=b"kubeconfig read failed")
+        if cmd[:2] == ["docker", "stop"]:
+            stop_calls.append(cmd)
+            return subprocess.CompletedProcess(cmd, 0, stdout=b"", stderr=b"")
+        return subprocess.CompletedProcess(cmd, 0, stdout=b"", stderr=b"")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr(
+        "act.reproducibility.substrates.docker.tempfile.mkdtemp",
+        lambda **kw: str(work_dir),
+    )
+
+    with pytest.raises(subprocess.CalledProcessError):
+        amd64_substrate.provision(TargetSpec(arch="x86_64-linux", orchestrator="k8s"))
+
+    assert len(stop_calls) == 1, "container was not stopped after late failure"
+    assert not work_dir.exists(), "work_dir was leaked after late failure"
+
+
 def test_provision_passes_extra_docker_args_and_command(monkeypatch, tmp_path):
     sub = DockerSubstrate(
         image="rancher/k3s:v1.32.1-k3s1",

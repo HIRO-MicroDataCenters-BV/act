@@ -42,9 +42,17 @@ VOLATILE_KEYS: frozenset[str] = frozenset(
 )
 
 VOLATILE_VALUE_PATTERNS: tuple[re.Pattern[str], ...] = (
+    # "pid: 12345" — process ids.
     re.compile(r"pid:\s*\d+", flags=re.IGNORECASE),
-    re.compile(r"\b\d{10,}\b"),  # epoch-shaped numbers
-    re.compile(r":\b[0-9]{5}\b"),  # ephemeral ports
+    # Unix epoch timestamps. Narrowed to "1[5-9]<8-11 digits>" so it scrubs
+    # 2017-2055 second and millisecond timestamps without blanking long
+    # numeric IDs that happen to be 10+ digits.
+    re.compile(r"\b1[5-9]\d{8,11}\b"),
+    # Ephemeral ports inside a URL-shaped host:port fragment. The fixed-width
+    # lookbehind requires a host-like character immediately before the colon,
+    # which skips JSON values like `"nodePort": 30001` while still scrubbing
+    # `127.0.0.1:34567` and `host:34567` URLs.
+    re.compile(r"(?<=[A-Za-z0-9.-]:)\b[0-9]{4,5}\b"),
 )
 
 
@@ -201,7 +209,14 @@ def _resource_arch(outputs: dict) -> str | None:
 
 
 def _mentions_cxl(outputs: dict) -> bool:
-    return "cxl" in json.dumps(outputs, default=str).lower()
+    """True if the resource declares a CXL hardware marker.
+
+    Anchored to the canonical CXL labels/resource keys (`hardware.cape/cxl`
+    and `cape.eu/cxl`) so it does not match incidental occurrences of "cxl"
+    in image names, comments, or other free-text fields.
+    """
+    text = json.dumps(outputs, default=str)
+    return "hardware.cape/cxl" in text or "cape.eu/cxl" in text
 
 
 # System-managed objects that show up in the `default` namespace but

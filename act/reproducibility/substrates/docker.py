@@ -55,29 +55,31 @@ class DockerSubstrate(Substrate):
         work_dir = Path(tempfile.mkdtemp(prefix="act-docker-"))
         container_id = "act-" + uuid.uuid4().hex[:8]
         kubeconfig = work_dir / "kubeconfig.yaml"
-
-        subprocess.run(
-            [
-                "docker",
-                "run",
-                "-d",
-                "--rm",
-                "--platform",
-                self.platform,
-                "--name",
-                container_id,
-                "-p",
-                f"{self.api_host_port}:6443",
-                *self.extra_docker_args,
-                self.image,
-                *self.command,
-            ],
-            capture_output=True,
-            check=True,
-            timeout=60,
-        )
+        container_started = False
 
         try:
+            subprocess.run(
+                [
+                    "docker",
+                    "run",
+                    "-d",
+                    "--rm",
+                    "--platform",
+                    self.platform,
+                    "--name",
+                    container_id,
+                    "-p",
+                    f"{self.api_host_port}:6443",
+                    *self.extra_docker_args,
+                    self.image,
+                    *self.command,
+                ],
+                capture_output=True,
+                check=True,
+                timeout=60,
+            )
+            container_started = True
+
             self._wait_for_api(container_id, self.api_host_port)
 
             result = subprocess.run(
@@ -94,12 +96,14 @@ class DockerSubstrate(Substrate):
             )
             kubeconfig.write_text(kubeconfig_text)
         except Exception:
-            subprocess.run(
-                ["docker", "stop", container_id],
-                capture_output=True,
-                check=False,
-                timeout=30,
-            )
+            if container_started:
+                subprocess.run(
+                    ["docker", "stop", container_id],
+                    capture_output=True,
+                    check=False,
+                    timeout=30,
+                )
+            shutil.rmtree(work_dir, ignore_errors=True)
             raise
 
         def teardown() -> None:
