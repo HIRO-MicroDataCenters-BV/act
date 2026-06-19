@@ -52,3 +52,19 @@ def test_invalid_provider_raises(kubernetes_schema_path):
     oracle = CorrectnessOracle(kubernetes_schema_path)
     with pytest.raises(ValueError, match="No Checkov checks found"):
         load_checkov_rules(oracle, resource_type="unknownprovider:foo:Bar")
+
+
+def test_run_load_extra_rules_logs_when_checkov_skips_provider(caplog):
+    """A provider without Checkov coverage is skipped, but the skip is logged."""
+    import logging
+    from unittest.mock import MagicMock
+
+    from act.run import _load_extra_rules
+
+    mg = MagicMock()
+    mg._type_map = {"Thing": {"token": "unknownprov:foo:Thing"}}
+
+    with caplog.at_level(logging.DEBUG, logger="act"):
+        _load_extra_rules(oracle=MagicMock(), mg=mg, engines=["checkov"])
+
+    assert any("checkov.skipped_provider" in rec.message or "skipped_provider" in rec.message for rec in caplog.records)

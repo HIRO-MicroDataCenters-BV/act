@@ -92,13 +92,20 @@ def _load_extra_rules(oracle, mg, engines: list) -> None:
     """Load additional rule engines requested via --rules."""
     if "checkov" not in engines:
         return
+    log = logging.getLogger("act")
     # One unscoped rule per provider — avoids schema vs runtime token mismatches.
     providers = {info["token"].split(":")[0] for info in mg._type_map.values()}
     for provider in providers:
         try:
             load_checkov_rules(oracle, check_type=provider)
-        except ValueError:
-            pass  # no Checkov checks for this provider — skip silently
+        except ValueError as exc:
+            # Expected when a provider has no Checkov coverage, but still worth
+            # logging — otherwise a misconfigured Checkov install looks like
+            # "no rules available" with no breadcrumb.
+            log.debug(
+                "checkov.skipped_provider",
+                extra={"provider": provider, "reason": str(exc)},
+            )
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
