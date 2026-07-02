@@ -1,10 +1,11 @@
-from typing import List
+from typing import List, Optional, Protocol
 
 import ast
 import logging
 import time
 from dataclasses import dataclass
 
+from act.acv.models import ACVResult
 from act.core.mock_generator import MockGenerator
 from act.core.violations import Violation
 from act.plugins.base import OraclePlugin
@@ -16,12 +17,17 @@ def _ms(t: float) -> int:
     return int((time.perf_counter() - t) * 1000)
 
 
+class _Validator(Protocol):
+    def validate(self, program_path: str) -> ACVResult: ...
+
+
 @dataclass
 class PipelineResult:
     passed: bool
     violations: List[Violation]
     program_path: str
     parameterized: bool  # True if program reads from env/argv
+    acv_result: Optional[ACVResult] = None  # advisory only — never affects `passed`
 
 
 def _is_parameterized(program_path: str) -> bool:
@@ -44,11 +50,13 @@ class ACTPipeline:
         oracle: OraclePlugin,
         fuzz_runner=None,
         property_runner=None,
+        acv: Optional[_Validator] = None,
     ):
         self._mock_generator = mock_generator
         self._oracle = oracle
         self._fuzz_runner = fuzz_runner
         self._property_runner = property_runner
+        self._acv = acv
 
     def run(self, program_path: str) -> PipelineResult:
         t0 = time.perf_counter()
@@ -80,6 +88,23 @@ class ACTPipeline:
         violations.extend(oracle_violations)
         log.info("pipeline.oracle_done", extra={"violations": len(oracle_violations), "duration_ms": _ms(t)})
 
+        # ACV runs after the deterministic oracle and is additive: its findings
+        # are surfaced in the report but never added to `violations`, so they do
+        # not affect `passed`/exit code. Unavailability skips gracefully.
+        acv_result: Optional[ACVResult] = None
+        if self._acv:
+            t = time.perf_counter()
+            acv_result = self._acv.validate(program_path)
+            log.info(
+                "pipeline.acv_done",
+                extra={
+                    "verdict": acv_result.verdict,
+                    "risk_level": acv_result.risk_level,
+                    "iterations": acv_result.iterations,
+                    "duration_ms": _ms(t),
+                },
+            )
+
         log.info(
             "pipeline.done",
             extra={
@@ -94,4 +119,5 @@ class ACTPipeline:
             violations=violations,
             program_path=program_path,
             parameterized=parameterized,
+            acv_result=acv_result,
         )
