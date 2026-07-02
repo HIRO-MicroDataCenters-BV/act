@@ -19,6 +19,7 @@ import os
 import sys
 import traceback
 
+from act.acv.agent import ACTCognitiveValidator
 from act.core.mock_generator import MockGenerator
 from act.core.oracle import CorrectnessOracle
 from act.core.pipeline import ACTPipeline
@@ -54,6 +55,8 @@ class _JsonFormatter(logging.Formatter):
         "exit_code",
         "reason",
         "iterations",
+        "verdict",
+        "risk_level",
         "count",
         "hash_1",
         "hash_2",
@@ -363,7 +366,11 @@ def main(argv=None) -> int:
         oracle = CorrectnessOracle(args.schema)
         auto_load(oracle)
         _load_extra_rules(oracle, mg, args.rules)
-        pipeline = ACTPipeline(mg, oracle)
+        # ACV is additive: enabled only when ACT_ACV_MODEL + a base URL are set
+        # (and the optional `acv` extra is installed). Otherwise from_env returns
+        # None and the pipeline runs without it.
+        acv = ACTCognitiveValidator.from_env()
+        pipeline = ACTPipeline(mg, oracle, acv=acv)
         gate = CIGate(pipeline)
         exit_code = gate.evaluate(args.program)
 
