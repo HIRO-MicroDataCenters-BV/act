@@ -27,7 +27,7 @@ jobs:
         python-version: "3.11"
 
     - name: Install dependencies
-      run: uv sync --frozen --dev --extra fuzzing
+      run: uv sync --frozen --dev --extra fuzzing --extra acv
 
     - name: Install pip in the venv (Pulumi Python runtime uses pip for dep discovery)
       run: uv pip install pip
