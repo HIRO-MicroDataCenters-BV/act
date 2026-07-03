@@ -60,12 +60,13 @@ That's the gate. Wire the same invocation into CI and bad commits stop at the ga
 
 ## What ACT does
 
-For every Pulumi program you run through it, ACT does up to four things:
+For every Pulumi program you run through it, ACT does up to five things:
 
 1. **Captures the plan without provisioning.** It hooks the Pulumi SDK and records what resources *would* be created and what inputs they carry. Never calls a real cloud API.
 2. **Checks structural rules.** Security and policy violations (missing security groups, exposed credentials, wrong arch labels, weak random passwords, etc.) surface as `Violation` objects with severity and a recommendation.
 3. **Fuzzes parameterised programs.** When the program takes inputs, ACT mutates them (atheris fuzz + hypothesis property tests) to find configurations that pass the type checker but break the policy.
 4. **Verifies reproducibility.** Optional: re-runs the program against an ephemeral cluster (k3s in Docker) twice and confirms the deployed state hashes identically. Covers amd64, arm64, riscv64, GPU, FPGA, and CXL targets.
+5. **Offers AI advice.** Optional: with the cognitive validator enabled, ACT sends the program to an LLM for extra security advice. The findings are advisory only and never change the pass/fail result.
 
 ### Architecture and flow
 
@@ -144,6 +145,15 @@ The entry point is `python -m act.run`.
 | `--check-deployment-arch ARCH` | no | off | Smoke-boot every container image referenced by the program under `linux/<ARCH>` via QEMU. Example: `--check-deployment-arch riscv64` |
 | `--check-deployment-runtime` | no | off | Provision an ephemeral k3s cluster matching the program's target, run `pulumi up` twice, and verify the deployed state hashes identically. Requires `docker`, `kubectl`, and `pulumi` CLI |
 
+The optional cognitive validator has no flag; it is enabled through environment variables:
+
+| Variable | Purpose |
+|----------|---------|
+| `ACT_ACV_MODEL` | Served model id for the optional cognitive validator |
+| `ACT_ACV_BASE_URL` | Base URL of an OpenAI-compatible endpoint (for example `http://localhost:8000/openai/v1`) |
+
+Both must be set, and the `acv` extra installed (`uv sync --extra acv`), for the validator to run; otherwise it is skipped. Its findings are advisory and never change the exit code.
+
 Show the help text:
 
 ```bash
@@ -186,6 +196,19 @@ uv run python -m act.run \
     --schema examples/kubernetes/schema.json \
     --rules checkov
 ```
+
+### Validate with the cognitive validator (optional AI advice)
+
+```bash
+uv sync --extra acv
+export ACT_ACV_MODEL=<served-model-id>
+export ACT_ACV_BASE_URL=http://localhost:8000/openai/v1
+uv run python -m act.run \
+    --program tests/fixtures/cape/path_a_invalid.py \
+    --schema tests/fixtures/cape/schema.json
+```
+
+The report gains an `ACV (advisory)` block with the model's suggestions. Pass/fail is unchanged; the validator never affects the exit code.
 
 ### Check that every image in the program can boot under riscv64
 
@@ -464,7 +487,7 @@ Design decisions worth knowing:
 
 - **Provider-agnostic by construction.** No provider is hardcoded; the mock generator reads any Pulumi schema and works.
 - **Oracle is structural.** Missing fields, wrong types, policy violations. Content analysis (shell-command-in-`user_data`, embedded secrets) is the cognitive validator's job.
-- **The cognitive validator is additive.** If the LLM endpoint is unreachable, ACT still passes/fails on the deterministic oracle. It never blocks on AI unavailability.
+- **The cognitive validator is optional.** For AI-assisted advice on top of the deterministic checks, install the `acv` extra (`uv sync --extra acv`) and set `ACT_ACV_MODEL` and `ACT_ACV_BASE_URL` to an OpenAI-compatible LLM endpoint (for example a vLLM server). Its findings are advisory and never change the exit code.
 - **Logging is two-stream.** Structured JSON on stderr (for log aggregators); human report on stdout (for terminals and CI logs). The two streams are independent; redirect them separately.
 - **Plugins are stable.** `OraclePlugin` and `TestGeneratorPlugin` are the two extension points; everything else is internal.
 
