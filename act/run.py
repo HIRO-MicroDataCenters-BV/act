@@ -126,7 +126,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--log-level",
         default="WARNING",
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
-        help="Log verbosity (default: WARNING — silent in CI unless set)",
+        help="Log verbosity (default: WARNING - silent in CI unless set)",
     )
     parser.add_argument(
         "--rules",

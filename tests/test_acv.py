@@ -1,7 +1,7 @@
 """Tests for the ACT Cognitive Validator (ACV).
 
 Hermetic: a fake OpenAI-compatible client is injected, so no network is used.
-Covers the prescribed cases — a produced finding, PASS does not block, a FAIL is
+Covers the prescribed cases - a produced finding, PASS does not block, a FAIL is
 shown in the report without changing the exit code, graceful skip when the
 endpoint is unreachable, and env-driven enablement.
 """

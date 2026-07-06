@@ -23,7 +23,7 @@ def cape_fixtures():
 def kubernetes_schema_path():
     path = ROOT / "examples" / "kubernetes" / "schema.json"
     if not path.exists():
-        pytest.skip("kubernetes schema.json not found — run: pulumi package get-schema kubernetes")
+        pytest.skip("kubernetes schema.json not found - run: pulumi package get-schema kubernetes")
     return str(path)
 
 

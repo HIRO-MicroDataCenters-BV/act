@@ -16,7 +16,7 @@ def rule_no_exposed_instance(inputs: dict) -> List[Violation]:
         return [
             Violation(
                 field="spec.securityGroupRef",
-                message="Instance has no security group — network traffic is uncontrolled",
+                message="Instance has no security group - network traffic is uncontrolled",
                 severity="HIGH",
             )
         ]
@@ -30,7 +30,7 @@ def rule_no_unprotected_ssh(inputs: dict) -> List[Violation]:
         return [
             Violation(
                 field="spec.sshKeys",
-                message="SSH keys configured but no security group — SSH access is open",
+                message="SSH keys configured but no security group - SSH access is open",
                 severity="HIGH",
             )
         ]

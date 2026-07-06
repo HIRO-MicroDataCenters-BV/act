@@ -35,7 +35,7 @@ deployment = Deployment(
                     {
                         "name": "sidecar-logger",
                         "image": "myapp/logger:0.9.1",
-                        # missing securityContext — violation
+                        # missing securityContext - violation
                     },
                 ],
             },

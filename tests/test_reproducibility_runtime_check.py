@@ -374,7 +374,7 @@ def _patched_check_dependencies(probe_responses):
     """Patches MockGenerator and run_pulumi_against for orchestrator tests.
 
     The mocked `run_pulumi_against` returns a `PulumiUpOutcome` whose
-    `.probed` carries the next probe response — mirroring the real flow
+    `.probed` carries the next probe response - mirroring the real flow
     where the probe runs between `up` and `destroy` and is attached to
     the outcome.
     """
@@ -481,7 +481,7 @@ def test_runtime_check_teardown_runs_on_pulumi_failure(tmp_path):
 
 
 def test_runtime_check_uses_custom_probe_fn(tmp_path):
-    """RuntimeCheck honours an injected probe_fn — passed into run_pulumi_against."""
+    """RuntimeCheck honours an injected probe_fn - passed into run_pulumi_against."""
     sub = _FakeSubstrate(matches_fn=lambda s: s.orchestrator == "k8s")
     custom_probe = MagicMock(return_value={"_act_workload_logs": {"iverilog": "DONE\n"}})
 

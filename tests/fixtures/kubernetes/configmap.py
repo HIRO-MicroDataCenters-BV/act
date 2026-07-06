@@ -6,8 +6,8 @@ independent of image-registry reachability from inside the substrate
 container (a real concern under QEMU emulation, where image pulls inside
 a privileged k3s container time out before the test does).
 
-The substantive reproducibility claim — "executing the same program twice
-on the target platform and comparing the output hashes" — doesn't require
+The substantive reproducibility claim - "executing the same program twice
+on the target platform and comparing the output hashes" - doesn't require
 a runtime workload; it requires a deterministic deployed state. A
 ConfigMap exercises the substrate-driven pulumi up + kubectl probe path
 end-to-end without the pod scheduling tax.

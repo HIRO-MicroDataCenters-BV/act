@@ -1,4 +1,4 @@
-# Simulates a valid LLM-generated CAPE program — Path A
+# Simulates a valid LLM-generated CAPE program - Path A
 import pulumi
 from pulumi_cape.compute import Instance
 from pulumi_cape.schemas import InstanceSpecArgs, ReferenceArgs, VolumeReferenceArgs

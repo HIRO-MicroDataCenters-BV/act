@@ -1,6 +1,6 @@
 """Unit tests for GpuSubstrate.
 
-Mocks subprocess so the tests run anywhere — no docker, kubectl, or k3s
+Mocks subprocess so the tests run anywhere - no docker, kubectl, or k3s
 required. The e2e in test_reproducibility_runtime_check_e2e.py exercises
 the substrate against a real cluster.
 """

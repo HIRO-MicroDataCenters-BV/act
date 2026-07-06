@@ -1,7 +1,7 @@
 """Unit tests for CxlSubstrate.
 
 Mirrors test_reproducibility_substrates_fpga.py. Subprocess is mocked so
-tests run anywhere — the e2e exercises the substrate against a real
+tests run anywhere - the e2e exercises the substrate against a real
 cluster + the act-cxl:qemu workload image.
 """
 

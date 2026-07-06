@@ -147,7 +147,7 @@ def _assert_twice_and_hash_passes(substrate: DockerSubstrate, expected_arch: str
     assert (
         result.hash_1 and result.hash_2
     ), f"both runs should produce hashes: hash_1={result.hash_1!r} hash_2={result.hash_2!r}"
-    assert result.passed, f"twice-and-hash mismatch — diff paths: {result.diff}"
+    assert result.passed, f"twice-and-hash mismatch - diff paths: {result.diff}"
     assert result.hash_1 == result.hash_2
 
 
@@ -276,7 +276,7 @@ def test_runtime_check_twice_and_hash_against_real_riscv64_k3s_cluster():
 def test_gpu_substrate_provisions_cluster_with_nvidia_gpu_extended_resource():
     """GpuSubstrate provisions a real k3s cluster and declares nvidia.com/gpu schedulable.
 
-    Drives the substrate directly (not through RuntimeCheck.run) — GPU feature
+    Drives the substrate directly (not through RuntimeCheck.run) - GPU feature
     auto-detection in extract_target_spec is a separate follow-up. The
     substrate's contract is exercised end-to-end: provision → kubeconfig +
     `nvidia.com/gpu: 1` in node allocatable → teardown.
@@ -366,7 +366,7 @@ def test_runtime_check_twice_and_hash_against_real_fpga_cluster(monkeypatch):
     monkeypatch.setenv("ACT_FPGA_IVERILOG_IMAGE", FPGA_IVERILOG_IMAGE)
 
     # Use the host's native arch so the k3s sandbox doesn't hit
-    # "seccomp is not supported" — that error fires under QEMU emulation
+    # "seccomp is not supported" - that error fires under QEMU emulation
     # because containerd inside the emulated kernel lacks the seccomp
     # filter surface. Native arch avoids it entirely.
     if _arm64_host():
@@ -429,7 +429,7 @@ def test_runtime_check_twice_and_hash_against_real_fpga_cluster(monkeypatch):
             timeout=120,
         )
 
-        # Reuse the already-imaged cluster — pass the probe inside
+        # Reuse the already-imaged cluster - pass the probe inside
         # run_pulumi_against so it runs between `up` and `destroy` while
         # the iverilog Job's Pod still exists.
         def probe(t) -> dict:
@@ -492,7 +492,7 @@ def _capture_cxl_guest_output(container_name: str, deadline_s: int = 120) -> str
     finally:
         subprocess.run(["docker", "rm", "-f", container_name], capture_output=True, timeout=30)
 
-    # Extract just the `cxl list -v` block — strips boot banner + dmesg noise
+    # Extract just the `cxl list -v` block - strips boot banner + dmesg noise
     # so the hash is over the substantive payload.
     start = logs.find("=== cxl list -v ===")
     end = logs.find("=== DONE ===")
@@ -511,8 +511,8 @@ def test_cxl_substrate_twice_and_hash_against_real_qemu_emulation():
     wrapper) because k3s + the amd64 act-cxl:qemu workload pod can't
     coexist under Docker Desktop's Rosetta translation on Apple Silicon
     (containerd hits a "seccomp is not supported" error). The substantive
-    claim — real CXL Type 3 emulation produces deterministic topology
-    output across runs — is what twice-and-hash needs to verify, and
+    claim - real CXL Type 3 emulation produces deterministic topology
+    output across runs - is what twice-and-hash needs to verify, and
     that's exactly what this test does end-to-end against the QEMU guest.
 
     The k3s-wrapped path is what `CxlSubstrate` is built for; that path

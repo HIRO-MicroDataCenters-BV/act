@@ -1,7 +1,7 @@
 """Unit tests for FpgaSubstrate.
 
 Mirrors test_reproducibility_substrates_gpu.py. Subprocess is mocked so
-tests run anywhere — the e2e in test_reproducibility_runtime_check_e2e.py
+tests run anywhere - the e2e in test_reproducibility_runtime_check_e2e.py
 exercises the substrate against a real cluster.
 """
 

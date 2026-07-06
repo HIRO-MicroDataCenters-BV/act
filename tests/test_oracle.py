@@ -31,7 +31,7 @@ RTYPE = "test:index:Resource"
 
 
 # ---------------------------------------------------------------------------
-# Engine tests — synthetic inputs, no provider fixtures, no MockGenerator
+# Engine tests - synthetic inputs, no provider fixtures, no MockGenerator
 # ---------------------------------------------------------------------------
 
 
@@ -77,7 +77,7 @@ def test_multiple_rules_combined(cape_schema_path):
 
 
 # ---------------------------------------------------------------------------
-# CAPE rule tests — use MockGenerator + existing fixtures
+# CAPE rule tests - use MockGenerator + existing fixtures
 # ---------------------------------------------------------------------------
 
 
@@ -115,7 +115,7 @@ def test_instance_rules_do_not_fire_on_workspace(cape_schema_path, cape_fixtures
     mg = MockGenerator(cape_schema_path)
     result = mg.run_with_mocks(str(cape_fixtures / "path_a_valid.py"))
     oracle = CorrectnessOracle(cape_schema_path)
-    # Instance rules registered with type scope — must not fire on Workspace
+    # Instance rules registered with type scope - must not fire on Workspace
     oracle.add_rule(rule_no_exposed_instance, resource_type="cape:compute:Instance")
     oracle.add_rule(rule_no_unprotected_ssh, resource_type="cape:compute:Instance")
     violations = oracle.check("cape:workspace:Workspace", result["my-workspace"])
@@ -123,7 +123,7 @@ def test_instance_rules_do_not_fire_on_workspace(cape_schema_path, cape_fixtures
 
 
 # ---------------------------------------------------------------------------
-# Range and enum inference tests — synthetic schema via tmp_path
+# Range and enum inference tests - synthetic schema via tmp_path
 # ---------------------------------------------------------------------------
 
 

@@ -34,7 +34,7 @@ def test_fuzz_runner_finds_violations(cape_schema_path, path_b_fixture):
 
 
 def test_fuzz_runner_deduplicates(cape_schema_path, path_b_fixture):
-    """Violations are deduplicated — same (field, message) pair appears once."""
+    """Violations are deduplicated - same (field, message) pair appears once."""
     pytest.importorskip("atheris")
     runner = _runner(cape_schema_path, iterations=200)
     violations = runner.run(str(path_b_fixture))

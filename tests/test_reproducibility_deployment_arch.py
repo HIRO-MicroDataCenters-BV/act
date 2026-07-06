@@ -198,7 +198,7 @@ def test_real_smoke_boot_passes_for_multiarch_image():
 def test_real_smoke_boot_flags_amd64_only_image():
     if not _docker_available():
         pytest.skip("docker daemon not available")
-    # A representative amd64-only tag — adjust if it gains other arches.
+    # A representative amd64-only tag - adjust if it gains other arches.
     check = DeploymentArchCheck("riscv64", timeout=30)
     failure = check._smoke_boot("amd64/alpine:3.19")
     assert failure is not None

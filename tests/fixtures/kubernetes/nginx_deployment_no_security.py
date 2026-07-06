@@ -12,7 +12,7 @@ deployment = Deployment(
                     {
                         "name": "nginx",
                         "image": "nginx:latest",
-                        # no securityContext — violation
+                        # no securityContext - violation
                     }
                 ]
             },
