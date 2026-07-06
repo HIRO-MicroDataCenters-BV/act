@@ -81,61 +81,23 @@ def test_non_k8s_program_reports_unhandled_tokens(monkeypatch):
     assert any(t.startswith("cape:") for t in result.unhandled_tokens)
 
 
-def test_smoke_boot_classifies_no_arch_variant():
+@pytest.mark.parametrize(
+    "stderr",
+    [
+        b"docker: no matching manifest for linux/riscv64 in the manifest list entries",
+        b"docker: manifest unknown for linux/riscv64",
+        b"image platform (linux/riscv64) does not match the detected host platform",
+        b"no matching entries in manifest list",
+    ],
+)
+def test_smoke_boot_classifies_no_arch_variant(stderr):
     check = DeploymentArchCheck("riscv64")
-    fake_result = subprocess.CompletedProcess(
-        args=[],
-        returncode=125,
-        stdout=b"",
-        stderr=b"docker: no matching manifest for linux/riscv64 in the manifest list entries",
-    )
+    fake_result = subprocess.CompletedProcess(args=[], returncode=125, stdout=b"", stderr=stderr)
     with patch("subprocess.run", return_value=fake_result):
         failure = check._smoke_boot("amd64-only:latest")
     assert failure is not None
     assert failure.reason == "no_arch_variant"
     assert failure.image == "amd64-only:latest"
-
-
-def test_smoke_boot_classifies_no_arch_variant_manifest_unknown():
-    check = DeploymentArchCheck("riscv64")
-    fake_result = subprocess.CompletedProcess(
-        args=[],
-        returncode=125,
-        stdout=b"",
-        stderr=b"docker: manifest unknown for linux/riscv64",
-    )
-    with patch("subprocess.run", return_value=fake_result):
-        failure = check._smoke_boot("amd64-only:latest")
-    assert failure is not None
-    assert failure.reason == "no_arch_variant"
-
-
-def test_smoke_boot_classifies_no_arch_variant_image_platform_mismatch():
-    check = DeploymentArchCheck("riscv64")
-    fake_result = subprocess.CompletedProcess(
-        args=[],
-        returncode=125,
-        stdout=b"",
-        stderr=b"image platform (linux/riscv64) does not match the detected host platform",
-    )
-    with patch("subprocess.run", return_value=fake_result):
-        failure = check._smoke_boot("amd64-only:latest")
-    assert failure is not None
-    assert failure.reason == "no_arch_variant"
-
-
-def test_smoke_boot_classifies_no_arch_variant_no_matching_entries():
-    check = DeploymentArchCheck("riscv64")
-    fake_result = subprocess.CompletedProcess(
-        args=[],
-        returncode=125,
-        stdout=b"",
-        stderr=b"no matching entries in manifest list",
-    )
-    with patch("subprocess.run", return_value=fake_result):
-        failure = check._smoke_boot("amd64-only:latest")
-    assert failure is not None
-    assert failure.reason == "no_arch_variant"
 
 
 def test_smoke_boot_classifies_boot_failed():
