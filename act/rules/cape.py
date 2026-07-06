@@ -1,12 +1,7 @@
-"""CAPE security rules.
+"""CAPE security rules: (inputs: dict) -> List[Violation].
 
-Each rule is a plain function: (inputs: dict) -> List[Violation]
-
-inputs is the resource output dict from MockGenerator.run_with_mocks() for a
-single resource. Pulumi serializes InstanceSpecArgs fields to camelCase inside
-the "spec" key (e.g. securityGroupRef, sshKeys).
-
-Only add rules for fields that exist in the real cape-sdks.
+Pulumi serializes InstanceSpecArgs fields to camelCase under the "spec" key
+(e.g. securityGroupRef, sshKeys). Only add rules for fields that exist in cape-sdks.
 """
 
 from typing import List

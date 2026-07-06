@@ -1,10 +1,8 @@
-"""Helpers used at image-build time, not at runtime.
+"""Image-build-time helpers (not used at runtime).
 
-The DockerSubstrate (runtime) pulls pinned-digest images. These helpers produce
-the images. They're shipped with ACT so a partner CI can rebuild the substrate
-images on demand: `nxc_compose.render_k8s_composition(...)` emits a Nix flake
-that nxc build can consume, `riscv64_image.GuestImage` / `ensure_image()` cache
-upstream cloud images by SHA256 for inclusion in QEMU-system substrate images.
+DockerSubstrate pulls pinned-digest images at runtime; these helpers produce them, shipped so CI can rebuild
+substrate images on demand. `nxc_compose.render_k8s_composition` emits a Nix flake for `nxc build`;
+`riscv64_image.ensure_image` caches upstream cloud images by SHA256 for QEMU substrate images.
 """
 
 from act.reproducibility.image_helpers.nxc_compose import (

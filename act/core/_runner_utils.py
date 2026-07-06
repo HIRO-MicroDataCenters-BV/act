@@ -15,11 +15,7 @@ _BOUNDARY_VALUES: dict[str, list] = {
 
 
 def collect_resource_info(mock_generator, program_path: str) -> list[tuple]:
-    """Run the program once and return [(token, resource_name, base_outputs)].
-
-    base_outputs is the outputs dict captured by run_with_mocks for that resource.
-    token is the full Pulumi token (e.g. "cape:compute:Instance").
-    """
+    """Run the program once; return [(token, resource_name, base_outputs)]."""
     outputs = mock_generator.run_with_mocks(program_path)
     result = []
     for name, resource_outputs in outputs.items():
@@ -30,10 +26,9 @@ def collect_resource_info(mock_generator, program_path: str) -> list[tuple]:
 
 
 def generate_mutations(base_outputs: dict, schema_inputs: dict) -> list[dict]:
-    """Return a list of mutated copies of base_outputs.
+    """Return mutated copies of base_outputs, one per (field, boundary_value) pair.
 
-    One mutation per (field, boundary_value) pair derived from schema_inputs.
-    Only top-level fields declared in the schema are mutated.
+    Only top-level fields declared in schema_inputs are mutated.
     """
     mutations = []
     for field, prop_schema in schema_inputs.items():
@@ -46,10 +41,7 @@ def generate_mutations(base_outputs: dict, schema_inputs: dict) -> list[dict]:
 
 
 def deduplicate(violations: list[Violation], seen: set) -> list[Violation]:
-    """Return violations whose (field, message) key is not already in seen.
-
-    Adds new keys to seen in-place.
-    """
+    """Return violations whose (field, message) key is new; adds new keys to seen in-place."""
     new = []
     for v in violations:
         key = (v.field, v.message)
@@ -60,11 +52,7 @@ def deduplicate(violations: list[Violation], seen: set) -> list[Violation]:
 
 
 def _atheris_mutate(base_outputs: dict, schema_inputs: dict, fdp) -> dict:
-    """Apply a single schema-aware mutation chosen by an atheris FuzzedDataProvider.
-
-    fdp: atheris.FuzzedDataProvider instance.
-    Returns a mutated copy of base_outputs.
-    """
+    """Return a mutated copy of base_outputs; the field/value are chosen by an atheris FuzzedDataProvider."""
     fields = list(schema_inputs.items())
     if not fields:
         return copy.deepcopy(base_outputs)
@@ -115,11 +103,7 @@ def build_field_strategy(prop_schema: dict):
 
 
 def build_strategy(base_outputs: dict, schema_inputs: dict):
-    """Return a hypothesis strategy that generates mutations of base_outputs.
-
-    Each field declared in schema_inputs is varied independently.
-    Fields not in the schema stay at their base value.
-    """
+    """Return a hypothesis strategy over base_outputs; schema fields vary independently, others stay fixed."""
     from hypothesis import strategies as st
 
     field_strategies: dict = {}

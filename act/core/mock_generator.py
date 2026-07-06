@@ -17,8 +17,8 @@ log = logging.getLogger(__name__)
 class MockGenerator:
     """Generates pulumi.runtime.Mocks from any Pulumi provider schema.
 
-    Works with any provider — reads the schema file to discover resource types,
-    then intercepts CustomResource registrations at the Pulumi SDK level.
+    Reads the schema to discover resource types, then intercepts
+    CustomResource registrations at the Pulumi SDK level.
     """
 
     def __init__(self, schema_path: str | list[str]):
@@ -32,11 +32,7 @@ class MockGenerator:
         self._type_map = self._build_type_map()
 
     def _build_type_map(self) -> dict:
-        """Build a map from class name to resource metadata.
-
-        Key: last segment of the Pulumi token (e.g. "Instance", "Database").
-        Value: {token, inputs, outputs, required}
-        """
+        """Map class name (last token segment) -> {token, inputs, outputs, required}."""
         result = {}
         for token, resource in self._schema.get("resources", {}).items():
             class_name = token.split(":")[-1]
@@ -64,10 +60,7 @@ class MockGenerator:
         return None
 
     def _detect_resource_types(self, program_path: str) -> set:
-        """Return the set of known resource class names used in a program.
-
-        Uses AST analysis — no execution required.
-        """
+        """Return known resource class names used in a program (via AST, no execution)."""
         with open(self._entry_point(program_path)) as f:
             tree = ast.parse(f.read())
 
@@ -85,11 +78,8 @@ class MockGenerator:
         return found
 
     def generate(self, program_path: str) -> type:
-        """Return a pulumi.runtime.Mocks subclass for the given program.
-
-        The generated class intercepts new_resource calls and returns
-        schema-derived default outputs merged with actual input values.
-        """
+        """Return a pulumi.runtime.Mocks subclass that merges schema-derived
+        default outputs with actual input values on new_resource calls."""
         detected = self._detect_resource_types(program_path)
         type_map = self._type_map
 
@@ -127,16 +117,12 @@ class MockGenerator:
 
     @staticmethod
     def _entry_point(program_path: str) -> str:
-        """Return the .py entry point — directory → __main__.py, file → unchanged."""
+        """Return the .py entry point: directory -> __main__.py, file unchanged."""
         p = Path(program_path)
         return str(p / "__main__.py") if p.is_dir() else str(p)
 
     def run_with_mocks(self, program_path: str) -> dict:
-        """Run a Pulumi program under mocks and return captured resource outputs.
-
-        Accepts a single .py file or a project directory (uses __main__.py).
-        Returns a dict mapping resource name to its output dict.
-        """
+        """Run a program (file or project dir) under mocks; return {resource name -> outputs}."""
         program_path = self._entry_point(program_path)
         MockClass = self.generate(program_path)
         recorded: dict[str, dict] = {}
@@ -160,7 +146,7 @@ class MockGenerator:
                     raise RuntimeError(f"Cannot load program: {program_path}")
                 mod = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(mod)  # type: ignore[union-attr]
-                # Drain all resource registration tasks scheduled by CustomResource.__init__
+                # Drain registration tasks scheduled by CustomResource.__init__
                 pending = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
                 if pending:
                     await asyncio.gather(*pending, return_exceptions=True)

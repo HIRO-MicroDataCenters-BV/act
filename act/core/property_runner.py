@@ -1,7 +1,6 @@
 """Hypothesis-based property runner for Path B programs.
 
-Cross-platform. Uses schema-derived strategies to generate diverse inputs
-and verifies oracle invariants across the generated space.
+Cross-platform; schema-derived strategies drive inputs and verify oracle invariants.
 """
 
 from typing import List
@@ -23,10 +22,9 @@ log = logging.getLogger(__name__)
 
 
 class PropertyRunner(TestGeneratorPlugin):
-    """Generates hypothesis-driven mutations of resource inputs and checks the oracle.
+    """Checks the oracle against hypothesis-driven mutations of resource inputs.
 
-    One Pulumi program execution per run() call; mutations are applied to the
-    captured outputs dict without re-executing the program.
+    One program execution per run(); mutations reuse the captured outputs dict.
     """
 
     def __init__(
@@ -67,9 +65,8 @@ class PropertyRunner(TestGeneratorPlugin):
                     viols = orc.check(tok, inputs)
                     vlist.extend(deduplicate(viols, vseen))
 
-                    # State invariant: status must be str or dict if present.
-                    # Record as a Violation instead of asserting — a hard raise
-                    # would propagate through hypothesis and crash the pipeline.
+                    # Invariant: status must be str or dict if present. Record as a
+                    # Violation, not an assert; a raise would propagate and crash the pipeline.
                     status = inputs.get("status")
                     if status is not None and not isinstance(status, (str, dict)):
                         vlist.extend(

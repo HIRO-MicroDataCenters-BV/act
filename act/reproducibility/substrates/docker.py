@@ -1,9 +1,6 @@
-"""Generic data-driven substrate: runs `docker run --platform linux/<arch> <pinned-image>`,
-extracts kubeconfig from the running container, returns a ProvisionedTarget.
+"""Data-driven substrate: `docker run --platform linux/<arch> <image>`, extract kubeconfig, return a ProvisionedTarget.
 
-Adding a new architecture is one row in the substrate registry. The image's
-contents (which kernel, which k3s build, which firmware) are the responsibility
-of the image-build pipeline, not this substrate.
+A new arch is one registry row; image contents are the image-build pipeline's job, not this substrate's.
 """
 
 from __future__ import annotations

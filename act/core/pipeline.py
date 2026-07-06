@@ -27,7 +27,7 @@ class PipelineResult:
     violations: List[Violation]
     program_path: str
     parameterized: bool  # True if program reads from env/argv
-    acv_result: Optional[ACVResult] = None  # advisory only — never affects `passed`
+    acv_result: Optional[ACVResult] = None  # advisory only; never affects `passed`
 
 
 def _is_parameterized(program_path: str) -> bool:
@@ -88,9 +88,8 @@ class ACTPipeline:
         violations.extend(oracle_violations)
         log.info("pipeline.oracle_done", extra={"violations": len(oracle_violations), "duration_ms": _ms(t)})
 
-        # ACV runs after the deterministic oracle and is additive: its findings
-        # are surfaced in the report but never added to `violations`, so they do
-        # not affect `passed`/exit code. Unavailability skips gracefully.
+        # ACV runs after the oracle, additive: findings surface in the report but
+        # never join `violations`, so they don't affect `passed`/exit code.
         acv_result: Optional[ACVResult] = None
         if self._acv:
             t = time.perf_counter()

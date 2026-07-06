@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-ACT — Automated Configuration Testing
+ACT - Automated Configuration Testing
 
 Usage:
   python act/run.py --program <path> --schema <path> [<path> ...] [--output <dir>] [--rules checkov]
@@ -87,7 +87,6 @@ def _configure_logging(level: str) -> None:
     handler.setFormatter(_JsonFormatter())
     # Root at ERROR suppresses Pulumi/asyncio noise (direct logging.debug() calls)
     logging.basicConfig(level=logging.ERROR, handlers=[handler], force=True)
-    # Explicitly set act.* to the requested level
     logging.getLogger("act").setLevel(level)
 
 
@@ -96,15 +95,13 @@ def _load_extra_rules(oracle, mg, engines: list) -> None:
     if "checkov" not in engines:
         return
     log = logging.getLogger("act")
-    # One unscoped rule per provider — avoids schema vs runtime token mismatches.
+    # One unscoped rule per provider; avoids schema vs runtime token mismatches.
     providers = {info["token"].split(":")[0] for info in mg._type_map.values()}
     for provider in providers:
         try:
             load_checkov_rules(oracle, check_type=provider)
         except ValueError as exc:
-            # Expected when a provider has no Checkov coverage, but still worth
-            # logging — otherwise a misconfigured Checkov install looks like
-            # "no rules available" with no breadcrumb.
+            # No Checkov coverage for this provider; log so a broken install leaves a breadcrumb.
             log.debug(
                 "checkov.skipped_provider",
                 extra={"provider": provider, "reason": str(exc)},
@@ -165,16 +162,12 @@ _K3S_COMMAND: tuple[str, ...] = (
     "server",
     "--disable=traefik",
     "--write-kubeconfig-mode=644",
-    # `native` snapshotter avoids overlayfs mounts that fail under QEMU
-    # binfmt or in some host filesystem layouts. Slightly slower than overlay
-    # but reliably works on every substrate platform we ship today.
+    # native snapshotter avoids overlayfs mounts that fail under QEMU binfmt.
     "--snapshotter=native",
 )
 
-# riscv64 under QEMU user-mode binfmt emulation cannot run iptables-dependent
-# components (kube-proxy crashes, flannel depends on kube-proxy). The image
-# bundles the reference CNI plugins + a bridge conflist so kubelet still
-# satisfies NetworkReady without iptables.
+# riscv64 QEMU binfmt can't run iptables components; the image bundles CNI +
+# a bridge conflist so kubelet reaches NetworkReady without kube-proxy/flannel.
 _K3S_RISCV64_COMMAND: tuple[str, ...] = _K3S_COMMAND + (
     "--disable-kube-proxy",
     "--flannel-backend=none",
@@ -183,11 +176,9 @@ _K3S_RISCV64_COMMAND: tuple[str, ...] = _K3S_COMMAND + (
 
 
 def _default_substrates() -> list:
-    """Substrate registry. Each row is a pinned image + platform + arch.
+    """Substrate registry: each row pins an image, platform, and arch.
 
-    amd64/arm64 use upstream rancher/k3s (multi-arch, well-tested).
-    riscv64 uses the CARV-ICS-FORTH fork that publishes pinned tarballs.
-    Both can be overridden via ACT_K3S_IMAGE / ACT_K3S_RISCV64_IMAGE env vars.
+    Images are overridable via ACT_K3S_IMAGE / ACT_K3S_RISCV64_IMAGE.
     """
     return [
         DockerSubstrate(
@@ -211,11 +202,9 @@ def _default_substrates() -> list:
             extra_docker_args=_K3S_DOCKER_ARGS,
             command=_K3S_RISCV64_COMMAND,
         ),
-        # GPU substrate: only matches specs with features=["gpu"], so it
-        # doesn't steal non-GPU amd64 work from the regular row above. The
-        # post-provision step declares nvidia.com/gpu as a k8s Extended
-        # Resource — schedulable without GPU hardware. Real CUDA execution
-        # requires a GPU-equipped host; this substrate validates the IaC layer.
+        # GPU substrate: features={"gpu"} keeps it from stealing plain amd64 work;
+        # declares nvidia.com/gpu as a k8s Extended Resource (schedulable without
+        # GPU hardware, validates the IaC layer, not real CUDA execution).
         GpuSubstrate(
             image=_K3S_IMAGE,
             platform="linux/amd64",
@@ -224,10 +213,9 @@ def _default_substrates() -> list:
             extra_docker_args=_K3S_DOCKER_ARGS,
             command=_K3S_COMMAND,
         ),
-        # FPGA substrate: declares cape.eu/fpga as a schedulable Extended
-        # Resource. The boot-flow simulation itself runs inside the user's
-        # workload Pod (typically the act-fpga:iverilog image) and its
-        # $display output is captured by probe_k8s_with_workload_logs.
+        # FPGA substrate: declares cape.eu/fpga as a schedulable Extended Resource;
+        # boot-flow sim runs in the workload Pod (act-fpga:iverilog), $display
+        # captured by probe_k8s_with_workload_logs.
         FpgaSubstrate(
             image=_K3S_IMAGE,
             platform="linux/amd64",
@@ -236,11 +224,9 @@ def _default_substrates() -> list:
             extra_docker_args=_K3S_DOCKER_ARGS,
             command=_K3S_COMMAND,
         ),
-        # CXL substrate: declares cape.eu/cxl as a schedulable Extended
-        # Resource. The CXL Type 3 device emulation runs inside the user's
-        # workload Pod via qemu-system-x86_64 (act-cxl:qemu image); the
-        # `cxl list -v` output from the guest is captured by
-        # probe_k8s_with_workload_logs.
+        # CXL substrate: declares cape.eu/cxl as a schedulable Extended Resource;
+        # Type 3 device emulated in the workload Pod via qemu (act-cxl:qemu),
+        # cxl list -v captured by probe_k8s_with_workload_logs.
         CxlSubstrate(
             image=_K3S_IMAGE,
             platform="linux/amd64",
@@ -366,9 +352,8 @@ def main(argv=None) -> int:
         oracle = CorrectnessOracle(args.schema)
         auto_load(oracle)
         _load_extra_rules(oracle, mg, args.rules)
-        # ACV is additive: enabled only when ACT_ACV_MODEL + a base URL are set
-        # (and the optional `acv` extra is installed). Otherwise from_env returns
-        # None and the pipeline runs without it.
+        # ACV is additive; from_env returns None unless ACT_ACV_MODEL + a base URL
+        # are set (and the optional acv extra is installed).
         acv = ACTCognitiveValidator.from_env()
         pipeline = ACTPipeline(mg, oracle, acv=acv)
         gate = CIGate(pipeline)

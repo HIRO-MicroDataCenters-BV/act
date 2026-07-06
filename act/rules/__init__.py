@@ -1,7 +1,5 @@
-"""Dynamic rule loader — scans this package directory for rule modules.
-
-Any .py file in act/rules/ that defines a register(oracle) function
-is discovered and loaded automatically. No provider names are hardcoded here.
+"""Dynamic rule loader: any .py in act/rules/ defining register(oracle) is
+auto-discovered and loaded. No provider names hardcoded.
 """
 
 import importlib

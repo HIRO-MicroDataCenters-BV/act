@@ -1,9 +1,7 @@
-"""Renders NixOS-Compose flakes for image-build pipelines.
+"""Render NixOS-Compose flakes for the image-build pipeline.
 
-A NixOS-Compose flake passed to `nxc init` + `nxc build` produces a docker-
-compose YAML (the `docker` flavour) or a QEMU VM image (the `vm-ramdisk`
-flavour). Those build artefacts are then packaged into the substrate images
-the DockerSubstrate pulls at runtime.
+`nxc build` turns the flake into a docker-compose YAML (`docker` flavour) or a QEMU VM image (`vm-ramdisk`),
+which are then packaged into the substrate images DockerSubstrate pulls at runtime.
 """
 
 from __future__ import annotations

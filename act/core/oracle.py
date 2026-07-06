@@ -12,12 +12,8 @@ log = logging.getLogger(__name__)
 class CorrectnessOracle(OraclePlugin):
     """Provider-agnostic rule engine.
 
-    Combines two violation sources:
-    - Schema inference: required-field presence and top-level type checks
-    - Plugged rules: plain functions (inputs: dict) -> List[Violation]
-
-    The oracle has zero provider-specific knowledge. All domain rules are
-    injected via add_rule().
+    Two violation sources: schema inference (required fields, top-level types)
+    and plugged rules injected via add_rule(). No provider-specific knowledge.
     """
 
     def __init__(self, schema_path: str | list[str]):
@@ -36,16 +32,14 @@ class CorrectnessOracle(OraclePlugin):
     ) -> None:
         """Register a rule function.
 
-        resource_type: Pulumi token to scope the rule (e.g. "cape:compute:Instance").
-                       If None, the rule runs for every resource type.
+        resource_type: Pulumi token to scope the rule; None runs it for every type.
         """
         self._rules.append((resource_type, rule_fn))
 
     def check(self, resource_type: str, inputs: dict) -> List[Violation]:
         """Return all violations for a single resource.
 
-        resource_type: full Pulumi token, e.g. "cape:compute:Instance"
-        inputs: the resource output dict from MockGenerator.run_with_mocks()
+        inputs: the resource output dict from MockGenerator.run_with_mocks().
         """
         violations = self._infer_from_schema(resource_type, inputs)
         for scoped_type, rule in self._rules:
@@ -63,11 +57,7 @@ class CorrectnessOracle(OraclePlugin):
         return violations
 
     def _infer_from_schema(self, resource_type: str, inputs: dict) -> List[Violation]:
-        """Auto-check required fields and scalar types defined in the schema.
-
-        Covers only what the schema explicitly declares. When schemas gain
-        typed sub-properties, this method picks them up automatically.
-        """
+        """Check required fields and scalar types declared in the schema (auto-extends as the schema grows)."""
         resource_schema = self._schema.get("resources", {}).get(resource_type, {})
         if not resource_schema:
             return []
@@ -93,9 +83,7 @@ class CorrectnessOracle(OraclePlugin):
         }
         for field, prop_schema in input_props.items():
             value = inputs.get(field)
-            # Treat absent and explicit-None the same way as the required-field
-            # check above. Otherwise a `None` value triggers both a "required"
-            # violation and a "wrong type" violation for the same field.
+            # Skip None; the required-field check above already covers it (avoids double violation).
             if value is None:
                 continue
             expected_type = prop_schema.get("type")

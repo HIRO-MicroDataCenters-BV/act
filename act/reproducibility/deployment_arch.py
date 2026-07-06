@@ -1,7 +1,4 @@
-"""Smoke-boot every image referenced by a Pulumi program under QEMU for a target arch.
-
-Answers: "Do all images this deployment references actually start under linux/<arch>?"
-"""
+"""Smoke-boot every image a Pulumi program references under QEMU for a target arch."""
 
 from __future__ import annotations
 
@@ -16,9 +13,8 @@ from act.core.mock_generator import MockGenerator
 
 ImageBootReason = Literal["no_arch_variant", "boot_failed", "timeout", "docker_missing"]
 
-# Docker error fragments that mean "this image has no variant for the requested
-# platform" — drawn from the strings dockerd/buildkit emit on different versions.
-# Matched lowercase against the failed-run stderr.
+# Docker stderr fragments meaning "no image variant for this platform"
+# (dockerd/buildkit emit different strings by version); matched lowercase.
 _NO_ARCH_VARIANT_FRAGMENTS: tuple[str, ...] = (
     "no matching manifest",
     "manifest unknown",

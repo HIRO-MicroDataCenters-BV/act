@@ -1,9 +1,7 @@
-"""Helpers for building riscv64 substrate images.
+"""Helpers for building riscv64 substrate images (image-build CI only, not runtime).
 
-Used by the image-build CI to fetch a pinned Ubuntu/Debian cloud image, render
-a cloud-init seed for first-boot k3s install (CARV-ICS-FORTH fork), and
-assemble the qemu-system-riscv64 launch command that becomes the substrate
-image's entrypoint. Not used at runtime by DockerSubstrate.
+Fetches a pinned Ubuntu cloud image, renders a cloud-init seed for first-boot k3s install, and assembles the
+qemu-system-riscv64 launch command that becomes the substrate image's entrypoint.
 """
 
 from __future__ import annotations

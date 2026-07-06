@@ -1,9 +1,7 @@
 """ACT Cognitive Validator (ACV).
 
-Only the dependency-free data models are re-exported here so importing this
-package stays cheap on the core pipeline path. Import the agent explicitly via
-``from act.acv.agent import ACTCognitiveValidator`` (it guards the optional
-``acv`` extra internally).
+Only dependency-free data models are re-exported, so importing this package stays
+cheap. Import the agent explicitly: ``from act.acv.agent import ACTCognitiveValidator``.
 """
 
 from act.acv.models import (
