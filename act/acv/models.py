@@ -1,8 +1,7 @@
 """Data structures for the ACT Cognitive Validator (ACV).
 
-Pure dataclasses plus small adapters. Deliberately free of heavy dependencies
-(no langgraph / langchain-core / httpx) so the core pipeline can import these
-types without pulling in the optional ``acv`` extra.
+Dataclasses plus small adapters, dependency-free (no langgraph/langchain-core/httpx)
+so the core pipeline imports these without the optional ``acv`` extra.
 """
 
 from typing import List
@@ -42,9 +41,9 @@ def skipped_result() -> ACVResult:
 def findings_from_tool_json(tool_name: str, raw: str) -> List[ACVFinding]:
     """Parse a tool's JSON output into ``ACVFinding`` objects.
 
-    Tolerant by design: malformed JSON, a non-list payload, or entries missing
-    fields yield an empty list rather than raising — a misbehaving analyser must
-    never break the run. An unrecognised severity falls back to ``MEDIUM``.
+    Tolerant by design: malformed or non-list JSON yields an empty list rather
+    than raising, so a misbehaving analyser never breaks the run. Unrecognised
+    severity falls back to ``MEDIUM``.
     """
     try:
         data = json.loads(raw)
@@ -57,25 +56,32 @@ def findings_from_tool_json(tool_name: str, raw: str) -> List[ACVFinding]:
     for entry in data:
         if not isinstance(entry, dict):
             continue
-        severity = str(entry.get("severity", "")).upper()
+        severity = str(entry.get("severity", "")).strip().upper()
         if severity not in _VALID_SEVERITIES:
             severity = "MEDIUM"
         findings.append(
             ACVFinding(
                 tool=tool_name,
                 severity=severity,
-                description=str(entry.get("description", "")).strip(),
-                recommendation=str(entry.get("recommendation", "")).strip(),
+                description=_clean_text(entry.get("description")),
+                recommendation=_clean_text(entry.get("recommendation")),
             )
         )
     return findings
 
 
+def _clean_text(value: object) -> str:
+    """Coerce a tool-supplied field to clean display text.
+
+    Non-strings become "" so a ``"None"`` or Python ``repr`` never leaks into the report.
+    """
+    return value.strip() if isinstance(value, str) else ""
+
+
 def acv_result_to_violations(result: ACVResult) -> List[Violation]:
     """Render ACV findings as ``Violation`` objects for the advisory report block.
 
-    Display only: the pipeline never adds these to its gating violation list, so
-    ACV findings do not change the exit code.
+    Display only: never added to the gating violation list, so ACV never changes the exit code.
     """
     violations: List[Violation] = []
     for finding in result.findings:

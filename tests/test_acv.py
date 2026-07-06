@@ -12,6 +12,7 @@ pytest.importorskip("langgraph")
 
 from act.acv import tools as acv_tools  # noqa: E402
 from act.acv.agent import ACTCognitiveValidator  # noqa: E402
+from act.acv.models import findings_from_tool_json  # noqa: E402
 from act.core.mock_generator import MockGenerator  # noqa: E402
 from act.core.oracle import CorrectnessOracle  # noqa: E402
 from act.core.pipeline import ACTPipeline  # noqa: E402
@@ -98,6 +99,39 @@ def test_stub_tools_return_no_findings():
         acv_tools.resource_optimisation_checker,
     ):
         assert stub.invoke({"program_content": "anything"}) == "[]"
+
+
+# --- response robustness ---------------------------------------------------
+
+
+def test_finding_survives_prose_brackets(valid_program):
+    # Stray brackets in the surrounding prose must not corrupt extraction.
+    chatty = "Findings [see below]: " + FINDING_JSON + " also check array[0]."
+    result = _validator(chatty).validate(valid_program)
+    assert result.verdict == "FAIL"
+    assert len(result.findings) == 1
+    assert result.findings[0].severity == "HIGH"
+
+
+def test_non_string_completion_does_not_crash(valid_program):
+    # A non-string completion degrades to no findings, not an escaped exception.
+    validator = ACTCognitiveValidator("http://fake", "fake", client=FakeClient(["not", "a", "string"]))
+    result = validator.validate(valid_program)
+    assert result.verdict == "PASS"
+    assert result.findings == []
+
+
+def test_padded_severity_not_downgraded():
+    findings = findings_from_tool_json("t", '[{"severity": " high ", "description": "x"}]')
+    assert findings[0].severity == "HIGH"
+
+
+def test_malformed_field_values_render_empty():
+    findings = findings_from_tool_json(
+        "t", '[{"severity": "HIGH", "description": null, "recommendation": {"port": 22}}]'
+    )
+    assert findings[0].description == ""
+    assert findings[0].recommendation == ""
 
 
 # --- graceful skip ---------------------------------------------------------

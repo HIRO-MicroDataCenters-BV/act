@@ -1,13 +1,8 @@
-"""The ACT Cognitive Validator (ACV) agent.
+"""ACT Cognitive Validator (ACV) agent: a LangGraph planner -> tools -> synthesis loop.
 
-A LangGraph planner -> tools -> synthesis loop that runs after the deterministic
-oracle. It is *additive*: it never blocks the pipeline. If the optional ``acv``
-extra is not installed, no endpoint is configured, or the endpoint is
-unreachable, :meth:`ACTCognitiveValidator.validate` skips gracefully and returns
-a clean result.
-
-Enable it by setting ``ACT_ACV_MODEL`` and ``ACT_ACV_BASE_URL``
-(``CAPE_ACV_MODEL_URL`` is accepted as an alias for the base URL).
+Additive; never blocks the pipeline. Skips gracefully when the optional ``acv``
+extra is missing, no endpoint is configured, or the endpoint is unreachable.
+Enable via ``ACT_ACV_MODEL`` + ``ACT_ACV_BASE_URL`` (``CAPE_ACV_MODEL_URL`` aliases the base URL).
 """
 
 from typing import List, Optional, Tuple, TypedDict
@@ -53,7 +48,15 @@ class _HttpxLLM:
             timeout=self._timeout,
         )
         resp.raise_for_status()
-        return resp.json()["choices"][0]["message"]["content"]
+        payload = resp.json()
+        try:
+            content = payload["choices"][0]["message"]["content"]
+        except (KeyError, IndexError, TypeError) as exc:
+            # A 200 can still carry an error object or empty choices; surface a clear error, not a bare KeyError.
+            raise ValueError(f"unexpected chat-completions response shape: {payload!r}") from exc
+        if not isinstance(content, str):
+            raise ValueError(f"chat-completions content was {type(content).__name__}, expected str")
+        return content
 
 
 _SEVERITY_ORDER = {"HIGH": 3, "MEDIUM": 2, "LOW": 1}
@@ -89,7 +92,7 @@ class _ACVState(TypedDict):
 
 
 def _planner(state: _ACVState) -> dict:
-    """Plan a cycle: run every analyser. Count this iteration."""
+    # Count this iteration.
     return {"iterations": state["iterations"] + 1}
 
 
@@ -103,8 +106,7 @@ def _run_tools(state: _ACVState) -> dict:
 
 
 def _synthesis(state: _ACVState) -> dict:
-    # Verdict/risk are derived from the accumulated findings once the loop ends;
-    # the node exists so the planner -> tools -> synthesis shape is explicit.
+    # No-op node: verdict/risk are derived after the loop in _synthesise_result.
     return {}
 
 
@@ -144,10 +146,9 @@ class ACTCognitiveValidator:
         client: Optional["_HttpxLLM"] = None,
     ):
         """
-        model_base_url: vLLM OpenAI-compatible endpoint (e.g. http://localhost:8000/v1)
-        model_name: served model id (read from ACT_ACV_MODEL by from_env)
-        max_iterations: planner/tool cycles before returning a partial result
-        client: injected LLM client (tests pass a fake); built from base_url/model when None
+        model_base_url: vLLM OpenAI-compatible endpoint (e.g. http://localhost:8000/v1).
+        max_iterations: planner/tool cycles before returning a partial result.
+        client: injected LLM client (tests pass a fake); built from base_url/model when None.
         """
         self._base_url = model_base_url
         self._model = model_name
