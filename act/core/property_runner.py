@@ -47,44 +47,36 @@ class PropertyRunner(TestGeneratorPlugin):
             class_name = token.split(":")[-1]
             schema_inputs = self._mg._type_map.get(class_name, {}).get("inputs", {})
             strategy = build_strategy(base_outputs, schema_inputs)
-
-            # Capture loop variables explicitly to avoid late-binding in closure
-            _token = token
-            _oracle = self._oracle
-            _violations = violations
-            _seen = seen
-
-            def _make_check(tok, orc, vlist, vseen):
-                @given(inputs=strategy)
-                @settings(
-                    max_examples=self._max_examples,
-                    deadline=None,
-                    suppress_health_check=[HealthCheck.too_slow],
-                )
-                def _check(inputs):
-                    viols = orc.check(tok, inputs)
-                    vlist.extend(deduplicate(viols, vseen))
-
-                    # Invariant: status must be str or dict if present. Record as a
-                    # Violation, not an assert; a raise would propagate and crash the pipeline.
-                    status = inputs.get("status")
-                    if status is not None and not isinstance(status, (str, dict)):
-                        vlist.extend(
-                            deduplicate(
-                                [
-                                    Violation(
-                                        field="status",
-                                        message=f"status must be str or dict, got {type(status).__name__}",
-                                        severity="HIGH",
-                                    )
-                                ],
-                                vseen,
-                            )
-                        )
-
-                return _check
-
-            _make_check(_token, _oracle, _violations, _seen)()
+            self._check_token(token, strategy, violations, seen)
 
         log.debug("property_runner.done", extra={"violations": len(violations)})
         return violations
+
+    def _check_token(self, token, strategy, violations, seen) -> None:
+        @given(inputs=strategy)
+        @settings(
+            max_examples=self._max_examples,
+            deadline=None,
+            suppress_health_check=[HealthCheck.too_slow],
+        )
+        def _check(inputs):
+            violations.extend(deduplicate(self._oracle.check(token, inputs), seen))
+
+            # Invariant: status must be str or dict if present. Record as a
+            # Violation, not an assert; a raise would crash the pipeline.
+            status = inputs.get("status")
+            if status is not None and not isinstance(status, (str, dict)):
+                violations.extend(
+                    deduplicate(
+                        [
+                            Violation(
+                                field="status",
+                                message=f"status must be str or dict, got {type(status).__name__}",
+                                severity="HIGH",
+                            )
+                        ],
+                        seen,
+                    )
+                )
+
+        _check()

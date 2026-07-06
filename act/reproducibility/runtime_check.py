@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Literal, Optional
+from typing import Any, Callable, Literal, Optional
 
 import hashlib
 import json
@@ -22,10 +22,6 @@ from act.reproducibility.substrates.base import (
     Substrate,
     TargetSpec,
 )
-
-if TYPE_CHECKING:  # pragma: no cover
-    pass
-
 
 VOLATILE_KEYS: frozenset[str] = frozenset(
     {
@@ -97,7 +93,7 @@ def run_pulumi_against(
     program_path: str,
     backend_dir: str,
     project_name: str = "act-runtime-check",
-    probe_fn: Optional[callable] = None,  # type: ignore[valid-type]
+    probe_fn: Optional[Callable[..., dict]] = None,
 ) -> PulumiUpOutcome:
     """Run `pulumi up` against the provisioned target, then `destroy`.
 
@@ -413,7 +409,7 @@ class RuntimeCheck:
     def __init__(
         self,
         substrates: list[Substrate],
-        probe_fn: Optional[callable] = None,  # type: ignore[valid-type]
+        probe_fn: Optional[Callable[..., dict]] = None,
     ):
         self._substrates = substrates
         self._probe_fn = probe_fn or probe_k8s

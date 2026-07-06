@@ -18,7 +18,7 @@ from act.reproducibility.substrates.docker import DockerSubstrate
 
 @dataclass
 class AcceleratorSubstrate(DockerSubstrate):
-    """Accelerator substrate that declares a k8s Extended Resource; subclasses set feature_name + resource_name."""
+    """Base for GPU/FPGA/CXL substrates; subclasses set feature_name and resource_name."""
 
     feature_name: str = ""
     resource_name: str = ""

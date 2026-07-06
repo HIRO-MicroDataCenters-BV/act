@@ -15,7 +15,7 @@ from act.reproducibility.substrates.accelerator import AcceleratorSubstrate
 
 @dataclass
 class FpgaSubstrate(AcceleratorSubstrate):
-    """k3s substrate with a declared `cape.eu/fpga` extended resource."""
+    """Construct with `features=frozenset({"fpga"})` so the registry routes only FPGA-flagged specs here."""
 
     feature_name: str = "fpga"
     resource_name: str = "cape.eu/fpga"

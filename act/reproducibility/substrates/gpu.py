@@ -14,10 +14,7 @@ from act.reproducibility.substrates.accelerator import AcceleratorSubstrate
 
 @dataclass
 class GpuSubstrate(AcceleratorSubstrate):
-    """k3s substrate declaring `nvidia.com/gpu`.
-
-    Construct with `features=frozenset({"gpu"})` so the registry routes only GPU-flagged specs here.
-    """
+    """Construct with `features=frozenset({"gpu"})` so the registry routes only GPU-flagged specs here."""
 
     feature_name: str = "gpu"
     resource_name: str = "nvidia.com/gpu"

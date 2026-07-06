@@ -80,5 +80,5 @@ def _wait_for_node(kubeconfig: str, timeout: int) -> str:
         last_err = result.stderr.decode().strip()
         time.sleep(2)
     raise TimeoutError(
-        f"kubectl get nodes did not return a registered node within " f"{timeout}s (last stderr: {last_err!r})"
+        "kubectl get nodes did not return a registered node within " f"{timeout}s (last stderr: {last_err!r})"
     )

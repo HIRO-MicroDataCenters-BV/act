@@ -15,7 +15,7 @@ from act.reproducibility.substrates.accelerator import AcceleratorSubstrate
 
 @dataclass
 class CxlSubstrate(AcceleratorSubstrate):
-    """k3s substrate with a declared `cape.eu/cxl` extended resource."""
+    """Construct with `features=frozenset({"cxl"})` so the registry routes only CXL-flagged specs here."""
 
     feature_name: str = "cxl"
     resource_name: str = "cape.eu/cxl"
