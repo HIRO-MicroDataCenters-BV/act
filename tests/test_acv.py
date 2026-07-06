@@ -115,7 +115,8 @@ def test_finding_survives_prose_brackets(valid_program):
 
 def test_non_string_completion_does_not_crash(valid_program):
     # A non-string completion degrades to no findings, not an escaped exception.
-    validator = ACTCognitiveValidator("http://fake", "fake", client=FakeClient(["not", "a", "string"]))
+    client = FakeClient(["not", "a", "string"])  # type: ignore[arg-type]
+    validator = ACTCognitiveValidator("http://fake", "fake", client=client)
     result = validator.validate(valid_program)
     assert result.verdict == "PASS"
     assert result.findings == []

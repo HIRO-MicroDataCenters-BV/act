@@ -10,7 +10,7 @@ from typing import List, Optional, Tuple, TypedDict
 import logging
 import os
 
-from act.acv.models import ACVFinding, ACVResult, findings_from_tool_json, skipped_result
+from act.acv.models import LLM, ACVFinding, ACVResult, findings_from_tool_json, skipped_result
 from act.core.mock_generator import MockGenerator
 
 log = logging.getLogger(__name__)
@@ -143,7 +143,7 @@ class ACTCognitiveValidator:
         model_base_url: str,
         model_name: str,
         max_iterations: int = 3,
-        client: Optional["_HttpxLLM"] = None,
+        client: Optional[LLM] = None,
     ):
         """
         model_base_url: vLLM OpenAI-compatible endpoint (e.g. http://localhost:8000/v1).

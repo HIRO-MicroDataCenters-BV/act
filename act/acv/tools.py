@@ -7,7 +7,7 @@ are stubs returning no findings. The LLM is injected via :func:`set_llm` so tool
 stay hermetic under test.
 """
 
-from typing import Optional, Protocol
+from typing import Optional
 
 import contextvars
 import json
@@ -15,13 +15,9 @@ import logging
 
 from langchain_core.tools import tool
 
+from act.acv.models import LLM
+
 log = logging.getLogger(__name__)
-
-
-class LLM(Protocol):
-    def complete(self, prompt: str) -> str:
-        """Return the model's text completion for a prompt."""
-        ...
 
 
 # ContextVar (not a global) so concurrent validations on separate threads don't race on the client.

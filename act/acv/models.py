@@ -4,7 +4,7 @@ Dataclasses plus small adapters, dependency-free (no langgraph/langchain-core/ht
 so the core pipeline imports these without the optional ``acv`` extra.
 """
 
-from typing import List
+from typing import List, Protocol
 
 import json
 import logging
@@ -15,6 +15,12 @@ from act.core.violations import Violation
 log = logging.getLogger(__name__)
 
 _VALID_SEVERITIES = {"HIGH", "MEDIUM", "LOW"}
+
+
+class LLM(Protocol):
+    def complete(self, prompt: str) -> str:
+        """Return the model's text completion for a prompt."""
+        ...
 
 
 @dataclass
