@@ -146,8 +146,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--check-deployment-runtime",
         action="store_true",
         help="Spin up an ephemeral target environment via a substrate, run pulumi up "
-        "against it twice, hash the probed outputs, and compare. Requires nxc + nix "
-        "for the default nixos-compose substrate.",
+        "against it twice, hash the probed outputs, and compare. Requires docker, "
+        "kubectl, and the pulumi CLI.",
     )
     return parser
 

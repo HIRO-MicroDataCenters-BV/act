@@ -21,9 +21,13 @@ class GuestImage:
     distro: str
 
 
+# Digest is unpinned until the release is built; ensure_image rejects it rather
+# than downloading an unverified image. Set the real digest before use.
+_UNPINNED_SHA256 = "0" * 64
+
 DEFAULT_IMAGE = GuestImage(
     url="https://cloud-images.ubuntu.com/releases/noble/release-20260401/ubuntu-24.04-server-cloudimg-riscv64.img",
-    sha256="0" * 64,
+    sha256=_UNPINNED_SHA256,
     filename="ubuntu-24.04-server-cloudimg-riscv64.img",
     machine="virt",
     distro="ubuntu",
@@ -123,6 +127,8 @@ def render_cloud_init_meta_data(*, instance_id: str, hostname: str) -> str:
 
 
 def ensure_image(image: GuestImage, cache_dir: Path) -> Path:
+    if image.sha256 == _UNPINNED_SHA256:
+        raise RuntimeError(f"{image.filename} has an unpinned sha256 placeholder; set the real digest before use")
     cache_dir.mkdir(parents=True, exist_ok=True)
     target = cache_dir / image.filename
 

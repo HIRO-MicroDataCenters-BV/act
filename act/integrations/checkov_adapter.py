@@ -23,6 +23,7 @@ import yaml  # type: ignore[import-untyped]
 from act.core.violations import Violation
 
 logging.getLogger("checkov").setLevel(logging.ERROR)
+log = logging.getLogger(__name__)
 
 _checks_loaded: set[str] = set()
 
@@ -36,8 +37,8 @@ def _load_checks(check_type: str) -> None:
         for _, name, _ in pkgutil.walk_packages(pkg.__path__, pkg.__name__ + "."):
             try:
                 importlib.import_module(name)
-            except Exception:
-                pass
+            except Exception as exc:
+                log.debug("checkov.check_import_failed module=%s err=%s", name, exc)
         _checks_loaded.add(check_type)
     except ModuleNotFoundError:
         raise ValueError(f"No Checkov checks found for provider: {check_type!r}")
