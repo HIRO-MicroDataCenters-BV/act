@@ -32,10 +32,19 @@ _DEFAULT_TIMEOUT_S = 20.0
 class _HttpxLLM:
     """Minimal client for an OpenAI-compatible chat-completions endpoint."""
 
-    def __init__(self, base_url: str, model: str, timeout: float = _DEFAULT_TIMEOUT_S):
+    def __init__(
+        self,
+        base_url: str,
+        model: str,
+        timeout: float = _DEFAULT_TIMEOUT_S,
+        api_key: Optional[str] = None,
+    ):
         self._url = base_url.rstrip("/") + "/chat/completions"
         self._model = model
         self._timeout = timeout
+        # Bearer auth for hosted endpoints (Google's OpenAI-compat, OpenAI, ...);
+        # unauthenticated for a local vLLM server.
+        self._headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
 
     def complete(self, prompt: str) -> str:
         resp = httpx.post(
@@ -45,6 +54,7 @@ class _HttpxLLM:
                 "messages": [{"role": "user", "content": prompt}],
                 "temperature": 0,
             },
+            headers=self._headers,
             timeout=self._timeout,
         )
         resp.raise_for_status()
@@ -144,16 +154,22 @@ class ACTCognitiveValidator:
         model_name: str,
         max_iterations: int = 3,
         client: Optional[LLM] = None,
+        api_key: Optional[str] = None,
+        timeout: float = _DEFAULT_TIMEOUT_S,
     ):
         """
-        model_base_url: vLLM OpenAI-compatible endpoint (e.g. http://localhost:8000/v1).
+        model_base_url: OpenAI-compatible endpoint (vLLM, OpenAI, Google's compat endpoint, ...).
         max_iterations: planner/tool cycles before returning a partial result.
         client: injected LLM client (tests pass a fake); built from base_url/model when None.
+        api_key: bearer token for hosted endpoints; omit for an unauthenticated local server.
+        timeout: per-request seconds; raise it for slower or reasoning models.
         """
         self._base_url = model_base_url
         self._model = model_name
         self._max_iterations = max_iterations
         self._client = client
+        self._api_key = api_key
+        self._timeout = timeout
 
     @classmethod
     def from_env(cls) -> Optional["ACTCognitiveValidator"]:
@@ -166,7 +182,16 @@ class ACTCognitiveValidator:
         if not model or not base_url:
             log.info("acv.disabled reason=not_configured")
             return None
-        return cls(model_base_url=base_url, model_name=model)
+        try:
+            timeout = float(os.environ.get("ACT_ACV_TIMEOUT", _DEFAULT_TIMEOUT_S))
+        except ValueError:
+            timeout = _DEFAULT_TIMEOUT_S
+        return cls(
+            model_base_url=base_url,
+            model_name=model,
+            api_key=os.environ.get("ACT_ACV_API_KEY"),
+            timeout=timeout,
+        )
 
     def validate(self, program_path: str, context: Optional[dict] = None) -> ACVResult:
         """Run the planner-tool-synthesis loop; skip gracefully on any failure."""
@@ -175,7 +200,9 @@ class ACTCognitiveValidator:
             return skipped_result()
         try:
             source = self._read_source(program_path)
-            client = self._client or _HttpxLLM(self._base_url, self._model)
+            client = self._client or _HttpxLLM(
+                self._base_url, self._model, timeout=self._timeout, api_key=self._api_key
+            )
             acv_tools.set_llm(client)
             try:
                 final = _build_graph(self._max_iterations).invoke(

@@ -11,7 +11,7 @@ import pytest
 pytest.importorskip("langgraph")
 
 from act.acv import tools as acv_tools  # noqa: E402
-from act.acv.agent import ACTCognitiveValidator  # noqa: E402
+from act.acv.agent import _DEFAULT_TIMEOUT_S, ACTCognitiveValidator  # noqa: E402
 from act.acv.models import findings_from_tool_json  # noqa: E402
 from act.core.mock_generator import MockGenerator  # noqa: E402
 from act.core.oracle import CorrectnessOracle  # noqa: E402
@@ -162,6 +162,51 @@ def test_from_env_builds_when_configured(monkeypatch):
     monkeypatch.delenv("CAPE_ACV_MODEL_URL", raising=False)
     acv = ACTCognitiveValidator.from_env()
     assert isinstance(acv, ACTCognitiveValidator)
+
+
+def test_from_env_reads_api_key(monkeypatch):
+    monkeypatch.setenv("ACT_ACV_MODEL", "some-model")
+    monkeypatch.setenv("ACT_ACV_BASE_URL", "http://localhost:8000/v1")
+    monkeypatch.setenv("ACT_ACV_API_KEY", "secret")
+    monkeypatch.delenv("CAPE_ACV_MODEL_URL", raising=False)
+    acv = ACTCognitiveValidator.from_env()
+    assert acv is not None and acv._api_key == "secret"
+
+
+def test_from_env_timeout(monkeypatch):
+    monkeypatch.setenv("ACT_ACV_MODEL", "m")
+    monkeypatch.setenv("ACT_ACV_BASE_URL", "http://x/v1")
+    monkeypatch.delenv("CAPE_ACV_MODEL_URL", raising=False)
+
+    monkeypatch.setenv("ACT_ACV_TIMEOUT", "45")
+    acv = ACTCognitiveValidator.from_env()
+    assert acv is not None and acv._timeout == 45.0
+
+    monkeypatch.setenv("ACT_ACV_TIMEOUT", "not-a-number")
+    acv = ACTCognitiveValidator.from_env()
+    assert acv is not None and acv._timeout == _DEFAULT_TIMEOUT_S
+
+
+def test_httpx_client_sends_bearer_auth(monkeypatch):
+    from act.acv import agent
+
+    captured: dict = {}
+
+    class _Resp:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"choices": [{"message": {"content": "[]"}}]}
+
+    def _fake_post(url, json, headers, timeout):
+        captured["headers"] = headers
+        return _Resp()
+
+    monkeypatch.setattr(agent.httpx, "post", _fake_post)
+    client = agent._HttpxLLM("http://x/v1", "m", api_key="secret")
+    assert client.complete("hi") == "[]"
+    assert captured["headers"] == {"Authorization": "Bearer secret"}
 
 
 # --- pipeline / gate integration (advisory) --------------------------------

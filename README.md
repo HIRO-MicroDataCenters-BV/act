@@ -151,6 +151,8 @@ The optional cognitive validator has no flag; it is enabled through environment 
 |----------|---------|
 | `ACT_ACV_MODEL` | Served model id for the optional cognitive validator |
 | `ACT_ACV_BASE_URL` | Base URL of an OpenAI-compatible endpoint (for example `http://localhost:8000/openai/v1`) |
+| `ACT_ACV_API_KEY` | Optional bearer token for a hosted endpoint (omit for an unauthenticated local server) |
+| `ACT_ACV_TIMEOUT` | Optional per-request timeout in seconds (default 20; raise it for slower or reasoning models) |
 
 Both must be set, and the `acv` extra installed (`uv sync --extra acv`), for the validator to run; otherwise it is skipped. Its findings are advisory and never change the exit code.
 
