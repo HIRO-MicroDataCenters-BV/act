@@ -18,7 +18,7 @@ def _ms(t: float) -> int:
 
 
 class _Validator(Protocol):
-    def validate(self, program_path: str) -> ACVResult: ...
+    def validate(self, program_path: str, context: Optional[dict] = None) -> ACVResult: ...
 
 
 @dataclass
@@ -93,7 +93,7 @@ class ACTPipeline:
         acv_result: Optional[ACVResult] = None
         if self._acv:
             t = time.perf_counter()
-            acv_result = self._acv.validate(program_path)
+            acv_result = self._acv.validate(program_path, context={"oracle_violations": oracle_violations})
             log.info(
                 "pipeline.acv_done",
                 extra={

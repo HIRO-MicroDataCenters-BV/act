@@ -29,6 +29,16 @@ def set_llm(client: Optional[LLM]) -> None:
     _llm.set(client)
 
 
+# Deterministic-oracle findings, prepended to every tool prompt so the analysers focus
+# on what the oracle cannot already catch. ContextVar for the same thread-safety reason.
+_oracle_ctx: "contextvars.ContextVar[str]" = contextvars.ContextVar("acv_oracle_ctx", default="")
+
+
+def set_oracle_context(text: str) -> None:
+    """Install (or clear) the oracle-findings preamble shared with every tool prompt."""
+    _oracle_ctx.set(text or "")
+
+
 # Shared output contract appended to every tool prompt (doubled braces survive str.format).
 _JSON_CONTRACT = """
 
@@ -114,7 +124,11 @@ def _run_llm_tool(tool_name: str, prompt: str, program_content: str) -> str:
     if client is None:
         return "[]"
     try:
-        return _extract_json_array(client.complete(prompt.format(program=program_content)))
+        full = prompt.format(program=program_content)
+        oracle_ctx = _oracle_ctx.get()
+        if oracle_ctx:
+            full = oracle_ctx + "\n\n" + full
+        return _extract_json_array(client.complete(full))
     except Exception as exc:  # network / endpoint / decode: never break the graph
         log.warning("acv.tool_llm_error tool=%s err=%s", tool_name, exc)
         return "[]"

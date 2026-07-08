@@ -147,6 +147,19 @@ def _build_graph(max_iterations: int):
     return graph.compile()
 
 
+def _format_oracle_context(context: Optional[dict]) -> str:
+    """Render the deterministic oracle's findings as a preamble for the tool prompts."""
+    violations = (context or {}).get("oracle_violations") or []
+    if not violations:
+        return ""
+    lines = "\n".join(f"- [{v.severity}] {v.field}: {v.message}" for v in violations)
+    return (
+        "The deterministic oracle already reported these structural violations:\n"
+        f"{lines}\n"
+        "Focus on content-level or operational issues the oracle does not already cover."
+    )
+
+
 class ACTCognitiveValidator:
     def __init__(
         self,
@@ -204,12 +217,14 @@ class ACTCognitiveValidator:
                 self._base_url, self._model, timeout=self._timeout, api_key=self._api_key
             )
             acv_tools.set_llm(client)
+            acv_tools.set_oracle_context(_format_oracle_context(context))
             try:
                 final = _build_graph(self._max_iterations).invoke(
                     {"program_content": source, "iterations": 0, "findings": [], "prev_signature": None}
                 )
             finally:
                 acv_tools.set_llm(None)
+                acv_tools.set_oracle_context("")
             return _synthesise_result(final["findings"], final["iterations"])
         except Exception as exc:  # unreachable endpoint / read error / anything
             log.warning("acv.skipped reason=error err=%s", exc)

@@ -110,6 +110,19 @@ def test_all_tools_contribute_when_llm_responds(valid_program):
     assert {f.tool for f in result.findings} == {t.name for t in acv_tools.TOOLS}
 
 
+def test_oracle_context_reaches_tool_prompts(valid_program):
+    from act.core.violations import Violation
+
+    client = FakeClient("[]")  # no findings; we only inspect the prompts it received
+    ctx = {
+        "oracle_violations": [Violation(field="spec.securityGroupRef", message="no security group", severity="HIGH")]
+    }
+    ACTCognitiveValidator("http://fake", "fake", client=client).validate(valid_program, context=ctx)
+    assert any("The deterministic oracle already reported" in p for p in client.calls)
+    assert any("spec.securityGroupRef: no security group" in p for p in client.calls)
+    assert acv_tools._oracle_ctx.get() == ""  # cleared after the run
+
+
 # --- response robustness ---------------------------------------------------
 
 
