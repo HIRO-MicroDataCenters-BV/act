@@ -40,16 +40,17 @@ class CIGate:
             lines = [f"FAIL  {result.program_path}"]
             for v in result.violations:
                 lines.append(f"  [{v.severity}] {v.field}: {v.message}")
-        lines.extend(self._acv_advisory_lines(result))
+        lines.extend(self._acv_lines(result))
         return "\n".join(lines)
 
     @staticmethod
-    def _acv_advisory_lines(result: PipelineResult) -> list:
-        """Render ACV findings as an advisory block (does not affect the verdict)."""
+    def _acv_lines(result: PipelineResult) -> list:
+        """Render the ACV findings block (advisory by default, blocking when it gates the verdict)."""
         acv = result.acv_result
         if acv is None or not acv.findings:
             return []
-        advisory = [f"ACV (advisory): {len(acv.findings)} finding(s)"]
+        label = "blocking" if result.acv_blocking else "advisory"
+        lines = [f"ACV ({label}): {len(acv.findings)} finding(s)"]
         for v in acv_result_to_violations(acv):
-            advisory.append(f"  [{v.severity}] {v.field}: {v.message}")
-        return advisory
+            lines.append(f"  [{v.severity}] {v.field}: {v.message}")
+        return lines

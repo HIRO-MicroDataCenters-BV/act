@@ -149,6 +149,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "against it twice, hash the probed outputs, and compare. Requires docker, "
         "kubectl, and the pulumi CLI.",
     )
+    parser.add_argument(
+        "--acv-mode",
+        choices=["advisory", "blocking"],
+        default=os.environ.get("ACT_ACV_MODE", "advisory"),
+        help="Whether ACV findings gate the exit code. advisory (default) never blocks; "
+        "blocking fails the gate on an ACV FAIL. Env: ACT_ACV_MODE.",
+    )
     return parser
 
 
@@ -355,7 +362,7 @@ def main(argv=None) -> int:
         # ACV is additive; from_env returns None unless ACT_ACV_MODEL + a base URL
         # are set (and the optional acv extra is installed).
         acv = ACTCognitiveValidator.from_env()
-        pipeline = ACTPipeline(mg, oracle, acv=acv)
+        pipeline = ACTPipeline(mg, oracle, acv=acv, acv_blocking=(args.acv_mode == "blocking"))
         gate = CIGate(pipeline)
         exit_code = gate.evaluate(args.program)
 

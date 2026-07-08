@@ -262,3 +262,14 @@ def test_acv_advisory_appended_to_failing_report(cape_schema_path, invalid_progr
 def test_pipeline_runs_without_acv(cape_schema_path, valid_program):
     gate = CIGate(_pipeline(cape_schema_path, acv=None))
     assert gate.evaluate(valid_program) == 0
+
+
+def test_acv_blocking_mode_gates_exit_code(cape_schema_path, valid_program):
+    # Oracle passes on the valid program; in blocking mode an ACV FAIL flips the exit to 1.
+    mg = MockGenerator(cape_schema_path)
+    oracle = CorrectnessOracle(cape_schema_path)
+    auto_load(oracle)
+    pipeline = ACTPipeline(mg, oracle, acv=_validator(FINDING_JSON), acv_blocking=True)
+    gate = CIGate(pipeline)
+    assert gate.evaluate(valid_program) == 1
+    assert "ACV (blocking): 1 finding(s)" in gate.format_report(pipeline.run(valid_program))

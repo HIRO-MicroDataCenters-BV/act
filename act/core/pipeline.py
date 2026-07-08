@@ -27,7 +27,8 @@ class PipelineResult:
     violations: List[Violation]
     program_path: str
     parameterized: bool  # True if program reads from env/argv
-    acv_result: Optional[ACVResult] = None  # advisory only; never affects `passed`
+    acv_result: Optional[ACVResult] = None  # advisory by default; gates only when acv_blocking
+    acv_blocking: bool = False  # True if an ACV FAIL was allowed to affect `passed`
 
 
 def _is_parameterized(program_path: str) -> bool:
@@ -51,12 +52,14 @@ class ACTPipeline:
         fuzz_runner=None,
         property_runner=None,
         acv: Optional[_Validator] = None,
+        acv_blocking: bool = False,
     ):
         self._mock_generator = mock_generator
         self._oracle = oracle
         self._fuzz_runner = fuzz_runner
         self._property_runner = property_runner
         self._acv = acv
+        self._acv_blocking = acv_blocking
 
     def run(self, program_path: str) -> PipelineResult:
         t0 = time.perf_counter()
@@ -104,19 +107,23 @@ class ACTPipeline:
                 },
             )
 
+        # ACV gates the verdict only in blocking mode; deterministic `violations` stay oracle-only.
+        acv_blocked = bool(self._acv_blocking and acv_result and acv_result.verdict == "FAIL")
+        passed = len(violations) == 0 and not acv_blocked
         log.info(
             "pipeline.done",
             extra={
-                "passed": len(violations) == 0,
+                "passed": passed,
                 "violations": len(violations),
                 "duration_ms": _ms(t0),
             },
         )
 
         return PipelineResult(
-            passed=len(violations) == 0,
+            passed=passed,
             violations=violations,
             program_path=program_path,
             parameterized=parameterized,
             acv_result=acv_result,
+            acv_blocking=self._acv_blocking,
         )
