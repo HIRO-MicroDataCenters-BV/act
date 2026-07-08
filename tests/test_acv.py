@@ -26,14 +26,17 @@ FINDING_JSON = (
 
 
 class FakeClient:
-    """Returns a canned completion and records the prompts it received."""
+    """Returns a canned completion, optionally only for prompts containing `match`."""
 
-    def __init__(self, response: str):
+    def __init__(self, response: str, match: str = ""):
         self.response = response
+        self.match = match
         self.calls: list = []
 
     def complete(self, prompt: str) -> str:
         self.calls.append(prompt)
+        if self.match and self.match not in prompt:
+            return "[]"
         return self.response
 
 
@@ -53,7 +56,9 @@ def invalid_program(cape_fixtures):
 
 
 def _validator(response: str) -> ACTCognitiveValidator:
-    return ACTCognitiveValidator(model_base_url="http://fake", model_name="fake", client=FakeClient(response))
+    # Scope the canned finding to the security tool so single-finding tests stay meaningful.
+    client = FakeClient(response, match="cloud security auditor")
+    return ACTCognitiveValidator(model_base_url="http://fake", model_name="fake", client=client)
 
 
 def _pipeline(schema_path, acv):
@@ -91,14 +96,18 @@ def test_clean_result_has_no_findings(valid_program):
     assert result.iterations == 1
 
 
-def test_stub_tools_return_no_findings():
-    for stub in (
-        acv_tools.implementation_risk_analyser,
-        acv_tools.compliance_checker,
-        acv_tools.deployment_correctness_checker,
-        acv_tools.resource_optimisation_checker,
-    ):
-        assert stub.invoke({"program_content": "anything"}) == "[]"
+def test_tools_return_empty_without_client():
+    # With no LLM client set, every tool degrades to no findings.
+    for t in acv_tools.TOOLS:
+        assert t.invoke({"program_content": "anything"}) == "[]"
+
+
+def test_all_tools_contribute_when_llm_responds(valid_program):
+    # A client that answers every tool's prompt makes all five analysers report.
+    client = FakeClient(FINDING_JSON)  # no match -> responds to all prompts
+    result = ACTCognitiveValidator("http://fake", "fake", client=client).validate(valid_program)
+    assert result.verdict == "FAIL"
+    assert {f.tool for f in result.findings} == {t.name for t in acv_tools.TOOLS}
 
 
 # --- response robustness ---------------------------------------------------
