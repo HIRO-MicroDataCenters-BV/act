@@ -1,0 +1,42 @@
+# GitLab CI mirror of .github/workflows/test.yaml: lint, type-check, test, and run the ACT gate.
+# One of the CI/CD platforms ACT integrates with (alongside GitHub Actions and Jenkins).
+# Docker/Pulumi-only checks (cross-arch boot, kubernetes schema) are omitted here; those tests
+# skip gracefully without docker/pulumi, exactly as they do locally.
+image: ghcr.io/astral-sh/uv:python3.11-bookworm
+
+variables:
+  GIT_SUBMODULE_STRATEGY: recursive  # fetch cape-sdks (provides pulumi_cape)
+  UV_CACHE_DIR: "$CI_PROJECT_DIR/.uv-cache"
+
+stages:
+  - lint
+  - test
+  - gate
+
+default:
+  before_script:
+    - uv sync --frozen --dev --extra fuzzing --extra acv
+    - uv pip install pip
+  cache:
+    key: "$CI_COMMIT_REF_SLUG"
+    paths:
+      - .uv-cache
+
+lint:
+  stage: lint
+  script:
+    - uv run isort act/ tests/ --check --diff
+    - uv run black act/ tests/ --check --diff
+    - uv run flake8 --config ./.flake8 act/ tests/
+    - uv run mypy act/ tests/ --ignore-missing-imports --no-error-summary
+
+test:
+  stage: test
+  script:
+    - uv run pytest -v
+
+gate:
+  stage: gate
+  script:
+    # ACT gate on a known-good program: exits 0 (green). ACV is unconfigured here, so it skips.
+    - uv run python -m act.run --program tests/fixtures/cape/path_a_valid.py --schema tests/fixtures/cape/schema.json
