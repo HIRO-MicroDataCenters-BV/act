@@ -188,56 +188,51 @@ _K3S_RISCV64_COMMAND: tuple[str, ...] = _K3S_COMMAND + (
 )
 
 
+# (arch, platform, spec_arch, image attr, command) for the base k3s substrates.
+_BASE_ROWS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
+    ("amd64", "linux/amd64", "x86_64-linux", "k3s_image", _K3S_COMMAND),
+    ("arm64", "linux/arm64", "aarch64-linux", "k3s_image", _K3S_COMMAND),
+    ("riscv64", "linux/riscv64", "riscv64-linux", "k3s_riscv64_image", _K3S_RISCV64_COMMAND),
+)
+
+
 def _default_substrates(cfg: ActConfig) -> list:
     """Substrate registry, restricted to cfg.runtime_archs.
 
-    Base rows (one per arch) plus the amd64 GPU/FPGA/CXL accelerators, which
-    declare their Extended Resource so feature-flagged specs schedule without
-    real hardware. Images, timeouts, host port, resource names, and count come
-    from ActConfig.
+    One base k3s row per arch, plus the amd64 GPU/FPGA/CXL accelerators, which
+    declare their Extended Resource so feature-flagged specs schedule without real
+    hardware. Images, timeouts, host port, resource names, and count come from ActConfig.
     """
-    base = {
-        "amd64": lambda: DockerSubstrate(
-            image=cfg.k3s_image, platform="linux/amd64", spec_arch="x86_64-linux", command=_K3S_COMMAND, **_common(cfg)
-        ),
-        "arm64": lambda: DockerSubstrate(
-            image=cfg.k3s_image, platform="linux/arm64", spec_arch="aarch64-linux", command=_K3S_COMMAND, **_common(cfg)
-        ),
-        "riscv64": lambda: DockerSubstrate(
-            image=cfg.k3s_riscv64_image,
-            platform="linux/riscv64",
-            spec_arch="riscv64-linux",
-            command=_K3S_RISCV64_COMMAND,
-            **_common(cfg),
-        ),
+    common: dict = {
+        "extra_docker_args": _K3S_DOCKER_ARGS,
+        "api_host_port": cfg.k3s_api_host_port,
+        "startup_timeout": cfg.k3s_startup_timeout_s,
     }
-    substrates = [factory() for arch, factory in base.items() if arch in cfg.runtime_archs]
+    substrates: list = [
+        DockerSubstrate(
+            image=getattr(cfg, image_attr), platform=platform, spec_arch=spec_arch, command=command, **common
+        )
+        for arch, platform, spec_arch, image_attr, command in _BASE_ROWS
+        if arch in cfg.runtime_archs
+    ]
 
     if "amd64" in cfg.runtime_archs:
-        accel = dict(
+        accel: dict = dict(
             image=cfg.k3s_image,
             platform="linux/amd64",
             spec_arch="x86_64-linux",
             command=_K3S_COMMAND,
             count=cfg.accelerator_count,
             api_ready_timeout=cfg.k8s_api_ready_timeout_s,
-            **_common(cfg),
+            **common,
         )
-        substrates += [
-            GpuSubstrate(features=frozenset({"gpu"}), resource_name=cfg.gpu_resource_name, **accel),
-            FpgaSubstrate(features=frozenset({"fpga"}), resource_name=cfg.fpga_resource_name, **accel),
-            CxlSubstrate(features=frozenset({"cxl"}), resource_name=cfg.cxl_resource_name, **accel),
-        ]
+        for substrate_cls, feature, resource_name in (
+            (GpuSubstrate, "gpu", cfg.gpu_resource_name),
+            (FpgaSubstrate, "fpga", cfg.fpga_resource_name),
+            (CxlSubstrate, "cxl", cfg.cxl_resource_name),
+        ):
+            substrates.append(substrate_cls(features=frozenset({feature}), resource_name=resource_name, **accel))
     return substrates
-
-
-def _common(cfg: ActConfig) -> dict:
-    """Substrate fields shared by every row."""
-    return {
-        "extra_docker_args": _K3S_DOCKER_ARGS,
-        "api_host_port": cfg.k3s_api_host_port,
-        "startup_timeout": cfg.k3s_startup_timeout_s,
-    }
 
 
 def _run_runtime_check(program: str, schemas: list[str], log: logging.Logger, cfg: ActConfig) -> RuntimeCheckResult:

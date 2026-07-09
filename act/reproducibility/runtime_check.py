@@ -415,9 +415,12 @@ class RuntimeCheck:
         probe_timeout: int = 60,
     ):
         self._substrates = substrates
-        # Both built-in probes take (target, namespace, timeout); bind the tunables
-        # here since run_pulumi_against invokes the probe with only `target`.
-        self._probe_fn = functools.partial(probe_fn or probe_k8s, namespace=namespace, timeout=probe_timeout)
+        # Bind namespace/timeout onto the default probe (run_pulumi_against invokes the
+        # probe with only `target`). A caller-supplied probe_fn is passed through
+        # unchanged so a custom (target)-only probe keeps working.
+        self._probe_fn = (
+            functools.partial(probe_k8s, namespace=namespace, timeout=probe_timeout) if probe_fn is None else probe_fn
+        )
 
     def _pick_substrate(self, spec: TargetSpec) -> tuple[Optional[Substrate], Optional[RuntimeCheckFailure]]:
         unavailable: list[str] = []

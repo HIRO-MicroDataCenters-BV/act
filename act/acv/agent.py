@@ -65,13 +65,24 @@ class _HttpxLLM:
         resp = None
         for attempt in range(self._max_retries + 1):
             self._throttle()
-            resp = httpx.post(self._url, json=body, headers=self._headers, timeout=self._timeout)
+            try:
+                resp = httpx.post(self._url, json=body, headers=self._headers, timeout=self._timeout)
+            except httpx.RequestError as exc:
+                # Transport-level failures (timeout, connection reset) are the common
+                # transient case on a rate-limited endpoint; retry them like a 5xx.
+                if attempt == self._max_retries:
+                    raise
+                delay = self._retry_delay(None, attempt)
+                log.info("acv.llm_retry error=%s attempt=%s delay=%.1fs", type(exc).__name__, attempt + 1, delay)
+                time.sleep(delay)
+                continue
             if resp.status_code not in _RETRYABLE_STATUSES or attempt == self._max_retries:
                 break
             delay = self._retry_delay(resp, attempt)
             log.info("acv.llm_retry status=%s attempt=%s delay=%.1fs", resp.status_code, attempt + 1, delay)
             time.sleep(delay)
-        assert resp is not None  # loop runs at least once
+        if resp is None:  # unreachable (loop breaks or the final transport error raises); keeps mypy/-O safe
+            raise RuntimeError("acv: request failed before any response")
         resp.raise_for_status()
         payload = resp.json()
         try:
@@ -92,12 +103,13 @@ class _HttpxLLM:
         self._last_request_ts = time.monotonic()
 
     def _retry_delay(self, resp, attempt: int) -> float:
-        retry_after = resp.headers.get("Retry-After")
-        if retry_after:
-            try:
-                return min(float(retry_after), 60.0)
-            except ValueError:
-                pass
+        if resp is not None:
+            retry_after = resp.headers.get("Retry-After")
+            if retry_after:
+                try:
+                    return min(float(retry_after), 60.0)
+                except ValueError:
+                    pass
         return min(2.0**attempt, 30.0)
 
 

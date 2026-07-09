@@ -158,7 +158,9 @@ The optional cognitive validator has no flag of its own; it is enabled through e
 
 Both must be set, and the `acv` extra installed (`uv sync --extra acv`), for the validator to run; otherwise it is skipped. Its findings are advisory by default and only affect the exit code when you pass `--acv-mode blocking`.
 
-Other environment variables (all read in one place, `act/config.py`):
+Other environment variables (all read in one place, `act/config.py`). A missing,
+blank, or out-of-range value falls back to the listed default and logs a warning
+rather than breaking the run.
 
 Logging and analysis depth:
 
