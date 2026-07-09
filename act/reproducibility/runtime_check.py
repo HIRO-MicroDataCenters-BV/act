@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, Literal, Optional
 
+import functools
 import hashlib
 import json
 import re
@@ -410,9 +411,13 @@ class RuntimeCheck:
         self,
         substrates: list[Substrate],
         probe_fn: Optional[Callable[..., dict]] = None,
+        namespace: str = "default",
+        probe_timeout: int = 60,
     ):
         self._substrates = substrates
-        self._probe_fn = probe_fn or probe_k8s
+        # Both built-in probes take (target, namespace, timeout); bind the tunables
+        # here since run_pulumi_against invokes the probe with only `target`.
+        self._probe_fn = functools.partial(probe_fn or probe_k8s, namespace=namespace, timeout=probe_timeout)
 
     def _pick_substrate(self, spec: TargetSpec) -> tuple[Optional[Substrate], Optional[RuntimeCheckFailure]]:
         unavailable: list[str] = []

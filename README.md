@@ -141,7 +141,7 @@ The entry point is `python -m act.run`.
 | `--program PATH` | yes | none | Path to the Pulumi program file (or project directory) |
 | `--schema PATH [PATH ...]` | yes | none | One or more provider schema JSON files. Repeat for multi-provider programs |
 | `--output DIR` | no | none | Write a structured run artefact (JSON) to this directory |
-| `--log-level LEVEL` | no | `WARNING` | One of `DEBUG`, `INFO`, `WARNING`, `ERROR` |
+| `--log-level LEVEL` | no | `WARNING` | One of `DEBUG`, `INFO`, `WARNING`, `ERROR`. Env: `ACT_LOG_LEVEL` |
 | `--rules ENGINE [ENGINE ...]` | no | none | Load an additional rule engine. Currently: `checkov` (193+ Kubernetes checks) |
 | `--check-deployment-arch ARCH` | no | off | Smoke-boot every container image referenced by the program under `linux/<ARCH>` via QEMU. Example: `--check-deployment-arch riscv64` |
 | `--check-deployment-runtime` | no | off | Provision an ephemeral k3s cluster matching the program's target, run `pulumi up` twice, and verify the deployed state hashes identically. Requires `docker`, `kubectl`, and `pulumi` CLI |
@@ -152,11 +152,52 @@ The optional cognitive validator has no flag of its own; it is enabled through e
 | Variable | Purpose |
 |----------|---------|
 | `ACT_ACV_MODEL` | Served model id for the optional cognitive validator |
-| `ACT_ACV_BASE_URL` | Base URL of an OpenAI-compatible endpoint (for example `http://localhost:8000/openai/v1`) |
+| `ACT_ACV_BASE_URL` | Base URL of an OpenAI-compatible endpoint (for example `http://localhost:8000/openai/v1`). Legacy alias: `CAPE_ACV_MODEL_URL` |
 | `ACT_ACV_API_KEY` | Optional bearer token for a hosted endpoint (omit for an unauthenticated local server) |
 | `ACT_ACV_TIMEOUT` | Optional per-request timeout in seconds (default 20; raise it for slower or reasoning models) |
 
 Both must be set, and the `acv` extra installed (`uv sync --extra acv`), for the validator to run; otherwise it is skipped. Its findings are advisory by default and only affect the exit code when you pass `--acv-mode blocking`.
+
+Other environment variables (all read in one place, `act/config.py`):
+
+Logging and analysis depth:
+
+| Variable | Purpose | Default |
+|----------|---------|---------|
+| `ACT_LOG_LEVEL` | Default log verbosity when `--log-level` is not passed | `WARNING` |
+| `ACT_ACV_MAX_ITERATIONS` | Cognitive validator planner/tool loop iterations | `3` |
+| `ACT_ACV_MIN_REQUEST_INTERVAL_S` | Minimum seconds between ACV LLM calls; pace to a free-tier RPM limit | `0` (no pacing) |
+| `ACT_ACV_MAX_RETRIES` | Retries on rate-limit/overload (429/5xx) responses from the LLM | `3` |
+| `ACT_FUZZ_ITERATIONS` | Fuzz mutations per resource on Path B (parameterized programs) | `100` |
+| `ACT_PROPERTY_MAX_EXAMPLES` | Hypothesis examples per resource on Path B | `50` |
+
+Reproducibility substrate images:
+
+| Variable | Purpose | Default |
+|----------|---------|---------|
+| `ACT_K3S_IMAGE` | k3s image for the amd64, arm64, GPU, FPGA, and CXL runtime substrates | `rancher/k3s:v1.32.1-k3s1` |
+| `ACT_K3S_RISCV64_IMAGE` | k3s image for the riscv64 runtime substrate | `ghcr.io/carv-ics-forth/k3s:v1.32.1-k3s1-riscv64` |
+
+Reproducibility target and timeouts (used by `--check-deployment-runtime` / `--check-deployment-arch`):
+
+| Variable | Purpose | Default |
+|----------|---------|---------|
+| `ACT_K8S_NAMESPACE` | Namespace the runtime probe reads the deployed workload from | `default` |
+| `ACT_RUNTIME_ARCHS` | Comma-separated subset of `amd64,arm64,riscv64` to include in the substrate registry | all three |
+| `ACT_K3S_API_HOST_PORT` | Host port mapped to the k3s API server | `6443` |
+| `ACT_K3S_STARTUP_TIMEOUT_S` | Seconds to wait for k3s to come up (raise for QEMU/slow CI) | `180` |
+| `ACT_IMAGE_BOOT_TIMEOUT_S` | Seconds to wait for each image to smoke-boot under QEMU | `60` |
+| `ACT_K8S_API_READY_TIMEOUT_S` | Seconds to wait for node registration before patching Extended Resources | `60` |
+| `ACT_K8S_PROBE_TIMEOUT_S` | Timeout for the kubectl probe of deployed state | `60` |
+
+Accelerator Extended Resources:
+
+| Variable | Purpose | Default |
+|----------|---------|---------|
+| `ACT_K8S_GPU_RESOURCE_NAME` | Extended Resource declared by the GPU substrate | `nvidia.com/gpu` |
+| `ACT_K8S_FPGA_RESOURCE_NAME` | Extended Resource declared by the FPGA substrate | `cape.eu/fpga` |
+| `ACT_K8S_CXL_RESOURCE_NAME` | Extended Resource declared by the CXL substrate | `cape.eu/cxl` |
+| `ACT_ACCELERATOR_COUNT` | Quantity of the Extended Resource advertised on the node | `1` |
 
 Show the help text:
 

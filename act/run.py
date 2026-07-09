@@ -15,14 +15,16 @@ Exit codes:
 import argparse
 import json
 import logging
-import os
 import sys
 import traceback
 
 from act.acv.agent import ACTCognitiveValidator
+from act.config import ACV_MODES, LOG_LEVELS, ActConfig
+from act.core.fuzz_runner import FuzzRunner
 from act.core.mock_generator import MockGenerator
 from act.core.oracle import CorrectnessOracle
 from act.core.pipeline import ACTPipeline
+from act.core.property_runner import PropertyRunner
 from act.gate.ci_gate import CIGate
 from act.integrations.checkov_adapter import load_checkov_rules
 from act.reproducibility import (
@@ -90,11 +92,20 @@ def _configure_logging(level: str) -> None:
     logging.getLogger("act").setLevel(level)
 
 
+_KNOWN_RULE_ENGINES = frozenset({"checkov"})
+
+
 def _load_extra_rules(oracle, mg, engines: list) -> None:
     """Load additional rule engines requested via --rules."""
+    log = logging.getLogger("act")
+    for engine in engines:
+        if engine not in _KNOWN_RULE_ENGINES:
+            log.warning(
+                "rules.unknown_engine",
+                extra={"reason": f"unknown rule engine '{engine}' ignored; known: {sorted(_KNOWN_RULE_ENGINES)}"},
+            )
     if "checkov" not in engines:
         return
-    log = logging.getLogger("act")
     # One unscoped rule per provider; avoids schema vs runtime token mismatches.
     providers = {info["token"].split(":")[0] for info in mg._type_map.values()}
     for provider in providers:
@@ -108,7 +119,7 @@ def _load_extra_rules(oracle, mg, engines: list) -> None:
             )
 
 
-def build_arg_parser() -> argparse.ArgumentParser:
+def build_arg_parser(cfg: ActConfig) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="act",
         description="Validate a Pulumi program against security rules without provisioning real infrastructure.",
@@ -124,9 +135,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output", default=None, help="Directory to write run artefacts (optional)")
     parser.add_argument(
         "--log-level",
-        default="WARNING",
-        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
-        help="Log verbosity (default: WARNING - silent in CI unless set)",
+        default=cfg.log_level,
+        choices=list(LOG_LEVELS),
+        help="Log verbosity (default: WARNING - silent in CI unless set). Env: ACT_LOG_LEVEL.",
     )
     parser.add_argument(
         "--rules",
@@ -151,19 +162,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--acv-mode",
-        choices=["advisory", "blocking"],
-        default=os.environ.get("ACT_ACV_MODE", "advisory"),
+        choices=list(ACV_MODES),
+        default=cfg.acv_mode,
         help="Whether ACV findings gate the exit code. advisory (default) never blocks; "
         "blocking fails the gate on an ACV FAIL. Env: ACT_ACV_MODE.",
     )
     return parser
 
 
-_K3S_IMAGE = os.environ.get("ACT_K3S_IMAGE", "rancher/k3s:v1.32.1-k3s1")
-_K3S_RISCV64_IMAGE = os.environ.get(
-    "ACT_K3S_RISCV64_IMAGE",
-    "ghcr.io/carv-ics-forth/k3s:v1.32.1-k3s1-riscv64",
-)
 _K3S_DOCKER_ARGS: tuple[str, ...] = ("--privileged", "--tmpfs", "/run", "--tmpfs", "/var/run")
 _K3S_COMMAND: tuple[str, ...] = (
     "server",
@@ -182,71 +188,64 @@ _K3S_RISCV64_COMMAND: tuple[str, ...] = _K3S_COMMAND + (
 )
 
 
-def _default_substrates() -> list:
-    """Substrate registry: each row pins an image, platform, and arch.
+def _default_substrates(cfg: ActConfig) -> list:
+    """Substrate registry, restricted to cfg.runtime_archs.
 
-    Images are overridable via ACT_K3S_IMAGE / ACT_K3S_RISCV64_IMAGE.
+    Base rows (one per arch) plus the amd64 GPU/FPGA/CXL accelerators, which
+    declare their Extended Resource so feature-flagged specs schedule without
+    real hardware. Images, timeouts, host port, resource names, and count come
+    from ActConfig.
     """
-    return [
-        DockerSubstrate(
-            image=_K3S_IMAGE,
-            platform="linux/amd64",
-            spec_arch="x86_64-linux",
-            extra_docker_args=_K3S_DOCKER_ARGS,
-            command=_K3S_COMMAND,
+    base = {
+        "amd64": lambda: DockerSubstrate(
+            image=cfg.k3s_image, platform="linux/amd64", spec_arch="x86_64-linux", command=_K3S_COMMAND, **_common(cfg)
         ),
-        DockerSubstrate(
-            image=_K3S_IMAGE,
-            platform="linux/arm64",
-            spec_arch="aarch64-linux",
-            extra_docker_args=_K3S_DOCKER_ARGS,
-            command=_K3S_COMMAND,
+        "arm64": lambda: DockerSubstrate(
+            image=cfg.k3s_image, platform="linux/arm64", spec_arch="aarch64-linux", command=_K3S_COMMAND, **_common(cfg)
         ),
-        DockerSubstrate(
-            image=_K3S_RISCV64_IMAGE,
+        "riscv64": lambda: DockerSubstrate(
+            image=cfg.k3s_riscv64_image,
             platform="linux/riscv64",
             spec_arch="riscv64-linux",
-            extra_docker_args=_K3S_DOCKER_ARGS,
             command=_K3S_RISCV64_COMMAND,
+            **_common(cfg),
         ),
-        # GPU substrate: features={"gpu"} keeps it from stealing plain amd64 work;
-        # declares nvidia.com/gpu as a k8s Extended Resource (schedulable without
-        # GPU hardware, validates the IaC layer, not real CUDA execution).
-        GpuSubstrate(
-            image=_K3S_IMAGE,
+    }
+    substrates = [factory() for arch, factory in base.items() if arch in cfg.runtime_archs]
+
+    if "amd64" in cfg.runtime_archs:
+        accel = dict(
+            image=cfg.k3s_image,
             platform="linux/amd64",
             spec_arch="x86_64-linux",
-            features=frozenset({"gpu"}),
-            extra_docker_args=_K3S_DOCKER_ARGS,
             command=_K3S_COMMAND,
-        ),
-        # FPGA substrate: declares cape.eu/fpga as a schedulable Extended Resource;
-        # boot-flow sim runs in the workload Pod (act-fpga:iverilog), $display
-        # captured by probe_k8s_with_workload_logs.
-        FpgaSubstrate(
-            image=_K3S_IMAGE,
-            platform="linux/amd64",
-            spec_arch="x86_64-linux",
-            features=frozenset({"fpga"}),
-            extra_docker_args=_K3S_DOCKER_ARGS,
-            command=_K3S_COMMAND,
-        ),
-        # CXL substrate: declares cape.eu/cxl as a schedulable Extended Resource;
-        # Type 3 device emulated in the workload Pod via qemu (act-cxl:qemu),
-        # cxl list -v captured by probe_k8s_with_workload_logs.
-        CxlSubstrate(
-            image=_K3S_IMAGE,
-            platform="linux/amd64",
-            spec_arch="x86_64-linux",
-            features=frozenset({"cxl"}),
-            extra_docker_args=_K3S_DOCKER_ARGS,
-            command=_K3S_COMMAND,
-        ),
-    ]
+            count=cfg.accelerator_count,
+            api_ready_timeout=cfg.k8s_api_ready_timeout_s,
+            **_common(cfg),
+        )
+        substrates += [
+            GpuSubstrate(features=frozenset({"gpu"}), resource_name=cfg.gpu_resource_name, **accel),
+            FpgaSubstrate(features=frozenset({"fpga"}), resource_name=cfg.fpga_resource_name, **accel),
+            CxlSubstrate(features=frozenset({"cxl"}), resource_name=cfg.cxl_resource_name, **accel),
+        ]
+    return substrates
 
 
-def _run_runtime_check(program: str, schemas: list[str], log: logging.Logger) -> RuntimeCheckResult:
-    check = RuntimeCheck(substrates=_default_substrates())
+def _common(cfg: ActConfig) -> dict:
+    """Substrate fields shared by every row."""
+    return {
+        "extra_docker_args": _K3S_DOCKER_ARGS,
+        "api_host_port": cfg.k3s_api_host_port,
+        "startup_timeout": cfg.k3s_startup_timeout_s,
+    }
+
+
+def _run_runtime_check(program: str, schemas: list[str], log: logging.Logger, cfg: ActConfig) -> RuntimeCheckResult:
+    check = RuntimeCheck(
+        substrates=_default_substrates(cfg),
+        namespace=cfg.k8s_namespace,
+        probe_timeout=cfg.k8s_probe_timeout_s,
+    )
     result = check.run(program, schemas)
 
     substrate_unavailable = any(f.stage == "substrate_unavailable" for f in result.failures)
@@ -304,9 +303,9 @@ def _run_plan_check(program: str, schemas: list[str], log: logging.Logger) -> Pl
 
 
 def _run_deployment_arch_check(
-    program: str, schemas: list[str], arch: str, log: logging.Logger
+    program: str, schemas: list[str], arch: str, log: logging.Logger, cfg: ActConfig
 ) -> DeploymentArchResult:
-    result = DeploymentArchCheck(arch).run(program, schemas)
+    result = DeploymentArchCheck(arch, timeout=cfg.image_boot_timeout_s).run(program, schemas)
     if not result.images_checked:
         log.warning(
             "deployment_arch_no_images",
@@ -348,7 +347,8 @@ def _run_deployment_arch_check(
 
 
 def main(argv=None) -> int:
-    parser = build_arg_parser()
+    cfg = ActConfig.from_env()
+    parser = build_arg_parser(cfg)
     args = parser.parse_args(argv)
 
     _configure_logging(args.log_level)
@@ -361,8 +361,20 @@ def main(argv=None) -> int:
         _load_extra_rules(oracle, mg, args.rules)
         # ACV is additive; from_env returns None unless ACT_ACV_MODEL + a base URL
         # are set (and the optional acv extra is installed).
-        acv = ACTCognitiveValidator.from_env()
-        pipeline = ACTPipeline(mg, oracle, acv=acv, acv_blocking=(args.acv_mode == "blocking"))
+        acv = ACTCognitiveValidator.from_env(cfg)
+        # Fuzz + property runners only fire on Path B (parameterized programs); the
+        # pipeline skips them for Path A. Depth is tunable via ACT_FUZZ_ITERATIONS /
+        # ACT_PROPERTY_MAX_EXAMPLES.
+        fuzz_runner = FuzzRunner(mg, oracle, iterations=cfg.fuzz_iterations)
+        property_runner = PropertyRunner(mg, oracle, max_examples=cfg.property_max_examples)
+        pipeline = ACTPipeline(
+            mg,
+            oracle,
+            fuzz_runner=fuzz_runner,
+            property_runner=property_runner,
+            acv=acv,
+            acv_blocking=(args.acv_mode == "blocking"),
+        )
         gate = CIGate(pipeline)
         exit_code = gate.evaluate(args.program)
 
@@ -372,13 +384,13 @@ def main(argv=None) -> int:
 
         arch_result = None
         if args.check_deployment_arch:
-            arch_result = _run_deployment_arch_check(args.program, args.schema, args.check_deployment_arch, log)
+            arch_result = _run_deployment_arch_check(args.program, args.schema, args.check_deployment_arch, log, cfg)
             if not arch_result.passed:
                 exit_code = max(exit_code, 1)
 
         runtime_result = None
         if args.check_deployment_runtime:
-            runtime_result = _run_runtime_check(args.program, args.schema, log)
+            runtime_result = _run_runtime_check(args.program, args.schema, log, cfg)
             skip_stages = {"substrate_unavailable", "spec_unsupported"}
             is_skip = any(f.stage in skip_stages for f in runtime_result.failures)
             if not runtime_result.passed and not is_skip:

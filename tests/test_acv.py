@@ -215,6 +215,8 @@ def test_httpx_client_sends_bearer_auth(monkeypatch):
     captured: dict = {}
 
     class _Resp:
+        status_code = 200
+
         def raise_for_status(self):
             return None
 
@@ -229,6 +231,33 @@ def test_httpx_client_sends_bearer_auth(monkeypatch):
     client = agent._HttpxLLM("http://x/v1", "m", api_key="secret")
     assert client.complete("hi") == "[]"
     assert captured["headers"] == {"Authorization": "Bearer secret"}
+
+
+def test_httpx_client_retries_on_rate_limit(monkeypatch):
+    from act.acv import agent
+
+    calls = {"n": 0}
+
+    class _Resp:
+        def __init__(self, code):
+            self.status_code = code
+            self.headers = {}
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"choices": [{"message": {"content": "[]"}}]}
+
+    def _fake_post(url, json, headers, timeout):
+        calls["n"] += 1
+        return _Resp(429) if calls["n"] < 3 else _Resp(200)
+
+    monkeypatch.setattr(agent.httpx, "post", _fake_post)
+    monkeypatch.setattr(agent.time, "sleep", lambda s: None)  # no real backoff in the test
+    client = agent._HttpxLLM("http://x/v1", "m", max_retries=3)
+    assert client.complete("hi") == "[]"
+    assert calls["n"] == 3  # two 429s retried, third 200 succeeds
 
 
 # --- pipeline / gate integration (advisory) --------------------------------

@@ -506,11 +506,38 @@ def test_runtime_check_uses_custom_probe_fn(tmp_path):
         check = RuntimeCheck(substrates=[sub], probe_fn=custom_probe)
         result = check.run("some.py", "schema.json", backend_dir=str(tmp_path))
 
-    # run_pulumi_against was called twice, each time with our custom probe_fn.
+    # run_pulumi_against was called twice, each time with our custom probe_fn
+    # wrapped in a partial that binds the namespace/timeout tunables.
     assert len(captured_probe_fns) == 2
-    assert all(fn is custom_probe for fn in captured_probe_fns)
+    assert all(fn.func is custom_probe for fn in captured_probe_fns)
+    assert all(fn.keywords == {"namespace": "default", "timeout": 60} for fn in captured_probe_fns)
     assert result.passed is True
     assert result.hash_1 == result.hash_2
+
+
+def test_runtime_check_binds_custom_namespace_and_timeout(tmp_path):
+    """RuntimeCheck binds a custom namespace + probe_timeout onto the probe_fn."""
+    sub = _FakeSubstrate(matches_fn=lambda s: s.orchestrator == "k8s")
+    custom_probe = MagicMock(return_value={})
+    captured_probe_fns = []
+
+    def fake_run_pulumi_against(*args, **kwargs):
+        captured_probe_fns.append(kwargs.get("probe_fn"))
+        kwargs["probe_fn"](kwargs["target"].endpoint)
+        return PulumiUpOutcome(outputs={}, failure=None, probed={})
+
+    with (
+        patch("act.reproducibility.runtime_check.MockGenerator", autospec=True) as mg_cls,
+        patch("act.reproducibility.runtime_check.run_pulumi_against", side_effect=fake_run_pulumi_against),
+    ):
+        mg = mg_cls.return_value
+        mg.run_with_mocks.return_value = {"nginx": {}}
+        mg.get_resource_type.return_value = "kubernetes:apps/v1:Deployment"
+
+        check = RuntimeCheck(substrates=[sub], probe_fn=custom_probe, namespace="apps", probe_timeout=120)
+        check.run("some.py", "schema.json", backend_dir=str(tmp_path))
+
+    assert all(fn.keywords == {"namespace": "apps", "timeout": 120} for fn in captured_probe_fns)
 
 
 def test_probe_k8s_with_workload_logs_waits_for_jobs_and_captures_logs():

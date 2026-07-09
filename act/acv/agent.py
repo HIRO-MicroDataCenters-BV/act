@@ -8,9 +8,10 @@ Enable via ``ACT_ACV_MODEL`` + ``ACT_ACV_BASE_URL`` (``CAPE_ACV_MODEL_URL`` alia
 from typing import List, Optional, Tuple, TypedDict
 
 import logging
-import os
+import time
 
 from act.acv.models import LLM, ACVFinding, ACVResult, findings_from_tool_json, skipped_result
+from act.config import DEFAULT_ACV_TIMEOUT_S, ActConfig
 from act.core.mock_generator import MockGenerator
 
 log = logging.getLogger(__name__)
@@ -26,11 +27,19 @@ except ImportError:  # optional 'acv' extra not installed
     _ACV_AVAILABLE = False
 
 
-_DEFAULT_TIMEOUT_S = 20.0
+_DEFAULT_TIMEOUT_S = DEFAULT_ACV_TIMEOUT_S
+
+
+_RETRYABLE_STATUSES = frozenset({429, 500, 502, 503, 504})
 
 
 class _HttpxLLM:
-    """Minimal client for an OpenAI-compatible chat-completions endpoint."""
+    """Minimal client for an OpenAI-compatible chat-completions endpoint.
+
+    Paces requests (``min_interval_s``) and retries rate-limit/overload responses
+    (``max_retries``) so a free/quota-limited endpoint (e.g. Gemini free tier) does
+    not fail the tool loop, which fires several calls in quick succession.
+    """
 
     def __init__(
         self,
@@ -38,6 +47,8 @@ class _HttpxLLM:
         model: str,
         timeout: float = _DEFAULT_TIMEOUT_S,
         api_key: Optional[str] = None,
+        min_interval_s: float = 0.0,
+        max_retries: int = 3,
     ):
         self._url = base_url.rstrip("/") + "/chat/completions"
         self._model = model
@@ -45,18 +56,22 @@ class _HttpxLLM:
         # Bearer auth for hosted endpoints (Google's OpenAI-compat, OpenAI, ...);
         # unauthenticated for a local vLLM server.
         self._headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+        self._min_interval = max(0.0, min_interval_s)
+        self._max_retries = max(0, max_retries)
+        self._last_request_ts = 0.0
 
     def complete(self, prompt: str) -> str:
-        resp = httpx.post(
-            self._url,
-            json={
-                "model": self._model,
-                "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0,
-            },
-            headers=self._headers,
-            timeout=self._timeout,
-        )
+        body = {"model": self._model, "messages": [{"role": "user", "content": prompt}], "temperature": 0}
+        resp = None
+        for attempt in range(self._max_retries + 1):
+            self._throttle()
+            resp = httpx.post(self._url, json=body, headers=self._headers, timeout=self._timeout)
+            if resp.status_code not in _RETRYABLE_STATUSES or attempt == self._max_retries:
+                break
+            delay = self._retry_delay(resp, attempt)
+            log.info("acv.llm_retry status=%s attempt=%s delay=%.1fs", resp.status_code, attempt + 1, delay)
+            time.sleep(delay)
+        assert resp is not None  # loop runs at least once
         resp.raise_for_status()
         payload = resp.json()
         try:
@@ -67,6 +82,23 @@ class _HttpxLLM:
         if not isinstance(content, str):
             raise ValueError(f"chat-completions content was {type(content).__name__}, expected str")
         return content
+
+    def _throttle(self) -> None:
+        if self._min_interval <= 0:
+            return
+        wait = self._last_request_ts + self._min_interval - time.monotonic()
+        if wait > 0:
+            time.sleep(wait)
+        self._last_request_ts = time.monotonic()
+
+    def _retry_delay(self, resp, attempt: int) -> float:
+        retry_after = resp.headers.get("Retry-After")
+        if retry_after:
+            try:
+                return min(float(retry_after), 60.0)
+            except ValueError:
+                pass
+        return min(2.0**attempt, 30.0)
 
 
 _SEVERITY_ORDER = {"HIGH": 3, "MEDIUM": 2, "LOW": 1}
@@ -169,6 +201,8 @@ class ACTCognitiveValidator:
         client: Optional[LLM] = None,
         api_key: Optional[str] = None,
         timeout: float = _DEFAULT_TIMEOUT_S,
+        min_request_interval_s: float = 0.0,
+        max_retries: int = 3,
     ):
         """
         model_base_url: OpenAI-compatible endpoint (vLLM, OpenAI, Google's compat endpoint, ...).
@@ -176,6 +210,8 @@ class ACTCognitiveValidator:
         client: injected LLM client (tests pass a fake); built from base_url/model when None.
         api_key: bearer token for hosted endpoints; omit for an unauthenticated local server.
         timeout: per-request seconds; raise it for slower or reasoning models.
+        min_request_interval_s: min seconds between LLM calls; pace to a free-tier RPM limit.
+        max_retries: retries on rate-limit/overload (429/5xx) responses.
         """
         self._base_url = model_base_url
         self._model = model_name
@@ -183,27 +219,27 @@ class ACTCognitiveValidator:
         self._client = client
         self._api_key = api_key
         self._timeout = timeout
+        self._min_request_interval_s = min_request_interval_s
+        self._max_retries = max_retries
 
     @classmethod
-    def from_env(cls) -> Optional["ACTCognitiveValidator"]:
+    def from_env(cls, cfg: Optional[ActConfig] = None) -> Optional["ACTCognitiveValidator"]:
         """Build from environment, or return None (pipeline then skips ACV)."""
         if not _ACV_AVAILABLE:
             log.info("acv.disabled reason=extra_not_installed")
             return None
-        model = os.environ.get("ACT_ACV_MODEL")
-        base_url = os.environ.get("ACT_ACV_BASE_URL") or os.environ.get("CAPE_ACV_MODEL_URL")
-        if not model or not base_url:
+        cfg = cfg or ActConfig.from_env()
+        if not cfg.acv_model or not cfg.acv_base_url:
             log.info("acv.disabled reason=not_configured")
             return None
-        try:
-            timeout = float(os.environ.get("ACT_ACV_TIMEOUT", _DEFAULT_TIMEOUT_S))
-        except ValueError:
-            timeout = _DEFAULT_TIMEOUT_S
         return cls(
-            model_base_url=base_url,
-            model_name=model,
-            api_key=os.environ.get("ACT_ACV_API_KEY"),
-            timeout=timeout,
+            model_base_url=cfg.acv_base_url,
+            model_name=cfg.acv_model,
+            api_key=cfg.acv_api_key,
+            timeout=cfg.acv_timeout,
+            max_iterations=cfg.acv_max_iterations,
+            min_request_interval_s=cfg.acv_min_request_interval_s,
+            max_retries=cfg.acv_max_retries,
         )
 
     def validate(self, program_path: str, context: Optional[dict] = None) -> ACVResult:
@@ -214,7 +250,12 @@ class ACTCognitiveValidator:
         try:
             source = self._read_source(program_path)
             client = self._client or _HttpxLLM(
-                self._base_url, self._model, timeout=self._timeout, api_key=self._api_key
+                self._base_url,
+                self._model,
+                timeout=self._timeout,
+                api_key=self._api_key,
+                min_interval_s=self._min_request_interval_s,
+                max_retries=self._max_retries,
             )
             acv_tools.set_llm(client)
             acv_tools.set_oracle_context(_format_oracle_context(context))
