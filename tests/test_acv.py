@@ -209,55 +209,87 @@ def test_from_env_timeout(monkeypatch):
     assert acv is not None and acv._timeout == _DEFAULT_TIMEOUT_S
 
 
+def _resp(code):
+    class _Resp:
+        status_code = code
+        headers: dict = {}
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"choices": [{"message": {"content": "[]"}}]}
+
+    return _Resp()
+
+
+def _raise_timeout():
+    import httpx
+
+    raise httpx.ReadTimeout("simulated")
+
+
 def test_httpx_client_sends_bearer_auth(monkeypatch):
     from act.acv import agent
 
     captured: dict = {}
 
-    class _Resp:
-        status_code = 200
-
-        def raise_for_status(self):
-            return None
-
-        def json(self):
-            return {"choices": [{"message": {"content": "[]"}}]}
-
     def _fake_post(url, json, headers, timeout):
         captured["headers"] = headers
-        return _Resp()
+        return _resp(200)
 
     monkeypatch.setattr(agent.httpx, "post", _fake_post)
-    client = agent._HttpxLLM("http://x/v1", "m", api_key="secret")
-    assert client.complete("hi") == "[]"
+    assert agent._HttpxLLM("http://x/v1", "m", api_key="secret").complete("hi") == "[]"
     assert captured["headers"] == {"Authorization": "Bearer secret"}
 
 
-def test_httpx_client_retries_on_rate_limit(monkeypatch):
+@pytest.mark.parametrize("fail", [lambda: _resp(429), _raise_timeout], ids=["status_429", "transport_error"])
+def test_httpx_client_retries_then_succeeds(monkeypatch, fail):
+    """A retryable status (429) or a transport error is retried; the 3rd call succeeds."""
     from act.acv import agent
 
     calls = {"n": 0}
 
-    class _Resp:
-        def __init__(self, code):
-            self.status_code = code
-            self.headers = {}
-
-        def raise_for_status(self):
-            return None
-
-        def json(self):
-            return {"choices": [{"message": {"content": "[]"}}]}
-
     def _fake_post(url, json, headers, timeout):
         calls["n"] += 1
-        return _Resp(429) if calls["n"] < 3 else _Resp(200)
+        return _resp(200) if calls["n"] >= 3 else fail()
 
     monkeypatch.setattr(agent.httpx, "post", _fake_post)
-    monkeypatch.setattr(agent.time, "sleep", lambda s: None)  # no real backoff in the test
-    client = agent._HttpxLLM("http://x/v1", "m", max_retries=3)
-    assert client.complete("hi") == "[]"
-    assert calls["n"] == 3  # two 429s retried, third 200 succeeds
+    monkeypatch.setattr(agent.time, "sleep", lambda s: None)  # no real backoff
+    assert agent._HttpxLLM("http://x/v1", "m", max_retries=3).complete("hi") == "[]"
+    assert calls["n"] == 3  # two failures retried, third succeeds
+
+
+def test_httpx_client_reraises_transport_error_after_max_retries(monkeypatch):
+    import httpx
+
+    from act.acv import agent
+
+    def _fake_post(url, json, headers, timeout):
+        raise httpx.ConnectError("down")
+
+    monkeypatch.setattr(agent.httpx, "post", _fake_post)
+    monkeypatch.setattr(agent.time, "sleep", lambda s: None)
+    with pytest.raises(httpx.ConnectError):
+        agent._HttpxLLM("http://x/v1", "m", max_retries=2).complete("hi")
+
+
+def test_retry_delay_branches():
+    from act.acv import agent
+
+    client = agent._HttpxLLM("http://x/v1", "m")
+    # resp=None (transport error) -> exponential backoff
+    assert client._retry_delay(None, 0) == 1.0
+    assert client._retry_delay(None, 2) == 4.0
+
+    class _R:
+        def __init__(self, headers):
+            self.headers = headers
+
+    # numeric Retry-After is honoured (capped at 60); non-numeric falls back to backoff
+    assert client._retry_delay(_R({"Retry-After": "5"}), 0) == 5.0
+    assert client._retry_delay(_R({"Retry-After": "999"}), 0) == 60.0
+    assert client._retry_delay(_R({"Retry-After": "soon"}), 1) == 2.0
 
 
 # --- pipeline / gate integration (advisory) --------------------------------

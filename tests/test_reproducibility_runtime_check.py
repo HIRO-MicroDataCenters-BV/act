@@ -481,7 +481,7 @@ def test_runtime_check_teardown_runs_on_pulumi_failure(tmp_path):
 
 
 def test_runtime_check_uses_custom_probe_fn(tmp_path):
-    """RuntimeCheck honours an injected probe_fn - passed into run_pulumi_against."""
+    """A caller-supplied probe_fn is passed through unchanged (not wrapped)."""
     sub = _FakeSubstrate(matches_fn=lambda s: s.orchestrator == "k8s")
     custom_probe = MagicMock(return_value={"_act_workload_logs": {"iverilog": "DONE\n"}})
 
@@ -489,10 +489,8 @@ def test_runtime_check_uses_custom_probe_fn(tmp_path):
 
     def fake_run_pulumi_against(*args, **kwargs):
         captured_probe_fns.append(kwargs.get("probe_fn"))
-        # Mirror real behaviour: run the probe_fn ourselves so the test
-        # observes the same data flow as production.
-        target = kwargs["target"]
-        probed = kwargs["probe_fn"](target.endpoint) if kwargs.get("probe_fn") else None
+        # Mirror production: run_pulumi_against calls probe_fn(target) with the target.
+        probed = kwargs["probe_fn"](kwargs["target"])
         return PulumiUpOutcome(outputs={}, failure=None, probed=probed)
 
     with (
@@ -506,27 +504,27 @@ def test_runtime_check_uses_custom_probe_fn(tmp_path):
         check = RuntimeCheck(substrates=[sub], probe_fn=custom_probe)
         result = check.run("some.py", "schema.json", backend_dir=str(tmp_path))
 
-    # run_pulumi_against was called twice, each time with our custom probe_fn
-    # wrapped in a partial that binds the namespace/timeout tunables.
+    # A custom probe is passed through raw so a (target)-only probe keeps working.
     assert len(captured_probe_fns) == 2
-    assert all(fn.func is custom_probe for fn in captured_probe_fns)
-    assert all(fn.keywords == {"namespace": "default", "timeout": 60} for fn in captured_probe_fns)
+    assert all(fn is custom_probe for fn in captured_probe_fns)
     assert result.passed is True
     assert result.hash_1 == result.hash_2
 
 
-def test_runtime_check_binds_custom_namespace_and_timeout(tmp_path):
-    """RuntimeCheck binds a custom namespace + probe_timeout onto the probe_fn."""
+def test_runtime_check_binds_namespace_and_timeout_on_default_probe(tmp_path):
+    """namespace/probe_timeout are bound onto the DEFAULT probe (probe_k8s) and it is
+    callable with a single (target) arg, matching run_pulumi_against's probe_fn(target)."""
     sub = _FakeSubstrate(matches_fn=lambda s: s.orchestrator == "k8s")
-    custom_probe = MagicMock(return_value={})
+    fake_probe = MagicMock(return_value={})
     captured_probe_fns = []
 
     def fake_run_pulumi_against(*args, **kwargs):
         captured_probe_fns.append(kwargs.get("probe_fn"))
-        kwargs["probe_fn"](kwargs["target"].endpoint)
+        kwargs["probe_fn"](kwargs["target"])  # invoke exactly as production does
         return PulumiUpOutcome(outputs={}, failure=None, probed={})
 
     with (
+        patch("act.reproducibility.runtime_check.probe_k8s", fake_probe),
         patch("act.reproducibility.runtime_check.MockGenerator", autospec=True) as mg_cls,
         patch("act.reproducibility.runtime_check.run_pulumi_against", side_effect=fake_run_pulumi_against),
     ):
@@ -534,10 +532,14 @@ def test_runtime_check_binds_custom_namespace_and_timeout(tmp_path):
         mg.run_with_mocks.return_value = {"nginx": {}}
         mg.get_resource_type.return_value = "kubernetes:apps/v1:Deployment"
 
-        check = RuntimeCheck(substrates=[sub], probe_fn=custom_probe, namespace="apps", probe_timeout=120)
+        check = RuntimeCheck(substrates=[sub], namespace="apps", probe_timeout=120)
         check.run("some.py", "schema.json", backend_dir=str(tmp_path))
 
-    assert all(fn.keywords == {"namespace": "apps", "timeout": 120} for fn in captured_probe_fns)
+    assert len(captured_probe_fns) == 2
+    # the bound partial invoked probe_k8s with the target plus the tunables
+    for call in fake_probe.call_args_list:
+        assert call.kwargs == {"namespace": "apps", "timeout": 120}
+        assert len(call.args) == 1  # the target, positionally
 
 
 def test_probe_k8s_with_workload_logs_waits_for_jobs_and_captures_logs():
