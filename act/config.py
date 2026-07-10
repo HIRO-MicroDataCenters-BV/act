@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from typing import Mapping, Optional, TypeVar
 
+import json
 import logging
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 _T = TypeVar("_T")
 
@@ -54,6 +55,9 @@ class ActConfig:
     # Rate-limit controls for free/quota-limited endpoints (e.g. Gemini free tier).
     acv_min_request_interval_s: float = DEFAULT_ACV_MIN_REQUEST_INTERVAL_S
     acv_max_retries: int = DEFAULT_ACV_MAX_RETRIES
+    # Endpoint-specific fields merged into every chat-completions request body, e.g.
+    # {"chat_template_kwargs": {"enable_thinking": false}} to turn off Qwen3 thinking.
+    acv_extra_body: dict = field(default_factory=dict)
 
     # Path B (parameterized programs) test depth.
     fuzz_iterations: int = DEFAULT_FUZZ_ITERATIONS
@@ -105,6 +109,7 @@ class ActConfig:
             acv_max_retries=_read_int(
                 env.get("ACT_ACV_MAX_RETRIES"), DEFAULT_ACV_MAX_RETRIES, name="ACT_ACV_MAX_RETRIES", minimum=0
             ),
+            acv_extra_body=_read_json_obj(env.get("ACT_ACV_EXTRA_BODY"), name="ACT_ACV_EXTRA_BODY"),
             fuzz_iterations=_read_int(
                 env.get("ACT_FUZZ_ITERATIONS"), DEFAULT_FUZZ_ITERATIONS, name="ACT_FUZZ_ITERATIONS", minimum=1
             ),
@@ -218,3 +223,17 @@ def _read_archs(raw: Optional[str], default: tuple[str, ...]) -> tuple[str, ...]
         return default
     picked = tuple(dict.fromkeys(a for a in (p.strip().lower() for p in raw.split(",")) if a in SUPPORTED_ARCHS))
     return picked or default
+
+
+def _read_json_obj(raw: Optional[str], *, name: Optional[str] = None) -> dict:
+    if not raw or not raw.strip():
+        return {}
+    try:
+        val = json.loads(raw)
+    except (ValueError, TypeError):
+        _warn_invalid(name, raw, {})
+        return {}
+    if not isinstance(val, dict):
+        _warn_invalid(name, raw, {})
+        return {}
+    return val

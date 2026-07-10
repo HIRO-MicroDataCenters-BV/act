@@ -155,6 +155,7 @@ The optional cognitive validator has no flag of its own; it is enabled through e
 | `ACT_ACV_BASE_URL` | Base URL of an OpenAI-compatible endpoint (for example `http://localhost:8000/openai/v1`). Legacy alias: `CAPE_ACV_MODEL_URL` |
 | `ACT_ACV_API_KEY` | Optional bearer token for a hosted endpoint (omit for an unauthenticated local server) |
 | `ACT_ACV_TIMEOUT` | Optional per-request timeout in seconds (default 20; raise it for slower or reasoning models) |
+| `ACT_ACV_EXTRA_BODY` | Optional JSON object merged into every chat-completions request body, for endpoint-specific fields. Example: `{"chat_template_kwargs":{"enable_thinking":false}}` to turn off Qwen3 thinking. Invalid JSON is ignored with a warning |
 
 Both must be set, and the `acv` extra installed (`uv sync --extra acv`), for the validator to run; otherwise it is skipped. Its findings are advisory by default and only affect the exit code when you pass `--acv-mode blocking`.
 

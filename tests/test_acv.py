@@ -243,6 +243,23 @@ def test_httpx_client_sends_bearer_auth(monkeypatch):
     assert captured["headers"] == {"Authorization": "Bearer secret"}
 
 
+def test_httpx_client_merges_extra_body(monkeypatch):
+    from act.acv import agent
+
+    captured: dict = {}
+
+    def _fake_post(url, json, headers, timeout):
+        captured["body"] = json
+        return _resp(200)
+
+    monkeypatch.setattr(agent.httpx, "post", _fake_post)
+    extra = {"chat_template_kwargs": {"enable_thinking": False}}
+    agent._HttpxLLM("http://x/v1", "m", extra_body=extra).complete("hi")
+    assert captured["body"]["chat_template_kwargs"] == {"enable_thinking": False}
+    assert captured["body"]["model"] == "m"
+    assert captured["body"]["messages"] == [{"role": "user", "content": "hi"}]
+
+
 @pytest.mark.parametrize("fail", [lambda: _resp(429), _raise_timeout], ids=["status_429", "transport_error"])
 def test_httpx_client_retries_then_succeeds(monkeypatch, fail):
     """A retryable status (429) or a transport error is retried; the 3rd call succeeds."""

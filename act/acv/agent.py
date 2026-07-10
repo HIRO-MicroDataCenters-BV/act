@@ -49,6 +49,7 @@ class _HttpxLLM:
         api_key: Optional[str] = None,
         min_interval_s: float = 0.0,
         max_retries: int = 3,
+        extra_body: Optional[dict] = None,
     ):
         self._url = base_url.rstrip("/") + "/chat/completions"
         self._model = model
@@ -58,10 +59,17 @@ class _HttpxLLM:
         self._headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
         self._min_interval = max(0.0, min_interval_s)
         self._max_retries = max(0, max_retries)
+        # Endpoint-specific request fields (e.g. disable Qwen3 thinking); merged last.
+        self._extra_body = extra_body or {}
         self._last_request_ts = 0.0
 
     def complete(self, prompt: str) -> str:
-        body = {"model": self._model, "messages": [{"role": "user", "content": prompt}], "temperature": 0}
+        body = {
+            "model": self._model,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0,
+            **self._extra_body,
+        }
         resp = None
         for attempt in range(self._max_retries + 1):
             self._throttle()
@@ -215,6 +223,7 @@ class ACTCognitiveValidator:
         timeout: float = _DEFAULT_TIMEOUT_S,
         min_request_interval_s: float = 0.0,
         max_retries: int = 3,
+        extra_body: Optional[dict] = None,
     ):
         """
         model_base_url: OpenAI-compatible endpoint (vLLM, OpenAI, Google's compat endpoint, ...).
@@ -224,6 +233,7 @@ class ACTCognitiveValidator:
         timeout: per-request seconds; raise it for slower or reasoning models.
         min_request_interval_s: min seconds between LLM calls; pace to a free-tier RPM limit.
         max_retries: retries on rate-limit/overload (429/5xx) responses.
+        extra_body: endpoint-specific request fields merged into each call (e.g. disable Qwen3 thinking).
         """
         self._base_url = model_base_url
         self._model = model_name
@@ -233,6 +243,7 @@ class ACTCognitiveValidator:
         self._timeout = timeout
         self._min_request_interval_s = min_request_interval_s
         self._max_retries = max_retries
+        self._extra_body = extra_body or {}
 
     @classmethod
     def from_env(cls, cfg: Optional[ActConfig] = None) -> Optional["ACTCognitiveValidator"]:
@@ -252,6 +263,7 @@ class ACTCognitiveValidator:
             max_iterations=cfg.acv_max_iterations,
             min_request_interval_s=cfg.acv_min_request_interval_s,
             max_retries=cfg.acv_max_retries,
+            extra_body=cfg.acv_extra_body,
         )
 
     def validate(self, program_path: str, context: Optional[dict] = None) -> ACVResult:
@@ -268,6 +280,7 @@ class ACTCognitiveValidator:
                 api_key=self._api_key,
                 min_interval_s=self._min_request_interval_s,
                 max_retries=self._max_retries,
+                extra_body=self._extra_body,
             )
             acv_tools.set_llm(client)
             acv_tools.set_oracle_context(_format_oracle_context(context))
