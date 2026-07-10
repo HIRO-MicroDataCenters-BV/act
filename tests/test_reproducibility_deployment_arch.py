@@ -82,51 +82,32 @@ def test_non_k8s_program_reports_unhandled_tokens(monkeypatch):
 
 
 @pytest.mark.parametrize(
-    "stderr",
+    "returncode, stderr, is_timeout, expected_reason",
     [
-        b"docker: no matching manifest for linux/riscv64 in the manifest list entries",
-        b"docker: manifest unknown for linux/riscv64",
-        b"image platform (linux/riscv64) does not match the detected host platform",
-        b"no matching entries in manifest list",
+        (125, b"docker: no matching manifest for linux/riscv64 in the manifest list entries", False, "no_arch_variant"),
+        (125, b"docker: manifest unknown for linux/riscv64", False, "no_arch_variant"),
+        (125, b"image platform (linux/riscv64) does not match the detected host platform", False, "no_arch_variant"),
+        (125, b"no matching entries in manifest list", False, "no_arch_variant"),
+        (1, b"exec /bin/true: exec format error", False, "boot_failed"),
+        (0, b"", True, "timeout"),
+        (0, b"", False, None),  # zero exit -> boots fine
     ],
 )
-def test_smoke_boot_classifies_no_arch_variant(stderr):
-    check = DeploymentArchCheck("riscv64")
-    fake_result = subprocess.CompletedProcess(args=[], returncode=125, stdout=b"", stderr=stderr)
-    with patch("subprocess.run", return_value=fake_result):
-        failure = check._smoke_boot("amd64-only:latest")
-    assert failure is not None
-    assert failure.reason == "no_arch_variant"
-    assert failure.image == "amd64-only:latest"
-
-
-def test_smoke_boot_classifies_boot_failed():
-    check = DeploymentArchCheck("riscv64")
-    fake_result = subprocess.CompletedProcess(
-        args=[],
-        returncode=1,
-        stdout=b"",
-        stderr=b"exec /bin/true: exec format error",
-    )
-    with patch("subprocess.run", return_value=fake_result):
-        failure = check._smoke_boot("broken:latest")
-    assert failure is not None
-    assert failure.reason == "boot_failed"
-
-
-def test_smoke_boot_classifies_timeout():
+def test_smoke_boot_classification(returncode, stderr, is_timeout, expected_reason):
     check = DeploymentArchCheck("riscv64", timeout=1)
-    with patch("subprocess.run", side_effect=subprocess.TimeoutExpired(cmd=[], timeout=1)):
-        failure = check._smoke_boot("slow:latest")
-    assert failure is not None
-    assert failure.reason == "timeout"
-
-
-def test_smoke_boot_passes_on_zero_exit():
-    check = DeploymentArchCheck("riscv64")
-    fake_result = subprocess.CompletedProcess(args=[], returncode=0, stdout=b"", stderr=b"")
-    with patch("subprocess.run", return_value=fake_result):
-        assert check._smoke_boot("multiarch:latest") is None
+    if is_timeout:
+        ctx = patch("subprocess.run", side_effect=subprocess.TimeoutExpired(cmd=[], timeout=1))
+    else:
+        result = subprocess.CompletedProcess(args=[], returncode=returncode, stdout=b"", stderr=stderr)
+        ctx = patch("subprocess.run", return_value=result)
+    with ctx:
+        failure = check._smoke_boot("img:latest")
+    if expected_reason is None:
+        assert failure is None
+    else:
+        assert failure is not None
+        assert failure.reason == expected_reason
+        assert failure.image == "img:latest"
 
 
 def test_docker_missing_short_circuits(monkeypatch, kubernetes_schema_path):

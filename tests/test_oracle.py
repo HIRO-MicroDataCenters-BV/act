@@ -2,6 +2,8 @@ from typing import Optional
 
 import json
 
+import pytest
+
 from act.core.mock_generator import MockGenerator
 from act.core.oracle import CorrectnessOracle
 from act.core.violations import Violation
@@ -127,46 +129,25 @@ def test_instance_rules_do_not_fire_on_workspace(cape_schema_path, cape_fixtures
 # ---------------------------------------------------------------------------
 
 
-def test_minimum_violation(tmp_path):
-    schema_path = _make_schema(tmp_path, {"cpu": {"type": "integer", "minimum": 1}})
-    oracle = CorrectnessOracle(schema_path)
-    violations = oracle.check(RTYPE, {"cpu": 0})
-    assert any(v.field == "cpu" and v.severity == "HIGH" for v in violations)
-
-
-def test_minimum_passes(tmp_path):
-    schema_path = _make_schema(tmp_path, {"cpu": {"type": "integer", "minimum": 1}})
-    oracle = CorrectnessOracle(schema_path)
-    violations = oracle.check(RTYPE, {"cpu": 1})
-    assert violations == []
-
-
-def test_maximum_violation(tmp_path):
-    schema_path = _make_schema(tmp_path, {"cpu": {"type": "integer", "maximum": 64}})
-    oracle = CorrectnessOracle(schema_path)
-    violations = oracle.check(RTYPE, {"cpu": 99999})
-    assert any(v.field == "cpu" and v.severity == "HIGH" for v in violations)
-
-
-def test_maximum_passes(tmp_path):
-    schema_path = _make_schema(tmp_path, {"cpu": {"type": "integer", "maximum": 64}})
-    oracle = CorrectnessOracle(schema_path)
-    violations = oracle.check(RTYPE, {"cpu": 64})
-    assert violations == []
-
-
-def test_enum_violation(tmp_path):
-    schema_path = _make_schema(tmp_path, {"arch": {"type": "string", "enum": ["x86", "arm", "riscv"]}})
-    oracle = CorrectnessOracle(schema_path)
-    violations = oracle.check(RTYPE, {"arch": "fpga"})
-    assert any(v.field == "arch" and v.severity == "HIGH" for v in violations)
-
-
-def test_enum_passes(tmp_path):
-    schema_path = _make_schema(tmp_path, {"arch": {"type": "string", "enum": ["x86", "arm", "riscv"]}})
-    oracle = CorrectnessOracle(schema_path)
-    violations = oracle.check(RTYPE, {"arch": "riscv"})
-    assert violations == []
+@pytest.mark.parametrize(
+    "field, field_def, inputs, expect_violation",
+    [
+        ("cpu", {"type": "integer", "minimum": 1}, {"cpu": 0}, True),
+        ("cpu", {"type": "integer", "minimum": 1}, {"cpu": 1}, False),
+        ("cpu", {"type": "integer", "maximum": 64}, {"cpu": 99999}, True),
+        ("cpu", {"type": "integer", "maximum": 64}, {"cpu": 64}, False),
+        ("arch", {"type": "string", "enum": ["x86", "arm", "riscv"]}, {"arch": "fpga"}, True),
+        ("arch", {"type": "string", "enum": ["x86", "arm", "riscv"]}, {"arch": "riscv"}, False),
+        ("label", {"type": "string"}, {"label": None}, False),  # None on an optional field is fine
+    ],
+)
+def test_schema_constraint(tmp_path, field, field_def, inputs, expect_violation):
+    oracle = CorrectnessOracle(_make_schema(tmp_path, {field: field_def}))
+    violations = oracle.check(RTYPE, inputs)
+    if expect_violation:
+        assert any(v.field == field and v.severity == "HIGH" for v in violations)
+    else:
+        assert violations == []
 
 
 def test_type_error_skips_range_check(tmp_path):
@@ -190,12 +171,3 @@ def test_explicit_none_required_field_reported_once(tmp_path):
     name_violations = [v for v in violations if v.field == "name"]
     assert len(name_violations) == 1
     assert "missing" in name_violations[0].message.lower()
-
-
-def test_explicit_none_optional_field_is_not_a_type_error(tmp_path):
-    """A None on an optional field is not a type violation."""
-    schema_path = _make_schema(tmp_path, {"label": {"type": "string"}})
-    oracle = CorrectnessOracle(schema_path)
-    violations = oracle.check(RTYPE, {"label": None})
-
-    assert violations == []
