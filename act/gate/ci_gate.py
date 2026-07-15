@@ -41,6 +41,9 @@ class CIGate:
             for v in result.violations:
                 lines.append(f"  [{v.severity}] {v.field}: {v.message}")
         lines.extend(self._acv_lines(result))
+        # Appended last so it never shifts the PASS/FAIL/ACV lines other callers assert on.
+        if result.resource_count == 0:
+            lines.append("WARN  no resources captured - nothing was validated")
         return "\n".join(lines)
 
     @staticmethod

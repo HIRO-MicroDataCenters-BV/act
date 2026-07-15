@@ -83,3 +83,11 @@ def test_check_nonexistent_schema_is_clean(capsys):
     assert code == 2
     assert err.strip() == "[ERROR] schema not found: nope.json"
     assert "Traceback" not in err
+
+
+def test_zero_resources_warns_but_passes(capsys):
+    code = main(["check", "--program", "tests/fixtures/no_resources.py", "--schema", CAPE_SCHEMA])
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "PASS" in out
+    assert "WARN  no resources captured" in out

@@ -29,6 +29,7 @@ class PipelineResult:
     parameterized: bool  # True if program reads from env/argv
     acv_result: Optional[ACVResult] = None  # advisory by default; gates only when acv_blocking
     acv_blocking: bool = False  # True if an ACV FAIL was allowed to affect `passed`
+    resource_count: int = 0  # resources captured under mocks; 0 means nothing was validated
 
 
 def _is_parameterized(program_path: str) -> bool:
@@ -70,6 +71,8 @@ class ACTPipeline:
         t = time.perf_counter()
         mock_outputs = self._mock_generator.run_with_mocks(program_path)
         log.info("pipeline.mock_done", extra={"resources": list(mock_outputs), "duration_ms": _ms(t)})
+        if not mock_outputs:
+            log.warning("pipeline.no_resources", extra={"program": program_path})
 
         if parameterized:
             if self._fuzz_runner:
@@ -126,4 +129,5 @@ class ACTPipeline:
             parameterized=parameterized,
             acv_result=acv_result,
             acv_blocking=self._acv_blocking,
+            resource_count=len(mock_outputs),
         )
