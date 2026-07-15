@@ -367,12 +367,12 @@ pipeline {
 
 ### Docker
 
-A pre-built image is published. The image expects the program + schema on a mounted volume.
+A pre-built image is published. The current release is `0.4.0`; pin that tag for reproducible runs, or use `latest` to track the newest release. The image expects the program + schema on a mounted volume.
 
 ```bash
 docker run --rm \
   -v "$PWD/infra:/work" \
-  ghcr.io/hiro-microdatacenters-bv/act:latest \
+  ghcr.io/hiro-microdatacenters-bv/act:0.4.0 \
   --program /work/main.py --schema /work/schemas/cape.json
 ```
 
