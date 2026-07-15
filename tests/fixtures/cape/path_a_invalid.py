@@ -1,4 +1,4 @@
-# Simulates a misconfigured LLM-generated CAPE program — Path A
+# Simulates a misconfigured LLM-generated CAPE program - Path A
 # Violation: ssh_keys present but security_group_ref absent (no firewall)
 import pulumi
 from pulumi_cape.compute import Instance

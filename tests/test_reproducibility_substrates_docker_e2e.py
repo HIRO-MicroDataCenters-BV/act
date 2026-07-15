@@ -109,7 +109,7 @@ def _riscv64_image_present() -> bool:
     """Check whether the riscv64 substrate image has been built locally.
 
     The image is large (~650MB unpacked) and slow to build under QEMU emulation
-    (~2 min on Apple Silicon). We don't build it inside the test — it's a one-off
+    (~2 min on Apple Silicon). We don't build it inside the test - it's a one-off
     via `tests/integration/k3s_riscv64/build.sh`. Test skips if not present.
     """
     image = os.environ.get("ACT_K3S_RISCV64_IMAGE", "act-k3s:riscv64")
@@ -128,7 +128,7 @@ def _riscv64_image_present() -> bool:
 # riscv64 under QEMU user-mode binfmt emulation can't run iptables-dependent
 # components reliably (kube-proxy crashes, flannel depends on kube-proxy).
 # We disable both. The image ships the reference CNI plugins + a bridge
-# conflist so kubelet still satisfies NetworkReady — without that the node
+# conflist so kubelet still satisfies NetworkReady - without that the node
 # would register but never become Ready.
 _K3S_RISCV64_COMMAND = (
     "server",

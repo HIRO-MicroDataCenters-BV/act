@@ -1,16 +1,11 @@
-"""Shared helper: declare a Kubernetes Extended Resource on a node.
+"""Declare a Kubernetes Extended Resource on a node.
 
-Used by accelerator-style substrates (GPU, FPGA) that don't need real
-hardware on the host — they just want the resource to show up as
-schedulable so user IaC programs can request it.
+Used by accelerator substrates (GPU, FPGA, CXL) that don't need real hardware; they just want the resource
+schedulable so user IaC can request it.
 
-Mechanism: `kubectl patch node ... --subresource=status --type=json` on
-both `.status.capacity` and `.status.allocatable`. Kubelet does not
-overwrite extended resources set via the status subresource; the
-scheduler picks resources from `allocatable`, so patching only
-`capacity` leaves the resource unschedulable.
-
-Requires `kubectl` ≥ 1.24 (for `--subresource=status`).
+Patches both `.status.capacity` and `.status.allocatable` via `--subresource=status`: kubelet doesn't
+overwrite extended resources set through the status subresource, and the scheduler reads `allocatable`, so
+patching only `capacity` leaves the resource unschedulable. Requires `kubectl` >= 1.24.
 """
 
 from __future__ import annotations
@@ -27,11 +22,7 @@ def patch_node_extended_resource(
     *,
     api_ready_timeout: int = 60,
 ) -> None:
-    """Advertise `resource_name: count` on the first node in the cluster.
-
-    Waits for the API server to be reachable and a node to be registered
-    before issuing the patch.
-    """
+    """Advertise `resource_name: count` on the first node; waits for the API server and a registered node first."""
     node = _wait_for_node(kubeconfig, api_ready_timeout)
 
     # JSON Patch encodes "/" inside the resource name as "~1".
@@ -89,5 +80,5 @@ def _wait_for_node(kubeconfig: str, timeout: int) -> str:
         last_err = result.stderr.decode().strip()
         time.sleep(2)
     raise TimeoutError(
-        f"kubectl get nodes did not return a registered node within " f"{timeout}s (last stderr: {last_err!r})"
+        "kubectl get nodes did not return a registered node within " f"{timeout}s (last stderr: {last_err!r})"
     )

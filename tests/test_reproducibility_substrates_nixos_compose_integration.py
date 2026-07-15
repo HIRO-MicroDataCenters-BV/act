@@ -3,7 +3,7 @@
 Builds a tiny container with nix + nxc pre-installed
 (`tests/integration/nixos_compose/Dockerfile`) and uses it to verify that
 `image_helpers.nxc_compose.render_k8s_composition` produces a Nix flake that
-exposes `packages.x86_64-linux.default` — the input shape `nxc build` expects.
+exposes `packages.x86_64-linux.default` - the input shape `nxc build` expects.
 
 These checks belong with the image-build pipeline (the helpers are used by CI
 to produce the runtime substrate images consumed by DockerSubstrate).
@@ -75,7 +75,7 @@ def _ensure_image() -> None:
 def _ensure_amd64_image() -> None:
     """Build the explicit amd64 variant so nxc evaluates and builds natively
     for the x86_64-linux target our substrate emits. On an aarch64 host this
-    runs under QEMU emulation — slow but completes."""
+    runs under QEMU emulation - slow but completes."""
     try:
         result = subprocess.run(
             ["docker", "image", "inspect", IMAGE_TAG_AMD64],
@@ -149,7 +149,7 @@ def test_nxc_accepts_init_build_pipeline_against_rendered_composition(tmp_path):
     substrate's CLI invocation order or flags are wrong.
 
     Uses x86_64-linux; on an aarch64 host the cross-compile build will fail
-    after evaluation, which is fine for this check — we're verifying nxc
+    after evaluation, which is fine for this check - we're verifying nxc
     accepts our flake, not that the build completes.
     """
     _ensure_image()

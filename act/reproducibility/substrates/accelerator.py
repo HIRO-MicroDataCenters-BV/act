@@ -1,23 +1,8 @@
-"""Generic accelerator substrate.
+"""Generic accelerator substrate: a k3s cluster + a post-provision `kubectl patch node --subresource=status`
+that advertises a custom Extended Resource.
 
-Three concrete accelerators (GPU, FPGA, CXL) follow the same pattern: a
-regular DockerSubstrate-provisioned k3s cluster + a post-provision
-`kubectl patch node --subresource=status` call that advertises a custom
-Extended Resource on the node. The differences between them are entirely
-configurational: which feature flag triggers them, which resource name
-they advertise, and the default count.
-
-`AcceleratorSubstrate` captures that pattern once. Concrete subclasses
-set the three fields as class-level defaults:
-
-    @dataclass
-    class GpuSubstrate(AcceleratorSubstrate):
-        feature_name: str = "gpu"
-        resource_name: str = "nvidia.com/gpu"
-
-The substrate's `.name` ("docker:linux/amd64+gpu"), `.matches()` (gated
-on the feature flag), and `.provision()` (call super + patch node) are
-all inherited.
+GPU/FPGA/CXL differ only in config (feature flag, resource name, count). Subclasses set feature_name +
+resource_name as class-level defaults; .name, .matches() (gated on the feature flag), and .provision() are inherited.
 """
 
 from __future__ import annotations
@@ -33,10 +18,7 @@ from act.reproducibility.substrates.docker import DockerSubstrate
 
 @dataclass
 class AcceleratorSubstrate(DockerSubstrate):
-    """Base class for accelerator substrates that declare a k8s Extended Resource.
-
-    Subclasses set `feature_name` + `resource_name` as class-level defaults.
-    """
+    """Base for GPU/FPGA/CXL substrates; subclasses set feature_name and resource_name."""
 
     feature_name: str = ""
     resource_name: str = ""

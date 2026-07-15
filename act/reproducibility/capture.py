@@ -1,7 +1,7 @@
 """Run MockGenerator on a program and emit canonical JSON to stdout.
 
-Used as the second-invocation entry point for plan-determinism comparison:
-both invocations call this module and the caller hashes the stdout.
+Both invocations of the plan-determinism check call this; the caller hashes
+the stdout.
 """
 
 import argparse

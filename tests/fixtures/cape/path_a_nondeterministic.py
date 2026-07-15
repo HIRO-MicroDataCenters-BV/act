@@ -1,4 +1,4 @@
-# Nondeterministic CAPE program — captures uuid.uuid4() into the resource name on every run.
+# Nondeterministic CAPE program - captures uuid.uuid4() into the resource name on every run.
 import uuid
 
 from pulumi_cape.compute import Instance

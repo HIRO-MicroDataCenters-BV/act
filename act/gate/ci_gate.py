@@ -2,6 +2,7 @@ import logging
 import sys
 import traceback
 
+from act.acv.models import acv_result_to_violations
 from act.core.pipeline import ACTPipeline, PipelineResult
 
 log = logging.getLogger(__name__)
@@ -34,8 +35,25 @@ class CIGate:
 
     def format_report(self, result: PipelineResult) -> str:
         if result.passed:
-            return f"PASS  {result.program_path}"
-        lines = [f"FAIL  {result.program_path}"]
-        for v in result.violations:
-            lines.append(f"  [{v.severity}] {v.field}: {v.message}")
+            lines = [f"PASS  {result.program_path}"]
+        else:
+            lines = [f"FAIL  {result.program_path}"]
+            for v in result.violations:
+                lines.append(f"  [{v.severity}] {v.field}: {v.message}")
+        lines.extend(self._acv_lines(result))
+        # Appended last so it never shifts the PASS/FAIL/ACV lines other callers assert on.
+        if result.resource_count == 0:
+            lines.append("WARN  no resources captured - nothing was validated")
         return "\n".join(lines)
+
+    @staticmethod
+    def _acv_lines(result: PipelineResult) -> list:
+        """Render the ACV findings block (advisory by default, blocking when it gates the verdict)."""
+        acv = result.acv_result
+        if acv is None or not acv.findings:
+            return []
+        label = "blocking" if result.acv_blocking else "advisory"
+        lines = [f"ACV ({label}): {len(acv.findings)} finding(s)"]
+        for v in acv_result_to_violations(acv):
+            lines.append(f"  [{v.severity}] {v.field}: {v.message}")
+        return lines

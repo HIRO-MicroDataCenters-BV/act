@@ -1,3 +1,7 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
 [project]
 name = "act"
 version = "0.0.0"
@@ -14,8 +18,17 @@ dependencies = [
     "pulumi-policy>=1.20.0",
 ]
 
+[project.scripts]
+act = "act.run:main"
+
 [project.optional-dependencies]
 fuzzing = ["atheris>=3.0.0"]
+# langchain-core provides the @tool decorator, langgraph the StateGraph, and
+# httpx calls the OpenAI-compatible endpoint. httpx is imported directly, so it
+# is declared here rather than relied on transitively. Floors match the 1.x
+# StateGraph/@tool API the agent targets.
+# `openai` is intentionally not used — the core `checkov` dep pins openai<1.0.0.
+acv = ["langgraph>=1.0.0", "langchain-core>=1.0.0", "httpx>=0.27.0"]
 
 [dependency-groups]
 dev = [
@@ -33,6 +46,9 @@ dev = [
 
 [tool.uv.sources]
 pulumi-cape = { path = "cape-sdks/python", editable = true }
+
+[tool.hatch.build.targets.wheel]
+packages = ["act"]
 
 [tool.black]
 line-length = 120

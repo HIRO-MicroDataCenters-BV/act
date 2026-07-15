@@ -81,90 +81,33 @@ def test_non_k8s_program_reports_unhandled_tokens(monkeypatch):
     assert any(t.startswith("cape:") for t in result.unhandled_tokens)
 
 
-def test_smoke_boot_classifies_no_arch_variant():
-    check = DeploymentArchCheck("riscv64")
-    fake_result = subprocess.CompletedProcess(
-        args=[],
-        returncode=125,
-        stdout=b"",
-        stderr=b"docker: no matching manifest for linux/riscv64 in the manifest list entries",
-    )
-    with patch("subprocess.run", return_value=fake_result):
-        failure = check._smoke_boot("amd64-only:latest")
-    assert failure is not None
-    assert failure.reason == "no_arch_variant"
-    assert failure.image == "amd64-only:latest"
-
-
-def test_smoke_boot_classifies_no_arch_variant_manifest_unknown():
-    check = DeploymentArchCheck("riscv64")
-    fake_result = subprocess.CompletedProcess(
-        args=[],
-        returncode=125,
-        stdout=b"",
-        stderr=b"docker: manifest unknown for linux/riscv64",
-    )
-    with patch("subprocess.run", return_value=fake_result):
-        failure = check._smoke_boot("amd64-only:latest")
-    assert failure is not None
-    assert failure.reason == "no_arch_variant"
-
-
-def test_smoke_boot_classifies_no_arch_variant_image_platform_mismatch():
-    check = DeploymentArchCheck("riscv64")
-    fake_result = subprocess.CompletedProcess(
-        args=[],
-        returncode=125,
-        stdout=b"",
-        stderr=b"image platform (linux/riscv64) does not match the detected host platform",
-    )
-    with patch("subprocess.run", return_value=fake_result):
-        failure = check._smoke_boot("amd64-only:latest")
-    assert failure is not None
-    assert failure.reason == "no_arch_variant"
-
-
-def test_smoke_boot_classifies_no_arch_variant_no_matching_entries():
-    check = DeploymentArchCheck("riscv64")
-    fake_result = subprocess.CompletedProcess(
-        args=[],
-        returncode=125,
-        stdout=b"",
-        stderr=b"no matching entries in manifest list",
-    )
-    with patch("subprocess.run", return_value=fake_result):
-        failure = check._smoke_boot("amd64-only:latest")
-    assert failure is not None
-    assert failure.reason == "no_arch_variant"
-
-
-def test_smoke_boot_classifies_boot_failed():
-    check = DeploymentArchCheck("riscv64")
-    fake_result = subprocess.CompletedProcess(
-        args=[],
-        returncode=1,
-        stdout=b"",
-        stderr=b"exec /bin/true: exec format error",
-    )
-    with patch("subprocess.run", return_value=fake_result):
-        failure = check._smoke_boot("broken:latest")
-    assert failure is not None
-    assert failure.reason == "boot_failed"
-
-
-def test_smoke_boot_classifies_timeout():
+@pytest.mark.parametrize(
+    "returncode, stderr, is_timeout, expected_reason",
+    [
+        (125, b"docker: no matching manifest for linux/riscv64 in the manifest list entries", False, "no_arch_variant"),
+        (125, b"docker: manifest unknown for linux/riscv64", False, "no_arch_variant"),
+        (125, b"image platform (linux/riscv64) does not match the detected host platform", False, "no_arch_variant"),
+        (125, b"no matching entries in manifest list", False, "no_arch_variant"),
+        (1, b"exec /bin/true: exec format error", False, "boot_failed"),
+        (0, b"", True, "timeout"),
+        (0, b"", False, None),  # zero exit -> boots fine
+    ],
+)
+def test_smoke_boot_classification(returncode, stderr, is_timeout, expected_reason):
     check = DeploymentArchCheck("riscv64", timeout=1)
-    with patch("subprocess.run", side_effect=subprocess.TimeoutExpired(cmd=[], timeout=1)):
-        failure = check._smoke_boot("slow:latest")
-    assert failure is not None
-    assert failure.reason == "timeout"
-
-
-def test_smoke_boot_passes_on_zero_exit():
-    check = DeploymentArchCheck("riscv64")
-    fake_result = subprocess.CompletedProcess(args=[], returncode=0, stdout=b"", stderr=b"")
-    with patch("subprocess.run", return_value=fake_result):
-        assert check._smoke_boot("multiarch:latest") is None
+    if is_timeout:
+        ctx = patch("subprocess.run", side_effect=subprocess.TimeoutExpired(cmd=[], timeout=1))
+    else:
+        result = subprocess.CompletedProcess(args=[], returncode=returncode, stdout=b"", stderr=stderr)
+        ctx = patch("subprocess.run", return_value=result)
+    with ctx:
+        failure = check._smoke_boot("img:latest")
+    if expected_reason is None:
+        assert failure is None
+    else:
+        assert failure is not None
+        assert failure.reason == expected_reason
+        assert failure.image == "img:latest"
 
 
 def test_docker_missing_short_circuits(monkeypatch, kubernetes_schema_path):
@@ -198,7 +141,7 @@ def test_real_smoke_boot_passes_for_multiarch_image():
 def test_real_smoke_boot_flags_amd64_only_image():
     if not _docker_available():
         pytest.skip("docker daemon not available")
-    # A representative amd64-only tag — adjust if it gains other arches.
+    # A representative amd64-only tag - adjust if it gains other arches.
     check = DeploymentArchCheck("riscv64", timeout=30)
     failure = check._smoke_boot("amd64/alpine:3.19")
     assert failure is not None

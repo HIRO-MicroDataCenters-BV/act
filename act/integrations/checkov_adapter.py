@@ -1,24 +1,13 @@
-"""Checkov integration — wraps Checkov checks as ACT rules.
+"""Checkov integration: wraps Checkov checks as ACT rules.
 
-Fully dynamic: the Checkov check type is derived from the Pulumi token prefix.
-No provider names are hardcoded.
-
-The first segment of the Pulumi token maps to the Checkov check type:
-  'kubernetes:apps/v1:Deployment' → checkov.kubernetes runner
-  'terraform:aws/s3:Bucket'       → checkov.terraform runner
-
-Rules are registered unscoped (resource_type=None) so they apply across
-token variants (schema versions vs runtime versions). The rule self-filters:
-it only runs when mock outputs contain enough structure for Checkov to evaluate.
+The Checkov check type is derived from the Pulumi token's first segment
+('kubernetes:apps/v1:Deployment' -> checkov.kubernetes runner). Rules register
+unscoped so they apply across token variants (schema vs runtime versions), and
+self-filter to runs where mock outputs have enough structure to evaluate.
 
 Usage:
-    from act.integrations.checkov_adapter import load_checkov_rules
-
-    # Scope to a specific resource type
     load_checkov_rules(oracle, resource_type="kubernetes:apps/v1:Deployment")
-
-    # Apply to all resources from a provider (recommended for CLI use)
-    load_checkov_rules(oracle, check_type="kubernetes")
+    load_checkov_rules(oracle, check_type="kubernetes")  # all resources; recommended for CLI
 """
 
 from typing import List, Optional
@@ -34,6 +23,7 @@ import yaml  # type: ignore[import-untyped]
 from act.core.violations import Violation
 
 logging.getLogger("checkov").setLevel(logging.ERROR)
+log = logging.getLogger(__name__)
 
 _checks_loaded: set[str] = set()
 
@@ -47,8 +37,8 @@ def _load_checks(check_type: str) -> None:
         for _, name, _ in pkgutil.walk_packages(pkg.__path__, pkg.__name__ + "."):
             try:
                 importlib.import_module(name)
-            except Exception:
-                pass
+            except Exception as exc:
+                log.debug("checkov.check_import_failed module=%s err=%s", name, exc)
         _checks_loaded.add(check_type)
     except ModuleNotFoundError:
         raise ValueError(f"No Checkov checks found for provider: {check_type!r}")
@@ -69,7 +59,7 @@ def _run_checkov(check_type: str, outputs: dict) -> List[Violation]:
 
     RunnerFilter = importlib.import_module("checkov.runner_filter").RunnerFilter
 
-    # Checkov requires metadata to build its internal context — add a fallback if absent.
+    # Checkov needs metadata to build its context; add a fallback if absent.
     payload = outputs if "metadata" in outputs else {**outputs, "metadata": {"name": "act-resource"}}
 
     with tempfile.NamedTemporaryFile(suffix=".yaml", mode="w", delete=False) as f:
@@ -96,12 +86,9 @@ def load_checkov_rules(
 ) -> None:
     """Register Checkov checks on the oracle.
 
-    check_type: Checkov provider name, e.g. 'kubernetes'. Derived from
-                resource_type if not provided.
-    resource_type: Pulumi token to scope the rule (e.g. 'kubernetes:apps/v1:Deployment').
-                   If None, the rule applies to all resources and self-filters by
-                   inspecting mock outputs — recommended when the schema token may
-                   differ from the runtime token.
+    check_type: Checkov provider name (e.g. 'kubernetes'); derived from resource_type if absent.
+    resource_type: Pulumi token to scope the rule; None applies to all resources and
+                   self-filters, recommended when schema and runtime tokens may differ.
     """
     if not check_type and not resource_type:
         raise ValueError("Provide at least one of check_type or resource_type.")

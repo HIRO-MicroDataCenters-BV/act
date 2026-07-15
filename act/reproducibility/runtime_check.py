@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Literal, Optional
+from typing import Any, Callable, Literal, Optional
 
+import functools
 import hashlib
 import json
 import re
@@ -23,10 +24,6 @@ from act.reproducibility.substrates.base import (
     TargetSpec,
 )
 
-if TYPE_CHECKING:  # pragma: no cover
-    pass
-
-
 VOLATILE_KEYS: frozenset[str] = frozenset(
     {
         "creationTimestamp",
@@ -42,16 +39,14 @@ VOLATILE_KEYS: frozenset[str] = frozenset(
 )
 
 VOLATILE_VALUE_PATTERNS: tuple[re.Pattern[str], ...] = (
-    # "pid: 12345" — process ids.
+    # "pid: 12345" process ids.
     re.compile(r"pid:\s*\d+", flags=re.IGNORECASE),
-    # Unix epoch timestamps. Narrowed to "1[5-9]<8-11 digits>" so it scrubs
-    # 2017-2055 second and millisecond timestamps without blanking long
-    # numeric IDs that happen to be 10+ digits.
+    # Unix epoch timestamps; narrowed to "1[5-9]<8-11 digits>" so it scrubs
+    # 2017-2055 timestamps without blanking long numeric IDs.
     re.compile(r"\b1[5-9]\d{8,11}\b"),
-    # Ephemeral ports inside a URL-shaped host:port fragment. The fixed-width
-    # lookbehind requires a host-like character immediately before the colon,
-    # which skips JSON values like `"nodePort": 30001` while still scrubbing
-    # `127.0.0.1:34567` and `host:34567` URLs.
+    # Ephemeral ports in a host:port fragment; the fixed-width lookbehind
+    # requires a host-like char before the colon, so it skips JSON like
+    # `"nodePort": 30001` but still scrubs `127.0.0.1:34567`.
     re.compile(r"(?<=[A-Za-z0-9.-]:)\b[0-9]{4,5}\b"),
 )
 
@@ -99,30 +94,26 @@ def run_pulumi_against(
     program_path: str,
     backend_dir: str,
     project_name: str = "act-runtime-check",
-    probe_fn: Optional[callable] = None,  # type: ignore[valid-type]
+    probe_fn: Optional[Callable[..., dict]] = None,
 ) -> PulumiUpOutcome:
     """Run `pulumi up` against the provisioned target, then `destroy`.
 
-    Uses LocalWorkspace project mode rather than inline programs: each pulumi
-    invocation runs as a subprocess of the host Python. Inline mode
-    (`create_or_select_stack(program=...)`) races with Pulumi's grpc engine
-    cleanup against real clusters and trips an "Event loop stopped before
-    Future completed" error even on a first up. Project mode dodges that
-    entirely at the cost of one temp dir + one file copy per run.
+    LocalWorkspace project mode (subprocess-per-up), not inline programs:
+    inline mode races Pulumi's grpc engine cleanup against real clusters
+    ("Event loop stopped before Future completed"). Project mode dodges it
+    at the cost of one temp dir + file copy per run.
 
-    When `probe_fn` is provided it runs between `stack.up()` and
-    `stack.destroy()` — important for workloads (Jobs, short-lived Pods)
-    whose state only exists while the stack is up. The probe's return
-    value lands in the `probed` field of the outcome.
+    `probe_fn` runs between `up` and `destroy` (into outcome.probed) so
+    workloads whose state only exists while the stack is up (Jobs,
+    short-lived Pods) are still readable.
     """
     stack_name = f"act-{uuid.uuid4().hex[:8]}"
     work_dir = Path(tempfile.mkdtemp(prefix="act-pulumi-prog-"))
 
     try:
-        # Point Pulumi at the active venv (sys.prefix). Pulumi defaults to
-        # `toolchain: pip` and runs `python -m pip list --format json` to
-        # discover provider packages — that venv must therefore carry pip.
-        # uv-managed venvs need `uv pip install pip` once to satisfy this.
+        # Point Pulumi at the active venv (sys.prefix). Pulumi runs
+        # `python -m pip list` to discover providers, so the venv needs pip;
+        # uv-managed venvs need `uv pip install pip` once.
         (work_dir / "Pulumi.yaml").write_text(
             "name: " + project_name + "\n"
             "runtime:\n"
@@ -211,19 +202,17 @@ def _resource_arch(outputs: dict) -> str | None:
 def _mentions_cxl(outputs: dict) -> bool:
     """True if the resource declares a CXL hardware marker.
 
-    Anchored to the canonical CXL labels/resource keys (`hardware.cape/cxl`
-    and `cape.eu/cxl`) so it does not match incidental occurrences of "cxl"
-    in image names, comments, or other free-text fields.
+    Anchored to the canonical keys (`hardware.cape/cxl`, `cape.eu/cxl`) so it
+    doesn't match incidental "cxl" in image names or other free text.
     """
     text = json.dumps(outputs, default=str)
     return "hardware.cape/cxl" in text or "cape.eu/cxl" in text
 
 
-# System-managed objects that show up in the `default` namespace but
-# aren't user-deployed. Filtered out of probe results so they don't
-# create timing-dependent diffs between runs (e.g. `kube-root-ca.crt`
-# is created by kube-controller-manager shortly after the namespace
-# exists; a probe that lands before its creation sees one fewer item).
+# System-managed objects in the `default` namespace, not user-deployed.
+# Filtered from probe results to avoid timing-dependent diffs (e.g.
+# `kube-root-ca.crt` is created shortly after the namespace exists, so an
+# early probe sees one fewer item).
 _SYSTEM_NAMESPACE_OBJECTS: frozenset[tuple[str, str]] = frozenset(
     {
         ("Service", "kubernetes"),
@@ -241,13 +230,7 @@ def _is_system_managed(item: dict) -> bool:
 
 
 def _kubeconfig_path(target) -> str:
-    """Accept either a ProvisionedTarget or a raw kubeconfig path string.
-
-    The probe functions historically took a raw string; passing the full
-    `ProvisionedTarget` is cleaner (the signature no longer lies about
-    what it depends on) and opens the door for future SSH/HTTP probes
-    that need other fields on the target.
-    """
+    """Accept either a ProvisionedTarget or a raw kubeconfig path string."""
     endpoint = getattr(target, "endpoint", None)
     return endpoint if endpoint is not None else target
 
@@ -255,17 +238,11 @@ def _kubeconfig_path(target) -> str:
 def probe_k8s(target, namespace: str = "default", timeout: int = 60) -> dict:
     """Capture user-deployed state in the named namespace.
 
-    Scoped to a single (non-system) namespace because `--all-namespaces`
-    pulls in kube-system pods whose state (restartCount, container
-    statuses, transient conditions) drifts between probes and would
-    surface as spurious reproducibility violations. Capture covers the
-    resource kinds a CAPE Pulumi program is most likely to deploy.
-    System-managed objects present in the default namespace
-    (`kubernetes` Service, `kube-root-ca.crt` ConfigMap) are filtered
-    out — their lifecycle is driven by control-plane controllers and
-    races with our probe timing.
-
-    Accepts either a `ProvisionedTarget` or a raw kubeconfig path string.
+    Scoped to one namespace: `--all-namespaces` pulls in kube-system pods
+    whose state drifts between probes (spurious reproducibility violations).
+    System-managed default-namespace objects (`kubernetes` Service,
+    `kube-root-ca.crt` ConfigMap) are filtered; their lifecycle races our
+    probe timing. Accepts a `ProvisionedTarget` or raw kubeconfig path.
     """
     kubeconfig = _kubeconfig_path(target)
     kinds = "pods,services,deployments,statefulsets,daemonsets,configmaps,secrets,jobs,cronjobs"
@@ -281,10 +258,9 @@ def probe_k8s(target, namespace: str = "default", timeout: int = 60) -> dict:
     return payload
 
 
-# Pod-name prefixes that identify cluster-system pods (k3s defaults). When
-# capturing workload logs we skip these — their output drifts between
-# probes (timestamps, readiness counters) and would mask user-workload
-# determinism.
+# Cluster-system pod prefixes (k3s defaults), skipped when capturing
+# workload logs: their output drifts between probes (timestamps, readiness
+# counters) and would mask user-workload determinism.
 _SYSTEM_POD_PREFIXES: tuple[str, ...] = (
     "coredns-",
     "local-path-provisioner-",
@@ -294,9 +270,9 @@ _SYSTEM_POD_PREFIXES: tuple[str, ...] = (
     "helm-install-",
 )
 
-# Trailing random suffix that Jobs/Deployments append to Pod names.
-# `iverilog-boot-flow-7fkx2` -> `iverilog-boot-flow`. Stripping these
-# makes the workload-logs dict's keys deterministic across runs.
+# Trailing random suffix Jobs/Deployments append to Pod names
+# (`iverilog-boot-flow-7fkx2` -> `iverilog-boot-flow`); stripped so
+# workload-logs keys are deterministic across runs.
 _POD_NAME_SUFFIX = re.compile(r"-[a-z0-9]{5,10}(?:-[a-z0-9]{5,10})?$")
 
 
@@ -305,10 +281,7 @@ def _strip_pod_suffix(name: str) -> str:
 
 
 def _wait_for_jobs(kubeconfig: str, namespace: str, timeout: int) -> None:
-    """Wait until every Job in the namespace has succeeded or failed.
-
-    No-op when no Jobs are present.
-    """
+    """Wait until every Job in the namespace has succeeded or failed (no-op if none)."""
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         result = subprocess.run(
@@ -366,13 +339,10 @@ def probe_k8s_with_workload_logs(
 ) -> dict:
     """Like `probe_k8s` but also waits for Jobs and captures workload pod logs.
 
-    Returns the same shape as `probe_k8s` with an extra `_act_workload_logs`
-    key — a dict keyed by stable pod-name prefix (random suffix stripped)
-    mapping to the pod's stdout/stderr. Used by FPGA / CXL boot-flow style
-    workloads where the deterministic value is the simulator's output,
-    not just the resource manifests.
-
-    Accepts either a `ProvisionedTarget` or a raw kubeconfig path string.
+    Adds an `_act_workload_logs` key: stable pod-name prefix -> stdout/stderr.
+    For FPGA/CXL boot-flow workloads where the deterministic value is the
+    simulator's output, not just the manifests. Accepts a `ProvisionedTarget`
+    or raw kubeconfig path.
     """
     kubeconfig = _kubeconfig_path(target)
     _wait_for_jobs(kubeconfig, namespace, timeout)
@@ -440,10 +410,17 @@ class RuntimeCheck:
     def __init__(
         self,
         substrates: list[Substrate],
-        probe_fn: Optional[callable] = None,  # type: ignore[valid-type]
+        probe_fn: Optional[Callable[..., dict]] = None,
+        namespace: str = "default",
+        probe_timeout: int = 60,
     ):
         self._substrates = substrates
-        self._probe_fn = probe_fn or probe_k8s
+        # Bind namespace/timeout onto the default probe (run_pulumi_against invokes the
+        # probe with only `target`). A caller-supplied probe_fn is passed through
+        # unchanged so a custom (target)-only probe keeps working.
+        self._probe_fn = (
+            functools.partial(probe_k8s, namespace=namespace, timeout=probe_timeout) if probe_fn is None else probe_fn
+        )
 
     def _pick_substrate(self, spec: TargetSpec) -> tuple[Optional[Substrate], Optional[RuntimeCheckFailure]]:
         unavailable: list[str] = []
@@ -525,10 +502,9 @@ class RuntimeCheck:
                             failures.append(outcome.failure)
                             break
 
-                        # probe_fn runs inside run_pulumi_against (between up and
-                        # destroy). If it raises, outcome.failure is set with
-                        # stage=probe_failed and we break above. So if we reach
-                        # here, outcome.probed is the captured dict.
+                        # probe_fn ran inside run_pulumi_against (between up and
+                        # destroy); if it raised we already broke above, so
+                        # outcome.probed is the captured dict here.
                         probed = outcome.probed or {}
                         normalised = normalise_output(probed)
                         last_normalised.append(normalised)
@@ -544,7 +520,7 @@ class RuntimeCheck:
                 except Exception as exc:
                     failures.append(RuntimeCheckFailure(stage="internal_error", detail=str(exc)))
             elif not failures:
-                # provision() returned None without raising — substrate contract
+                # provision() returned None without raising: substrate contract
                 # violation. Surface it so the run isn't silently empty.
                 failures.append(
                     RuntimeCheckFailure(

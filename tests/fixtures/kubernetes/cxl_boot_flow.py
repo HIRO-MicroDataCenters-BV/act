@@ -9,7 +9,7 @@ guest boots, loads the CXL kernel modules, prints the topology JSON
 via `cxl list -v`, halts. ACT captures the deterministic JSON via
 probe_k8s_with_workload_logs and includes it in the hashed state.
 
-Docker Desktop's k3s sandbox doesn't ship the host seccomp profile —
+Docker Desktop's k3s sandbox doesn't ship the host seccomp profile -
 the Pod sets `seccompProfile: Unconfined` to match the FPGA fixture.
 """
 

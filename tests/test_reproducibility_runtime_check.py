@@ -2,6 +2,8 @@ import json
 import os
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from act.reproducibility.runtime_check import (
     PulumiUpOutcome,
     RuntimeCheck,
@@ -22,86 +24,41 @@ def _mg_returning_types(types: dict[str, str]) -> MagicMock:
     return mg
 
 
-def test_spec_arch_from_k8s_node_selector():
-    plan = {
-        "nginx": {
-            "spec": {
-                "template": {
-                    "spec": {
-                        "nodeSelector": {"kubernetes.io/arch": "amd64"},
-                        "containers": [{"name": "nginx", "image": "nginx:1.25"}],
-                    }
-                }
-            }
-        }
-    }
+@pytest.mark.parametrize(
+    "node_selector, expected_arch",
+    [
+        ({"kubernetes.io/arch": "amd64"}, "x86_64-linux"),
+        ({"kubernetes.io/arch": "riscv64"}, "riscv64-linux"),
+        (None, "x86_64-linux"),  # no selector -> default
+    ],
+)
+def test_spec_arch_from_node_selector(node_selector, expected_arch):
+    pod_spec: dict = {"containers": [{"name": "nginx", "image": "nginx:1.25"}]}
+    if node_selector is not None:
+        pod_spec["nodeSelector"] = node_selector
+    plan = {"nginx": {"spec": {"template": {"spec": pod_spec}}}}
     mg = _mg_returning_types({"nginx": "kubernetes:apps/v1:Deployment"})
 
     spec = extract_target_spec(plan, mg)
 
-    assert spec.arch == "x86_64-linux"
+    assert spec.arch == expected_arch
     assert spec.orchestrator == "k8s"
 
 
-def test_spec_arch_riscv64_from_node_selector():
-    plan = {
-        "nginx": {
-            "spec": {
-                "template": {
-                    "spec": {
-                        "nodeSelector": {"kubernetes.io/arch": "riscv64"},
-                        "containers": [{"name": "nginx", "image": "nginx:1.25"}],
-                    }
-                }
-            }
-        }
-    }
-    mg = _mg_returning_types({"nginx": "kubernetes:apps/v1:Deployment"})
+@pytest.mark.parametrize(
+    "resource_type, expected_orchestrator",
+    [
+        ("kubernetes:core/v1:Pod", "k8s"),
+        ("cape:compute:Instance", None),
+    ],
+)
+def test_spec_orchestrator_from_resource_type(resource_type, expected_orchestrator):
+    plan: dict = {"res": {}}
+    mg = _mg_returning_types({"res": resource_type})
 
     spec = extract_target_spec(plan, mg)
 
-    assert spec.arch == "riscv64-linux"
-
-
-def test_spec_default_arch_when_no_node_selector():
-    plan = {"nginx": {"spec": {"template": {"spec": {"containers": [{"image": "nginx:1.25"}]}}}}}
-    mg = _mg_returning_types({"nginx": "kubernetes:apps/v1:Deployment"})
-
-    spec = extract_target_spec(plan, mg)
-
-    assert spec.arch == "x86_64-linux"
-
-
-def test_spec_orchestrator_k8s_when_k8s_token_present():
-    plan: dict = {"nginx": {}}
-    mg = _mg_returning_types({"nginx": "kubernetes:core/v1:Pod"})
-
-    spec = extract_target_spec(plan, mg)
-
-    assert spec.orchestrator == "k8s"
-
-
-def test_spec_orchestrator_none_for_cape_only_program():
-    plan: dict = {"my-instance": {}}
-    mg = _mg_returning_types({"my-instance": "cape:compute:Instance"})
-
-    spec = extract_target_spec(plan, mg)
-
-    assert spec.orchestrator is None
-
-
-def test_spec_features_include_cxl_when_program_mentions_it():
-    plan = {
-        "node": {
-            "metadata": {"labels": {"hardware.cape/cxl": "enabled"}},
-            "spec": {},
-        }
-    }
-    mg = _mg_returning_types({"node": "kubernetes:core/v1:Node"})
-
-    spec = extract_target_spec(plan, mg)
-
-    assert "cxl" in spec.features
+    assert spec.orchestrator == expected_orchestrator
 
 
 def test_runtime_check_result_default_fields():
@@ -265,61 +222,55 @@ def test_normalise_strips_ephemeral_port_in_url_context():
     assert "34567" not in cleaned["endpoint"]
 
 
-def test_spec_features_skip_cxl_when_cxl_appears_only_in_image_name():
-    """A resource whose only mention of 'cxl' is in an image tag is NOT a CXL spec."""
-    plan = {
-        "tool": {
-            "spec": {
-                "template": {
+@pytest.mark.parametrize(
+    "plan, types, expect_cxl",
+    [
+        # explicit hardware.cape/cxl label -> cxl
+        (
+            {"node": {"metadata": {"labels": {"hardware.cape/cxl": "enabled"}}, "spec": {}}},
+            {"node": "kubernetes:core/v1:Node"},
+            True,
+        ),
+        # 'cxl' only in an image tag -> NOT a cxl spec
+        (
+            {
+                "tool": {
+                    "spec": {"template": {"spec": {"containers": [{"name": "tool", "image": "myorg/cxl-helpers:v1"}]}}}
+                }
+            },
+            {"tool": "kubernetes:apps/v1:Deployment"},
+            False,
+        ),
+        # canonical cape.eu/cxl resource request -> cxl
+        (
+            {
+                "workload": {
                     "spec": {
-                        "containers": [{"name": "tool", "image": "myorg/cxl-helpers:v1"}],
+                        "template": {
+                            "spec": {"containers": [{"name": "x", "resources": {"requests": {"cape.eu/cxl": "1"}}}]}
+                        }
                     }
                 }
-            }
-        }
-    }
-    mg = _mg_returning_types({"tool": "kubernetes:apps/v1:Deployment"})
-
-    spec = extract_target_spec(plan, mg)
-
-    assert "cxl" not in spec.features
-
-
-def test_spec_features_include_cxl_when_extended_resource_request_present():
-    """The canonical cape.eu/cxl resource request flips the cxl feature on."""
-    plan = {
-        "workload": {
-            "spec": {
-                "template": {
-                    "spec": {
-                        "containers": [
-                            {
-                                "name": "x",
-                                "resources": {"requests": {"cape.eu/cxl": "1"}},
-                            }
-                        ]
-                    }
-                }
-            }
-        }
-    }
-    mg = _mg_returning_types({"workload": "kubernetes:apps/v1:Deployment"})
-
-    spec = extract_target_spec(plan, mg)
-
-    assert "cxl" in spec.features
+            },
+            {"workload": "kubernetes:apps/v1:Deployment"},
+            True,
+        ),
+    ],
+)
+def test_spec_features_cxl_detection(plan, types, expect_cxl):
+    spec = extract_target_spec(plan, _mg_returning_types(types))
+    assert ("cxl" in spec.features) is expect_cxl
 
 
-def test_hash_stable_for_normalised_output():
-    a = {"items": [{"name": "x"}]}
-    b = {"items": [{"name": "x"}]}
-    assert hash_output(a) == hash_output(b)
-
-
-def test_hash_changes_when_substantive_field_differs():
-    a = {"replicas": 2}
-    b = {"replicas": 3}
-    assert hash_output(a) != hash_output(b)
+@pytest.mark.parametrize(
+    "a, b, should_equal",
+    [
+        ({"items": [{"name": "x"}]}, {"items": [{"name": "x"}]}, True),  # stable for equal input
+        ({"replicas": 2}, {"replicas": 3}, False),  # changes on a substantive diff
+    ],
+)
+def test_hash_output(a, b, should_equal):
+    assert (hash_output(a) == hash_output(b)) is should_equal
 
 
 def test_run_pulumi_against_sets_kubeconfig_config(tmp_path):
@@ -374,7 +325,7 @@ def _patched_check_dependencies(probe_responses):
     """Patches MockGenerator and run_pulumi_against for orchestrator tests.
 
     The mocked `run_pulumi_against` returns a `PulumiUpOutcome` whose
-    `.probed` carries the next probe response — mirroring the real flow
+    `.probed` carries the next probe response - mirroring the real flow
     where the probe runs between `up` and `destroy` and is attached to
     the outcome.
     """
@@ -481,7 +432,7 @@ def test_runtime_check_teardown_runs_on_pulumi_failure(tmp_path):
 
 
 def test_runtime_check_uses_custom_probe_fn(tmp_path):
-    """RuntimeCheck honours an injected probe_fn — passed into run_pulumi_against."""
+    """A caller-supplied probe_fn is passed through unchanged (not wrapped)."""
     sub = _FakeSubstrate(matches_fn=lambda s: s.orchestrator == "k8s")
     custom_probe = MagicMock(return_value={"_act_workload_logs": {"iverilog": "DONE\n"}})
 
@@ -489,10 +440,8 @@ def test_runtime_check_uses_custom_probe_fn(tmp_path):
 
     def fake_run_pulumi_against(*args, **kwargs):
         captured_probe_fns.append(kwargs.get("probe_fn"))
-        # Mirror real behaviour: run the probe_fn ourselves so the test
-        # observes the same data flow as production.
-        target = kwargs["target"]
-        probed = kwargs["probe_fn"](target.endpoint) if kwargs.get("probe_fn") else None
+        # Mirror production: run_pulumi_against calls probe_fn(target) with the target.
+        probed = kwargs["probe_fn"](kwargs["target"])
         return PulumiUpOutcome(outputs={}, failure=None, probed=probed)
 
     with (
@@ -506,11 +455,42 @@ def test_runtime_check_uses_custom_probe_fn(tmp_path):
         check = RuntimeCheck(substrates=[sub], probe_fn=custom_probe)
         result = check.run("some.py", "schema.json", backend_dir=str(tmp_path))
 
-    # run_pulumi_against was called twice, each time with our custom probe_fn.
+    # A custom probe is passed through raw so a (target)-only probe keeps working.
     assert len(captured_probe_fns) == 2
     assert all(fn is custom_probe for fn in captured_probe_fns)
     assert result.passed is True
     assert result.hash_1 == result.hash_2
+
+
+def test_runtime_check_binds_namespace_and_timeout_on_default_probe(tmp_path):
+    """namespace/probe_timeout are bound onto the DEFAULT probe (probe_k8s) and it is
+    callable with a single (target) arg, matching run_pulumi_against's probe_fn(target)."""
+    sub = _FakeSubstrate(matches_fn=lambda s: s.orchestrator == "k8s")
+    fake_probe = MagicMock(return_value={})
+    captured_probe_fns = []
+
+    def fake_run_pulumi_against(*args, **kwargs):
+        captured_probe_fns.append(kwargs.get("probe_fn"))
+        kwargs["probe_fn"](kwargs["target"])  # invoke exactly as production does
+        return PulumiUpOutcome(outputs={}, failure=None, probed={})
+
+    with (
+        patch("act.reproducibility.runtime_check.probe_k8s", fake_probe),
+        patch("act.reproducibility.runtime_check.MockGenerator", autospec=True) as mg_cls,
+        patch("act.reproducibility.runtime_check.run_pulumi_against", side_effect=fake_run_pulumi_against),
+    ):
+        mg = mg_cls.return_value
+        mg.run_with_mocks.return_value = {"nginx": {}}
+        mg.get_resource_type.return_value = "kubernetes:apps/v1:Deployment"
+
+        check = RuntimeCheck(substrates=[sub], namespace="apps", probe_timeout=120)
+        check.run("some.py", "schema.json", backend_dir=str(tmp_path))
+
+    assert len(captured_probe_fns) == 2
+    # the bound partial invoked probe_k8s with the target plus the tunables
+    for call in fake_probe.call_args_list:
+        assert call.kwargs == {"namespace": "apps", "timeout": 120}
+        assert len(call.args) == 1  # the target, positionally
 
 
 def test_probe_k8s_with_workload_logs_waits_for_jobs_and_captures_logs():

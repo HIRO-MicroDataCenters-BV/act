@@ -37,7 +37,7 @@ uv run python -m act.run \
     --schema tests/fixtures/cape/schema.json
 
 # Expected:
-# PASS: 2 resources captured, 0 violations
+# PASS  tests/fixtures/cape/path_a_valid.py
 # (exit 0)
 ```
 
@@ -49,8 +49,9 @@ uv run python -m act.run \
     --schema tests/fixtures/cape/schema.json
 
 # Expected:
-# FAIL: 1 resource captured, 1 violation:
-#   my-instance (cape:compute:Instance): ssh_keys set without security_group_ref
+# FAIL  tests/fixtures/cape/path_a_invalid.py
+#   [HIGH] spec.securityGroupRef: Instance has no security group - network traffic is uncontrolled
+#   [HIGH] spec.sshKeys: SSH keys configured but no security group - SSH access is open
 # (exit 1)
 ```
 
@@ -60,12 +61,13 @@ That's the gate. Wire the same invocation into CI and bad commits stop at the ga
 
 ## What ACT does
 
-For every Pulumi program you run through it, ACT does up to four things:
+For every Pulumi program you run through it, ACT does up to five things:
 
 1. **Captures the plan without provisioning.** It hooks the Pulumi SDK and records what resources *would* be created and what inputs they carry. Never calls a real cloud API.
 2. **Checks structural rules.** Security and policy violations (missing security groups, exposed credentials, wrong arch labels, weak random passwords, etc.) surface as `Violation` objects with severity and a recommendation.
 3. **Fuzzes parameterised programs.** When the program takes inputs, ACT mutates them (atheris fuzz + hypothesis property tests) to find configurations that pass the type checker but break the policy.
 4. **Verifies reproducibility.** Optional: re-runs the program against an ephemeral cluster (k3s in Docker) twice and confirms the deployed state hashes identically. Covers amd64, arm64, riscv64, GPU, FPGA, and CXL targets.
+5. **Offers AI advice.** Optional: with the cognitive validator enabled, ACT sends the program to an LLM for extra security advice. The findings are advisory by default and don't change the pass/fail result unless you opt into `--acv-mode blocking`.
 
 ### Architecture and flow
 
@@ -139,10 +141,66 @@ The entry point is `python -m act.run`.
 | `--program PATH` | yes | none | Path to the Pulumi program file (or project directory) |
 | `--schema PATH [PATH ...]` | yes | none | One or more provider schema JSON files. Repeat for multi-provider programs |
 | `--output DIR` | no | none | Write a structured run artefact (JSON) to this directory |
-| `--log-level LEVEL` | no | `WARNING` | One of `DEBUG`, `INFO`, `WARNING`, `ERROR` |
+| `--log-level LEVEL` | no | `WARNING` | One of `DEBUG`, `INFO`, `WARNING`, `ERROR`. Env: `ACT_LOG_LEVEL` |
 | `--rules ENGINE [ENGINE ...]` | no | none | Load an additional rule engine. Currently: `checkov` (193+ Kubernetes checks) |
 | `--check-deployment-arch ARCH` | no | off | Smoke-boot every container image referenced by the program under `linux/<ARCH>` via QEMU. Example: `--check-deployment-arch riscv64` |
 | `--check-deployment-runtime` | no | off | Provision an ephemeral k3s cluster matching the program's target, run `pulumi up` twice, and verify the deployed state hashes identically. Requires `docker`, `kubectl`, and `pulumi` CLI |
+| `--acv-mode {advisory,blocking}` | no | `advisory` | Whether the cognitive validator's verdict gates the exit code. `advisory` (default) never blocks; `blocking` fails the gate on an ACV FAIL. Env: `ACT_ACV_MODE` |
+
+The optional cognitive validator has no flag of its own; it is enabled through environment variables:
+
+| Variable | Purpose |
+|----------|---------|
+| `ACT_ACV_MODEL` | Served model id for the optional cognitive validator |
+| `ACT_ACV_BASE_URL` | Base URL of an OpenAI-compatible endpoint (for example `http://localhost:8000/openai/v1`). Legacy alias: `CAPE_ACV_MODEL_URL` |
+| `ACT_ACV_API_KEY` | Optional bearer token for a hosted endpoint (omit for an unauthenticated local server) |
+| `ACT_ACV_TIMEOUT` | Optional per-request timeout in seconds (default 20; raise it for slower or reasoning models) |
+| `ACT_ACV_EXTRA_BODY` | Optional JSON object merged into every chat-completions request body, for endpoint-specific fields. Example: `{"chat_template_kwargs":{"enable_thinking":false}}` to turn off Qwen3 thinking. Invalid JSON is ignored with a warning |
+
+Both must be set, and the `acv` extra installed (`uv sync --extra acv`), for the validator to run; otherwise it is skipped. Its findings are advisory by default and only affect the exit code when you pass `--acv-mode blocking`.
+
+Other environment variables (all read in one place, `act/config.py`). A missing,
+blank, or out-of-range value falls back to the listed default and logs a warning
+rather than breaking the run.
+
+Logging and analysis depth:
+
+| Variable | Purpose | Default |
+|----------|---------|---------|
+| `ACT_LOG_LEVEL` | Default log verbosity when `--log-level` is not passed | `WARNING` |
+| `ACT_ACV_MAX_ITERATIONS` | Cognitive validator planner/tool loop iterations | `3` |
+| `ACT_ACV_MIN_REQUEST_INTERVAL_S` | Minimum seconds between ACV LLM calls; pace to a free-tier RPM limit | `0` (no pacing) |
+| `ACT_ACV_MAX_RETRIES` | Retries on rate-limit/overload (429/5xx) responses from the LLM | `3` |
+| `ACT_FUZZ_ITERATIONS` | Fuzz mutations per resource on Path B (parameterized programs) | `100` |
+| `ACT_PROPERTY_MAX_EXAMPLES` | Hypothesis examples per resource on Path B | `50` |
+
+Reproducibility substrate images:
+
+| Variable | Purpose | Default |
+|----------|---------|---------|
+| `ACT_K3S_IMAGE` | k3s image for the amd64, arm64, GPU, FPGA, and CXL runtime substrates | `rancher/k3s:v1.32.1-k3s1` |
+| `ACT_K3S_RISCV64_IMAGE` | k3s image for the riscv64 runtime substrate | `ghcr.io/carv-ics-forth/k3s:v1.32.1-k3s1-riscv64` |
+
+Reproducibility target and timeouts (used by `--check-deployment-runtime` / `--check-deployment-arch`):
+
+| Variable | Purpose | Default |
+|----------|---------|---------|
+| `ACT_K8S_NAMESPACE` | Namespace the runtime probe reads the deployed workload from | `default` |
+| `ACT_RUNTIME_ARCHS` | Comma-separated subset of `amd64,arm64,riscv64` to include in the substrate registry | all three |
+| `ACT_K3S_API_HOST_PORT` | Host port mapped to the k3s API server | `6443` |
+| `ACT_K3S_STARTUP_TIMEOUT_S` | Seconds to wait for k3s to come up (raise for QEMU/slow CI) | `180` |
+| `ACT_IMAGE_BOOT_TIMEOUT_S` | Seconds to wait for each image to smoke-boot under QEMU | `60` |
+| `ACT_K8S_API_READY_TIMEOUT_S` | Seconds to wait for node registration before patching Extended Resources | `60` |
+| `ACT_K8S_PROBE_TIMEOUT_S` | Timeout for the kubectl probe of deployed state | `60` |
+
+Accelerator Extended Resources:
+
+| Variable | Purpose | Default |
+|----------|---------|---------|
+| `ACT_K8S_GPU_RESOURCE_NAME` | Extended Resource declared by the GPU substrate | `nvidia.com/gpu` |
+| `ACT_K8S_FPGA_RESOURCE_NAME` | Extended Resource declared by the FPGA substrate | `cape.eu/fpga` |
+| `ACT_K8S_CXL_RESOURCE_NAME` | Extended Resource declared by the CXL substrate | `cape.eu/cxl` |
+| `ACT_ACCELERATOR_COUNT` | Quantity of the Extended Resource advertised on the node | `1` |
 
 Show the help text:
 
@@ -186,6 +244,19 @@ uv run python -m act.run \
     --schema examples/kubernetes/schema.json \
     --rules checkov
 ```
+
+### Validate with the cognitive validator (optional AI advice)
+
+```bash
+uv sync --extra acv
+export ACT_ACV_MODEL=<served-model-id>
+export ACT_ACV_BASE_URL=http://localhost:8000/openai/v1
+uv run python -m act.run \
+    --program tests/fixtures/cape/path_a_invalid.py \
+    --schema tests/fixtures/cape/schema.json
+```
+
+The report gains an `ACV (advisory)` block with the model's suggestions. By default pass/fail is unchanged; the validator only affects the exit code when you run it with `--acv-mode blocking`.
 
 ### Check that every image in the program can boot under riscv64
 
@@ -311,10 +382,11 @@ A Helm chart ships in `charts/act/`. It runs ACT as a one-shot `Job`:
 
 ```bash
 helm install act ./charts/act \
-  --set program=/work/main.py \
-  --set schema[0]=/work/schemas/cape.json \
-  --set-file files.program=./infra/main.py
+  --set program=/workspace/program.py \
+  --set schema=/workspace/schema.json
 ```
+
+`program` and `schema` are the in-container paths ACT reads. Mount the actual files at those paths via the chart's `volumes` / `volumeMounts` values (or a configMap / init container), as noted in `charts/act/values.yaml`.
 
 The in-cluster Job runs the plan-time checks only: mock generation, the correctness oracle, and (when reachable) the cognitive validator. The reproducibility flags (`--check-deployment-arch`, `--check-deployment-runtime`) are intentionally not exposed by the chart. They shell out to `docker`, `kubectl`, and the `pulumi` CLI on the host, and the runtime check provisions an ephemeral k3s container next to ACT, which requires a docker socket and privileged access. That trust profile is appropriate for a developer workstation or a dedicated CI runner, not for a pod scheduled inside the cluster being validated. Run these checks from CI (see the GitHub Actions, GitLab CI, and Jenkins snippets above) or locally with `uv run python -m act.run`.
 
@@ -391,13 +463,15 @@ To add rules to the built-in oracle without replacing it, drop a file in `act/ru
 
 ```python
 # act/rules/myprovider.py
-def rule_no_public_endpoint(resource_type, inputs):
-    if resource_type == "myprovider:net/v1:Service" and inputs.get("public"):
+from act.core.violations import Violation
+
+def rule_no_public_endpoint(inputs):
+    if inputs.get("public"):
         return [Violation(field="public", message="Public endpoints are forbidden", severity="HIGH")]
     return []
 
 def register(oracle):
-    oracle.add_rule(rule_no_public_endpoint, scope="myprovider:net/v1:Service")
+    oracle.add_rule(rule_no_public_endpoint, resource_type="myprovider:net/v1:Service")
 ```
 
 Rules auto-load by file name on startup.
@@ -464,7 +538,7 @@ Design decisions worth knowing:
 
 - **Provider-agnostic by construction.** No provider is hardcoded; the mock generator reads any Pulumi schema and works.
 - **Oracle is structural.** Missing fields, wrong types, policy violations. Content analysis (shell-command-in-`user_data`, embedded secrets) is the cognitive validator's job.
-- **The cognitive validator is additive.** If the LLM endpoint is unreachable, ACT still passes/fails on the deterministic oracle. It never blocks on AI unavailability.
+- **The cognitive validator is optional.** For AI-assisted advice on top of the deterministic checks, install the `acv` extra (`uv sync --extra acv`) and set `ACT_ACV_MODEL` and `ACT_ACV_BASE_URL` to an OpenAI-compatible LLM endpoint (for example a vLLM server). Its findings are advisory by default and only affect the exit code when run with `--acv-mode blocking`.
 - **Logging is two-stream.** Structured JSON on stderr (for log aggregators); human report on stdout (for terminals and CI logs). The two streams are independent; redirect them separately.
 - **Plugins are stable.** `OraclePlugin` and `TestGeneratorPlugin` are the two extension points; everything else is internal.
 
@@ -548,4 +622,4 @@ uv run python -m act.run ... --log-level INFO 2> >(jq .) > report.txt
 
 ## License
 
-Released under an open-source license.
+ACT is released under the Apache License 2.0. See [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE) for the full terms.

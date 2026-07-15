@@ -1,4 +1,4 @@
-# Parameterized CAPE program — Path B (developer-written)
+# Parameterized CAPE program - Path B (developer-written)
 # Reads CAPE_ZONE, CAPE_SSH_KEYS, CAPE_SECURITY_GROUP_REF from os.environ.
 # Used as a Path B fixture for fuzz and property runners.
 import os

@@ -1,8 +1,7 @@
-"""Writes one JSON file per ACT invocation under a configurable output directory.
+"""Write one JSON file per ACT invocation under a configurable output directory.
 
-Each file records the program path, schemas, plan check result, optional
-deployment arch result, ACT/Pulumi/provider package versions, and an ISO
-timestamp.
+Records program path, schemas, plan/arch/runtime results, package versions,
+and an ISO timestamp.
 """
 
 from __future__ import annotations
