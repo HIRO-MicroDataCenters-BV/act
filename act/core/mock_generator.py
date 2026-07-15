@@ -2,7 +2,9 @@ from typing import Any
 
 import ast
 import asyncio
+import contextlib
 import importlib.util
+import io
 import json
 import logging
 import sys
@@ -159,7 +161,10 @@ class MockGenerator:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
-            loop.run_until_complete(_execute())
+            # Divert the program's own stdout so its prints don't pollute ACT's report
+            # or corrupt the canonical JSON the plan-determinism subprocess emits.
+            with contextlib.redirect_stdout(io.StringIO()):
+                loop.run_until_complete(_execute())
         finally:
             asyncio.set_event_loop(None)
             loop.close()

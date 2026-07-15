@@ -91,3 +91,13 @@ def test_zero_resources_warns_but_passes(capsys):
     assert code == 0
     assert "PASS" in out
     assert "WARN  no resources captured" in out
+
+
+def test_program_stdout_does_not_leak(capsys):
+    # The program prints a marker; it must not pollute ACT's report, and the run
+    # (including the plan-determinism subprocess) must still pass.
+    code = main(["check", "--program", "tests/fixtures/prints_to_stdout.py", "--schema", CAPE_SCHEMA])
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "LEAK_MARKER_SHOULD_NOT_APPEAR" not in out
+    assert "PASS" in out
