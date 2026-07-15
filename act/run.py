@@ -13,11 +13,15 @@ Exit codes:
 """
 
 import argparse
+import importlib.metadata
 import json
 import logging
+import pkgutil
 import sys
 import traceback
+from pathlib import Path
 
+from act import rules as _rules_pkg
 from act.acv.agent import ACTCognitiveValidator
 from act.config import ACV_MODES, LOG_LEVELS, ActConfig
 from act.core.fuzz_runner import FuzzRunner
@@ -119,15 +123,14 @@ def _load_extra_rules(oracle, mg, engines: list) -> None:
             )
 
 
-def build_arg_parser(cfg: ActConfig) -> argparse.ArgumentParser:
+def _build_check_parser(cfg: ActConfig) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="act",
+        prog="act check",
         description="Validate a Pulumi program against security rules without provisioning real infrastructure.",
     )
-    parser.add_argument("--program", required=True, help="Path to Pulumi program file or project directory")
+    parser.add_argument("--program", help="Path to Pulumi program file or project directory")
     parser.add_argument(
         "--schema",
-        required=True,
         nargs="+",
         metavar="SCHEMA",
         help="Path(s) to provider schema JSON. Repeat for multi-provider programs.",
@@ -341,10 +344,14 @@ def _run_deployment_arch_check(
     return result
 
 
-def main(argv=None) -> int:
+def _cmd_check(argv=None) -> int:
     cfg = ActConfig.from_env()
-    parser = build_arg_parser(cfg)
+    parser = _build_check_parser(cfg)
     args = parser.parse_args(argv)
+
+    missing = [name for name, val in (("--program", args.program), ("--schema", args.schema)) if not val]
+    if missing:
+        parser.error("the following arguments are required: " + ", ".join(missing))
 
     _configure_logging(args.log_level)
     log = logging.getLogger("act")
@@ -410,6 +417,83 @@ def main(argv=None) -> int:
         print(f"[ERROR] Pipeline failed: {e}", file=sys.stderr)
         traceback.print_exc(file=sys.stderr)
         return 2
+
+
+def _version_string() -> str:
+    """ACT version from the VERSION file, falling back to installed package metadata."""
+    version_file = Path(__file__).resolve().parent.parent / "VERSION"
+    try:
+        text = version_file.read_text().strip()
+        if text:
+            return text
+    except OSError:
+        pass
+    try:
+        return importlib.metadata.version("act")
+    except importlib.metadata.PackageNotFoundError:
+        return "unknown"
+
+
+def _print_top_level_help() -> None:
+    print(
+        "usage: act <command> [options]\n"
+        "\n"
+        "Validate Pulumi programs against security rules without provisioning real infrastructure.\n"
+        "\n"
+        "commands:\n"
+        "  check            Validate a program (default when no command is given)\n"
+        "  list-rules       List the security rules ACT will apply\n"
+        "  list-providers   List providers ACT has built-in rules for\n"
+        "  version          Print the ACT version\n"
+        "\n"
+        "Run 'act check --help' for the full list of check options.\n"
+        "Bare 'act --program <p> --schema <s>' runs 'check' directly."
+    )
+
+
+def _cmd_list_rules(argv=None) -> int:
+    # Empty schema list constructs the oracle without file I/O; rules need no schema.
+    oracle = CorrectnessOracle([])
+    auto_load(oracle)
+    rules = oracle.registered_rules()
+    if not rules:
+        print("No built-in rules registered.")
+        return 0
+    print("Security rules ACT applies to every program:")
+    for scoped_type, fn in rules:
+        scope = scoped_type or "any resource type"
+        summary = (fn.__doc__ or "").strip().splitlines()[0] if fn.__doc__ else ""
+        print(f"  {fn.__name__}  [{scope}]" + (f"  {summary}" if summary else ""))
+    print("\nAdd provider-level checks with: act check --rules checkov")
+    return 0
+
+
+def _cmd_list_providers(argv=None) -> int:
+    providers = sorted(m.name for m in pkgutil.iter_modules(_rules_pkg.__path__))
+    print("Providers with built-in ACT rules:")
+    for name in providers or ["(none)"]:
+        print(f"  {name}")
+    print("\nThe checkov engine (act check --rules checkov) adds coverage for many more providers.")
+    return 0
+
+
+def main(argv=None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    # Bare `act` or a top-level help flag prints the command overview.
+    if not argv or argv[0] in ("-h", "--help"):
+        _print_top_level_help()
+        return 0
+    if argv[0] in ("version", "--version", "-V"):
+        print(_version_string())
+        return 0
+    if argv[0] == "list-rules":
+        return _cmd_list_rules(argv[1:])
+    if argv[0] == "list-providers":
+        return _cmd_list_providers(argv[1:])
+    if argv[0] == "check":
+        return _cmd_check(argv[1:])
+    # No recognised command: default to `check` so `act --program … --schema …` still works.
+    return _cmd_check(argv)
 
 
 if __name__ == "__main__":

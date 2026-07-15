@@ -36,6 +36,10 @@ class CorrectnessOracle(OraclePlugin):
         """
         self._rules.append((resource_type, rule_fn))
 
+    def registered_rules(self) -> List[Tuple[Optional[str], Callable[[dict], List[Violation]]]]:
+        """Return the (resource_type, rule_fn) pairs registered via add_rule()."""
+        return list(self._rules)
+
     def check(self, resource_type: str, inputs: dict) -> List[Violation]:
         """Return all violations for a single resource.
 
