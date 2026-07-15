@@ -1,3 +1,7 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
 [project]
 name = "act"
 version = "0.0.0"
@@ -13,6 +17,9 @@ dependencies = [
     "pulumi>=3.230.0",
     "pulumi-policy>=1.20.0",
 ]
+
+[project.scripts]
+act = "act.run:main"
 
 [project.optional-dependencies]
 fuzzing = ["atheris>=3.0.0"]
@@ -39,6 +46,9 @@ dev = [
 
 [tool.uv.sources]
 pulumi-cape = { path = "cape-sdks/python", editable = true }
+
+[tool.hatch.build.targets.wheel]
+packages = ["act"]
 
 [tool.black]
 line-length = 120

@@ -11,7 +11,7 @@ resolution-markers = [
 [[package]]
 name = "act"
 version = "0.0.0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "checkov" },
     { name = "hypothesis" },

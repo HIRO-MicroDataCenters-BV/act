@@ -3,8 +3,8 @@
 ACT - Automated Configuration Testing
 
 Usage:
-  python act/run.py --program <path> --schema <path> [<path> ...] [--output <dir>] [--rules checkov]
-                    [--check-deployment-arch <arch>]
+  uv run act --program <path> --schema <path> [<path> ...] [--output <dir>] [--rules checkov]
+             [--check-deployment-arch <arch>]
 
 Exit codes:
   0  all checks passed
