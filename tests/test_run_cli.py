@@ -67,3 +67,19 @@ def test_check_missing_schema_exits_2(capsys):
         main(["check", "--program", CAPE_PROGRAM])
     assert exc.value.code == 2
     assert "required" in capsys.readouterr().err
+
+
+def test_check_nonexistent_program_is_clean(capsys):
+    code = main(["check", "--program", "does_not_exist.py", "--schema", CAPE_SCHEMA])
+    err = capsys.readouterr().err
+    assert code == 2
+    assert err.strip() == "[ERROR] program not found: does_not_exist.py"
+    assert "Traceback" not in err
+
+
+def test_check_nonexistent_schema_is_clean(capsys):
+    code = main(["check", "--program", CAPE_PROGRAM, "--schema", "nope.json"])
+    err = capsys.readouterr().err
+    assert code == 2
+    assert err.strip() == "[ERROR] schema not found: nope.json"
+    assert "Traceback" not in err

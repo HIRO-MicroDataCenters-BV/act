@@ -344,6 +344,16 @@ def _run_deployment_arch_check(
     return result
 
 
+def _validate_inputs(program: str, schemas: list) -> str | None:
+    """Return a one-line error if the program or any schema path is missing, else None."""
+    if not Path(MockGenerator._entry_point(program)).is_file():
+        return f"program not found: {program}"
+    for schema in schemas:
+        if not Path(schema).is_file():
+            return f"schema not found: {schema}"
+    return None
+
+
 def _cmd_check(argv=None) -> int:
     cfg = ActConfig.from_env()
     parser = _build_check_parser(cfg)
@@ -355,6 +365,11 @@ def _cmd_check(argv=None) -> int:
 
     _configure_logging(args.log_level)
     log = logging.getLogger("act")
+
+    error = _validate_inputs(args.program, args.schema)
+    if error:
+        print(f"[ERROR] {error}", file=sys.stderr)
+        return 2
 
     try:
         mg = MockGenerator(args.schema)
@@ -379,6 +394,10 @@ def _cmd_check(argv=None) -> int:
         )
         gate = CIGate(pipeline)
         exit_code = gate.evaluate(args.program)
+        # A pipeline error (exit 2) means the plan-capture subprocess would fail too;
+        # stop here instead of surfacing a second traceback from the reproducibility checks.
+        if exit_code == 2:
+            return exit_code
 
         plan_result = _run_plan_check(args.program, args.schema, log)
         if not plan_result.deterministic:
