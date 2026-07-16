@@ -75,6 +75,15 @@ def test_check_auto_resolves_cape_schema(capsys):
     assert "PASS" in capsys.readouterr().out
 
 
+def test_check_auto_resolves_multiple_providers(capsys):
+    # A two-provider program (CAPE + random) auto-resolves both local schemas and
+    # captures resources from each; identical to passing both via --schema.
+    code = main(["check", "--program", "tests/fixtures/multi_provider/program.py"])
+    out = capsys.readouterr().out
+    assert code != 2  # ran to completion, not a pipeline error
+    assert "2 resources" in out  # one from each provider
+
+
 def test_check_nonexistent_program_is_clean(capsys):
     code = main(["check", "--program", "does_not_exist.py", "--schema", CAPE_SCHEMA])
     err = capsys.readouterr().err

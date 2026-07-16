@@ -69,6 +69,35 @@ def test_schema_dir_override(tmp_path):
     assert len(out) == 1 and Path(out[0]).resolve() == (custom / "acme.json").resolve()
 
 
+def test_multi_provider_resolves_each_independently(tmp_path):
+    # A program importing two providers (e.g. aws + kubernetes) resolves one schema each.
+    (tmp_path / "aws.json").write_text('{"name":"aws","resources":{}}')
+    (tmp_path / "kubernetes.json").write_text('{"name":"kubernetes","resources":{}}')
+    prog = _prog(tmp_path, "import pulumi_aws\nfrom pulumi_kubernetes.apps.v1 import Deployment\n")
+    out = schema_resolver.resolve_schemas(prog, None)
+    assert sorted(Path(p).name for p in out) == ["aws.json", "kubernetes.json"]
+
+
+def test_multi_provider_mixes_local_and_fetched(tmp_path, monkeypatch):
+    # One provider resolves from a local file, the other is fetched and cached.
+    monkeypatch.setattr(schema_resolver, "_CACHE_DIR", tmp_path / "cache")
+    monkeypatch.setattr(schema_resolver.shutil, "which", lambda name: "/usr/bin/pulumi")
+    monkeypatch.setattr(
+        schema_resolver.subprocess,
+        "run",
+        lambda cmd, **kw: SimpleNamespace(
+            returncode=0, stdout='{"name":"aws","version":"6.0.0","resources":{}}', stderr=""
+        ),
+    )
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "kubernetes.json").write_text('{"name":"kubernetes","resources":{}}')
+    prog = _prog(tmp_path, "import pulumi_aws\nimport pulumi_kubernetes\n")
+    out = schema_resolver.resolve_schemas(prog, None)
+    assert len(out) == 2
+    assert any(p.endswith("kubernetes.json") for p in out)  # local
+    assert any(p.endswith("aws-6.0.0.json") for p in out)  # fetched + cached
+
+
 def test_cape_fixture_resolves_locally():
     # The CAPE fixture ships a cape.json beside it; no special-casing in the resolver.
     out = schema_resolver.resolve_schemas(CAPE_PROGRAM, None)
