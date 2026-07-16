@@ -101,3 +101,23 @@ def test_program_stdout_does_not_leak(capsys):
     assert code == 0
     assert "LEAK_MARKER_SHOULD_NOT_APPEAR" not in out
     assert "PASS" in out
+
+
+def test_check_accepts_config_flag(tmp_path, capsys):
+    cfg = tmp_path / "act.toml"
+    cfg.write_text('log_level = "ERROR"\n')
+    code = main(["check", "--program", CAPE_PROGRAM, "--schema", CAPE_SCHEMA, "--config", str(cfg)])
+    assert code == 0
+    assert "PASS" in capsys.readouterr().out
+
+
+def test_resolve_config_path(tmp_path, monkeypatch):
+    from act.run import _resolve_config_path
+
+    # An explicit --config wins (other args are ignored by the pre-parser).
+    assert _resolve_config_path(["--config", "/x/act.toml", "--program", "p"]) == "/x/act.toml"
+    # ./act.toml is auto-discovered only when present.
+    monkeypatch.chdir(tmp_path)
+    assert _resolve_config_path(["--program", "p"]) is None
+    (tmp_path / "act.toml").write_text("")
+    assert _resolve_config_path(["--program", "p"]) == "act.toml"

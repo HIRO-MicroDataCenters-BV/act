@@ -75,3 +75,60 @@ def test_env_override(env, field, expected):
 def test_from_env_reads_os_environ(monkeypatch):
     monkeypatch.setenv("ACT_ACV_MODE", "blocking")
     assert ActConfig.from_env().acv_mode == "blocking"
+
+
+def _write(tmp_path, body):
+    path = tmp_path / "act.toml"
+    path.write_text(body)
+    return str(path)
+
+
+def test_load_no_file_is_from_env():
+    assert ActConfig.load(env={}, config_path=None).log_level == DEFAULT_LOG_LEVEL
+
+
+def test_load_file_value_applies(tmp_path):
+    cfg = ActConfig.load(env={}, config_path=_write(tmp_path, 'log_level = "INFO"\nfuzz_iterations = 200\n'))
+    assert (cfg.log_level, cfg.fuzz_iterations) == ("INFO", 200)
+
+
+def test_load_env_overrides_file(tmp_path):
+    cfg = ActConfig.load(env={"ACT_LOG_LEVEL": "DEBUG"}, config_path=_write(tmp_path, 'log_level = "INFO"\n'))
+    assert cfg.log_level == "DEBUG"
+
+
+def test_load_cli_precedence_left_to_caller(tmp_path):
+    # The file sets INFO; a caller-supplied CLI value would override the loaded cfg upstream.
+    cfg = ActConfig.load(env={}, config_path=_write(tmp_path, 'log_level = "INFO"\n'))
+    assert cfg.log_level == "INFO"
+
+
+def test_load_toml_list_and_dict(tmp_path):
+    body = 'runtime_archs = ["riscv64", "amd64"]\nacv_extra_body = {chat_template_kwargs = {enable_thinking = false}}\n'
+    cfg = ActConfig.load(env={}, config_path=_write(tmp_path, body))
+    assert cfg.runtime_archs == ("riscv64", "amd64")
+    assert cfg.acv_extra_body == {"chat_template_kwargs": {"enable_thinking": False}}
+
+
+def test_load_acv_base_url_layers_under_both(tmp_path):
+    body = 'acv_base_url = "http://file"\n'
+    # CAPE env alias set, ACT var unset -> env alias wins over the file value.
+    cfg = ActConfig.load(env={"CAPE_ACV_MODEL_URL": "http://env"}, config_path=_write(tmp_path, body))
+    assert cfg.acv_base_url == "http://env"
+    # Neither env var set -> file value applies.
+    assert ActConfig.load(env={}, config_path=_write(tmp_path, body)).acv_base_url == "http://file"
+
+
+def test_load_missing_file_falls_back(tmp_path):
+    cfg = ActConfig.load(env={"ACT_LOG_LEVEL": "ERROR"}, config_path=str(tmp_path / "nope.toml"))
+    assert cfg.log_level == "ERROR"
+
+
+def test_load_malformed_toml_falls_back(tmp_path):
+    cfg = ActConfig.load(env={}, config_path=_write(tmp_path, "this is = = not toml"))
+    assert cfg.log_level == DEFAULT_LOG_LEVEL
+
+
+def test_load_tool_act_table(tmp_path):
+    cfg = ActConfig.load(env={}, config_path=_write(tmp_path, '[tool.act]\nlog_level = "INFO"\n'))
+    assert cfg.log_level == "INFO"

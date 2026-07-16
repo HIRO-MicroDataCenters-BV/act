@@ -137,6 +137,13 @@ def _build_check_parser(cfg: ActConfig) -> argparse.ArgumentParser:
     )
     parser.add_argument("--output", default=None, help="Directory to write run artefacts (optional)")
     parser.add_argument(
+        "--config",
+        default=None,
+        metavar="PATH",
+        help="Path to an act.toml config file (default: ./act.toml if present). "
+        "Precedence: CLI flags > env > file > default.",
+    )
+    parser.add_argument(
         "--log-level",
         default=cfg.log_level,
         choices=list(LOG_LEVELS),
@@ -354,8 +361,18 @@ def _validate_inputs(program: str, schemas: list) -> str | None:
     return None
 
 
+def _resolve_config_path(argv) -> str | None:
+    """Pre-parse --config so cfg (hence the parser defaults) reflects the file."""
+    pre = argparse.ArgumentParser(add_help=False)
+    pre.add_argument("--config", default=None)
+    known, _ = pre.parse_known_args(argv)
+    if known.config:
+        return known.config
+    return "act.toml" if Path("act.toml").is_file() else None
+
+
 def _cmd_check(argv=None) -> int:
-    cfg = ActConfig.from_env()
+    cfg = ActConfig.load(config_path=_resolve_config_path(argv))
     parser = _build_check_parser(cfg)
     args = parser.parse_args(argv)
 

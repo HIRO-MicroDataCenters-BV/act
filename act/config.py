@@ -7,6 +7,7 @@ from typing import Mapping, Optional, TypeVar
 import json
 import logging
 import os
+import tomllib
 from dataclasses import dataclass, field
 
 _T = TypeVar("_T")
@@ -162,6 +163,34 @@ class ActConfig:
             ),
         )
 
+    @classmethod
+    def load(
+        cls,
+        env: Optional[Mapping[str, str]] = None,
+        config_path: Optional[str] = None,
+    ) -> "ActConfig":
+        """Compose configuration from the environment and an optional TOML file.
+
+        Precedence is env > file > default, per field. CLI flags override the
+        result upstream (the caller applies them). ``from_env`` is reused as-is:
+        the file layer is injected as stringified env entries only where the
+        matching variable is unset, so every value flows through the same
+        validation and an unreadable or missing file falls back cleanly.
+        """
+        env = os.environ if env is None else env
+        toml = _read_toml(config_path)
+        if not toml:
+            return cls.from_env(env)
+        merged = dict(env)
+        for key, env_name in _FILE_TO_ENV.items():
+            if key in toml and env_name not in merged:
+                merged[env_name] = _toml_to_env_str(toml[key])
+        # acv_base_url is an OR-chain (ACT_ACV_BASE_URL then CAPE_ACV_MODEL_URL);
+        # layer the file value under both, never over a set one.
+        if "acv_base_url" in toml and "ACT_ACV_BASE_URL" not in merged and "CAPE_ACV_MODEL_URL" not in merged:
+            merged["ACT_ACV_BASE_URL"] = _toml_to_env_str(toml["acv_base_url"])
+        return cls.from_env(merged)
+
 
 def _warn_invalid(name: Optional[str], raw: object, default: object) -> None:
     if name:
@@ -237,3 +266,65 @@ def _read_json_obj(raw: Optional[str], *, name: Optional[str] = None) -> dict:
         _warn_invalid(name, raw, {})
         return {}
     return val
+
+
+# TOML key -> the env var it feeds when that var is unset. acv_base_url is handled
+# separately (OR-chain) in ActConfig.load.
+_FILE_TO_ENV: dict[str, str] = {
+    "log_level": "ACT_LOG_LEVEL",
+    "acv_model": "ACT_ACV_MODEL",
+    "acv_api_key": "ACT_ACV_API_KEY",
+    "acv_timeout": "ACT_ACV_TIMEOUT",
+    "acv_mode": "ACT_ACV_MODE",
+    "acv_max_iterations": "ACT_ACV_MAX_ITERATIONS",
+    "acv_min_request_interval_s": "ACT_ACV_MIN_REQUEST_INTERVAL_S",
+    "acv_max_retries": "ACT_ACV_MAX_RETRIES",
+    "acv_extra_body": "ACT_ACV_EXTRA_BODY",
+    "fuzz_iterations": "ACT_FUZZ_ITERATIONS",
+    "property_max_examples": "ACT_PROPERTY_MAX_EXAMPLES",
+    "k3s_image": "ACT_K3S_IMAGE",
+    "k3s_riscv64_image": "ACT_K3S_RISCV64_IMAGE",
+    "k8s_namespace": "ACT_K8S_NAMESPACE",
+    "k3s_api_host_port": "ACT_K3S_API_HOST_PORT",
+    "runtime_archs": "ACT_RUNTIME_ARCHS",
+    "k3s_startup_timeout_s": "ACT_K3S_STARTUP_TIMEOUT_S",
+    "image_boot_timeout_s": "ACT_IMAGE_BOOT_TIMEOUT_S",
+    "k8s_api_ready_timeout_s": "ACT_K8S_API_READY_TIMEOUT_S",
+    "k8s_probe_timeout_s": "ACT_K8S_PROBE_TIMEOUT_S",
+    "gpu_resource_name": "ACT_K8S_GPU_RESOURCE_NAME",
+    "fpga_resource_name": "ACT_K8S_FPGA_RESOURCE_NAME",
+    "cxl_resource_name": "ACT_K8S_CXL_RESOURCE_NAME",
+    "accelerator_count": "ACT_ACCELERATOR_COUNT",
+}
+
+
+def _read_toml(config_path: Optional[str]) -> Mapping[str, object]:
+    """Load a TOML config file, tolerating absence or malformed content.
+
+    Accepts top-level keys, an ``[act]`` table, or a ``[tool.act]`` table.
+    """
+    if not config_path:
+        return {}
+    try:
+        with open(config_path, "rb") as fh:
+            data = tomllib.load(fh)
+    except (OSError, tomllib.TOMLDecodeError) as exc:
+        log.warning("config.toml_unreadable path=%s error=%s", config_path, exc)
+        return {}
+    tool = data.get("tool")
+    if isinstance(tool, dict) and isinstance(tool.get("act"), dict):
+        return tool["act"]
+    if isinstance(data.get("act"), dict):
+        return data["act"]
+    return data
+
+
+def _toml_to_env_str(value: object) -> str:
+    """Render a TOML-typed value into the string form ``from_env`` expects."""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (list, tuple)):
+        return ",".join(str(v) for v in value)
+    if isinstance(value, dict):
+        return json.dumps(value)
+    return str(value)
