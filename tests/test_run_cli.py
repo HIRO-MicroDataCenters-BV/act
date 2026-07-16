@@ -62,11 +62,17 @@ def test_default_command_backward_compat(capsys):
     assert "FAIL" in out
 
 
-def test_check_missing_schema_exits_2(capsys):
+def test_check_missing_program_exits_2(capsys):
     with pytest.raises(SystemExit) as exc:
-        main(["check", "--program", CAPE_PROGRAM])
+        main(["check", "--schema", CAPE_SCHEMA])
     assert exc.value.code == 2
     assert "required" in capsys.readouterr().err
+
+
+def test_check_auto_resolves_cape_schema(capsys):
+    # No --schema: CAPE resolves from the bundled schema and the check still runs.
+    assert main(["check", "--program", CAPE_PROGRAM]) == 0
+    assert "PASS" in capsys.readouterr().out
 
 
 def test_check_nonexistent_program_is_clean(capsys):

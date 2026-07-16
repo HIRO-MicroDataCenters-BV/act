@@ -46,6 +46,7 @@ from act.reproducibility import (
     write_artefact,
 )
 from act.rules import auto_load
+from act.schema_resolver import SchemaResolveError, resolve_schemas
 
 
 class _JsonFormatter(logging.Formatter):
@@ -397,21 +398,33 @@ def _cmd_check(argv=None) -> int:
     parser = _build_check_parser(cfg)
     args = parser.parse_args(argv)
 
-    missing = [name for name, val in (("--program", args.program), ("--schema", args.schema)) if not val]
-    if missing:
-        parser.error("the following arguments are required: " + ", ".join(missing))
+    if not args.program:
+        parser.error("the following arguments are required: --program")
 
     _configure_logging(args.log_level)
     log = logging.getLogger("act")
 
-    error = _validate_inputs(args.program, args.schema)
+    # The program must exist before we can scan it for providers.
+    error = _validate_inputs(args.program, [])
+    if error:
+        print(f"[ERROR] {error}", file=sys.stderr)
+        return 2
+
+    # --schema is a full override; otherwise resolve schemas from the program's imports.
+    try:
+        schemas = resolve_schemas(args.program, args.schema)
+    except SchemaResolveError as e:
+        print(f"[ERROR] {e}", file=sys.stderr)
+        return 2
+
+    error = _validate_inputs(args.program, schemas)
     if error:
         print(f"[ERROR] {error}", file=sys.stderr)
         return 2
 
     try:
-        mg = MockGenerator(args.schema)
-        oracle = CorrectnessOracle(args.schema)
+        mg = MockGenerator(schemas)
+        oracle = CorrectnessOracle(schemas)
         auto_load(oracle)
         _load_extra_rules(oracle, mg, args.rules)
         # ACV is additive; from_env returns None unless ACT_ACV_MODEL + a base URL
@@ -437,13 +450,13 @@ def _cmd_check(argv=None) -> int:
         if exit_code == 2:
             return exit_code
 
-        plan_result = _run_plan_check(args.program, args.schema, log)
+        plan_result = _run_plan_check(args.program, schemas, log)
         if not plan_result.deterministic:
             exit_code = max(exit_code, 1)
 
         arch_result = None
         if args.check_deployment_arch:
-            arch_result = _run_deployment_arch_check(args.program, args.schema, args.check_deployment_arch, log, cfg)
+            arch_result = _run_deployment_arch_check(args.program, schemas, args.check_deployment_arch, log, cfg)
             if not arch_result.passed:
                 exit_code = max(exit_code, 1)
             if any(f.reason == "docker_missing" for f in arch_result.failures):
@@ -451,7 +464,7 @@ def _cmd_check(argv=None) -> int:
 
         runtime_result = None
         if args.check_deployment_runtime:
-            runtime_result = _run_runtime_check(args.program, args.schema, log, cfg)
+            runtime_result = _run_runtime_check(args.program, schemas, log, cfg)
             skip_stages = {"substrate_unavailable", "spec_unsupported"}
             is_skip = any(f.stage in skip_stages for f in runtime_result.failures)
             if not runtime_result.passed and not is_skip:
@@ -465,7 +478,7 @@ def _cmd_check(argv=None) -> int:
         if args.output:
             artefact = ReproducibilityArtefact(
                 program_path=args.program,
-                schemas=list(args.schema),
+                schemas=list(schemas),
                 plan_check=plan_result,
                 deployment_arch=arch_result,
                 runtime_check=runtime_result,
