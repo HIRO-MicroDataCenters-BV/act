@@ -249,8 +249,19 @@ uv run python -m act.run \
 
 ### Validate a multi-provider program (CAPE + random)
 
+ACT resolves one schema per provider the program imports, so a program using
+several providers needs no special handling. Omit `--schema` to auto-resolve
+each provider independently (each via a local `<plugin>.json` or `pulumi package
+get-schema`):
+
 ```bash
-uv run python -m act.run \
+uv run act check --program my_program.py
+```
+
+Or pass every schema explicitly to override resolution for the whole program:
+
+```bash
+uv run act check \
     --program my_program.py \
     --schema tests/fixtures/cape/schema.json tests/fixtures/random/schema.json
 ```
