@@ -134,7 +134,15 @@ def _build_check_parser(cfg: ActConfig) -> argparse.ArgumentParser:
         "--schema",
         nargs="+",
         metavar="SCHEMA",
-        help="Path(s) to provider schema JSON. Repeat for multi-provider programs.",
+        help="Path(s) to provider schema JSON. Omit to auto-resolve from the program's imports. "
+        "Repeat for multi-provider programs.",
+    )
+    parser.add_argument(
+        "--schema-dir",
+        action="append",
+        default=[],
+        metavar="DIR",
+        help="Extra directory to search for a local <plugin>.json when auto-resolving schemas. Repeatable.",
     )
     parser.add_argument("--output", default=None, help="Directory to write run artefacts (optional)")
     parser.add_argument(
@@ -412,7 +420,7 @@ def _cmd_check(argv=None) -> int:
 
     # --schema is a full override; otherwise resolve schemas from the program's imports.
     try:
-        schemas = resolve_schemas(args.program, args.schema)
+        schemas = resolve_schemas(args.program, args.schema, schema_dirs=args.schema_dir)
     except SchemaResolveError as e:
         print(f"[ERROR] {e}", file=sys.stderr)
         return 2

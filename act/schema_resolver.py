@@ -1,15 +1,21 @@
 """Resolve provider schemas for a program when --schema is omitted.
 
 AST-scans the entry point's imports for ``pulumi_*`` packages, maps each to a
-Pulumi plugin, and fetches its schema via ``pulumi package get-schema``, cached
-by provider and version. CAPE has no get-schema-able plugin in a stock checkout,
-so it resolves from the schema bundled with ACT and prefers it over a fetch.
-Best-effort: any failure raises :class:`SchemaResolveError` with a one-line,
-actionable message (pass --schema; see 'act doctor')."""
+Pulumi plugin, and resolves a schema for it from, in order:
+
+1. a local ``<plugin>.json`` in the program's directory, a ``schemas/`` subdir,
+   the working directory, or any directory passed via ``--schema-dir`` (this is
+   how custom or in-house providers with no public plugin are covered);
+2. a previously cached ``pulumi package get-schema`` under ``~/.cache/act/schemas``;
+3. a live ``pulumi package get-schema`` for standard providers, cached by version.
+
+If none yields a schema, :class:`SchemaResolveError` is raised asking the user to
+pass ``--schema`` explicitly, which always overrides resolution.
+"""
 
 from __future__ import annotations
 
-from typing import Iterable, Optional
+from typing import Iterable, Optional, Sequence
 
 import ast
 import json
@@ -24,9 +30,6 @@ from act.core.mock_generator import MockGenerator
 
 # Overridable in tests via monkeypatch; defaults to the user cache.
 _CACHE_DIR = Path(os.path.expanduser("~/.cache/act/schemas"))
-_BUNDLED_DIR = Path(__file__).resolve().parent / "schemas"
-# Plugins with no get-schema-able binary in a stock checkout -> use the bundled schema.
-_BUNDLED: dict[str, str] = {"cape": "cape.json"}
 _GET_SCHEMA_TIMEOUT_S = 120
 
 
@@ -59,11 +62,25 @@ def detect_plugins(program_path: str) -> list[str]:
     )
 
 
-def _bundled_schema(plugin: str) -> Optional[str]:
-    if plugin in _BUNDLED:
-        path = _BUNDLED_DIR / _BUNDLED[plugin]
-        if path.is_file():
-            return str(path)
+def _search_dirs(program_path: str, extra_dirs: Sequence[str]) -> list[Path]:
+    """Directories searched for a local <plugin>.json, in priority order."""
+    prog_dir = Path(MockGenerator._entry_point(program_path)).resolve().parent
+    candidates = [Path(d) for d in extra_dirs]
+    candidates += [prog_dir, prog_dir / "schemas", Path.cwd(), Path.cwd() / "schemas"]
+    seen: set[Path] = set()
+    ordered: list[Path] = []
+    for d in candidates:
+        if d not in seen:
+            seen.add(d)
+            ordered.append(d)
+    return ordered
+
+
+def _local_schema(plugin: str, program_path: str, extra_dirs: Sequence[str]) -> Optional[str]:
+    for d in _search_dirs(program_path, extra_dirs):
+        candidate = d / f"{plugin}.json"
+        if candidate.is_file():
+            return str(candidate)
     return None
 
 
@@ -88,12 +105,14 @@ def _cache_write(plugin: str, version: str, content: str) -> str:
     return str(target)
 
 
-def _fetch_schema(plugin: str) -> str:
+def _fetch_schema(plugin: str) -> Optional[str]:
+    """Fetch via `pulumi package get-schema`, cache it, and return the path.
+
+    Returns None when the CLI is absent or the plugin has no fetchable schema (a
+    custom provider); the caller turns that into a 'pass --schema' error.
+    """
     if shutil.which("pulumi") is None:
-        raise SchemaResolveError(
-            f"cannot resolve a schema for '{plugin}': the pulumi CLI is not on PATH. "
-            "Pass --schema explicitly, or see 'act doctor'."
-        )
+        return None
     print(f"resolving schema for '{plugin}' via pulumi...", file=sys.stderr)
     try:
         proc = subprocess.run(
@@ -102,34 +121,35 @@ def _fetch_schema(plugin: str) -> str:
             text=True,
             timeout=_GET_SCHEMA_TIMEOUT_S,
         )
-    except (OSError, subprocess.SubprocessError) as exc:
-        raise SchemaResolveError(
-            f"cannot resolve a schema for '{plugin}': {exc}. Pass --schema explicitly, or see 'act doctor'."
-        )
+    except (OSError, subprocess.SubprocessError):
+        return None
     if proc.returncode != 0:
-        detail = (proc.stderr or "").strip().splitlines()
-        tail = f" ({detail[-1]})" if detail else ""
-        raise SchemaResolveError(
-            f"cannot resolve a schema for '{plugin}': pulumi get-schema failed{tail}. "
-            "Pass --schema explicitly, or see 'act doctor'."
-        )
+        return None
     try:
         version = str(json.loads(proc.stdout).get("version") or "latest")
     except (ValueError, TypeError):
-        raise SchemaResolveError(
-            f"cannot resolve a schema for '{plugin}': pulumi returned invalid JSON. Pass --schema explicitly."
-        )
+        return None
     return _cache_write(plugin, version, proc.stdout)
 
 
-def _resolve_one(plugin: str) -> str:
-    # Prefer the bundled schema, then a cached fetch, then a live fetch.
-    return _bundled_schema(plugin) or _cached_schema(plugin) or _fetch_schema(plugin)
+def _resolve_one(plugin: str, program_path: str, extra_dirs: Sequence[str]) -> str:
+    schema = _local_schema(plugin, program_path, extra_dirs) or _cached_schema(plugin) or _fetch_schema(plugin)
+    if schema is None:
+        raise SchemaResolveError(
+            f"no schema found for provider '{plugin}': no local '{plugin}.json' on the search path, "
+            "and it could not be fetched with 'pulumi package get-schema'. "
+            f"Pass --schema <path>, put '{plugin}.json' in a schemas/ directory, or use --schema-dir."
+        )
+    return schema
 
 
-def resolve_schemas(program_path: str, explicit_schemas: Optional[Iterable[str]]) -> list[str]:
+def resolve_schemas(
+    program_path: str,
+    explicit_schemas: Optional[Iterable[str]],
+    schema_dirs: Sequence[str] = (),
+) -> list[str]:
     """Schema paths for a program. An explicit --schema is a full override; otherwise
-    resolve from the program's ``pulumi_*`` imports (empty list if it imports none)."""
+    resolve one per provider imported by the program (empty if it imports none)."""
     if explicit_schemas:
         return list(explicit_schemas)
-    return [_resolve_one(plugin) for plugin in detect_plugins(program_path)]
+    return [_resolve_one(plugin, program_path, schema_dirs) for plugin in detect_plugins(program_path)]

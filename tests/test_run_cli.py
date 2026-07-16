@@ -70,7 +70,7 @@ def test_check_missing_program_exits_2(capsys):
 
 
 def test_check_auto_resolves_cape_schema(capsys):
-    # No --schema: CAPE resolves from the bundled schema and the check still runs.
+    # No --schema: CAPE resolves from the cape.json beside the program (local convention).
     assert main(["check", "--program", CAPE_PROGRAM]) == 0
     assert "PASS" in capsys.readouterr().out
 

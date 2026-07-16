@@ -150,7 +150,8 @@ Flags for `act check`:
 | Flag | Required | Default | Description |
 |------|----------|---------|-------------|
 | `--program PATH` | yes | none | Path to the Pulumi program file (or project directory) |
-| `--schema PATH [PATH ...]` | no | auto | Provider schema JSON files. Omit to auto-resolve from the program's `pulumi_*` imports: CAPE uses the schema bundled with ACT; others fetch via the `pulumi` CLI and cache under `~/.cache/act/schemas`. Repeat for multi-provider programs, or pass explicitly to override resolution |
+| `--schema PATH [PATH ...]` | no | auto | Provider schema JSON files. Omit to auto-resolve from the program's `pulumi_*` imports: ACT looks for a local `<plugin>.json` (next to the program, in a `schemas/` dir, or a `--schema-dir`), otherwise fetches it with `pulumi package get-schema` and caches under `~/.cache/act/schemas`. A provider that resolves to nothing is reported with a request to pass `--schema`. Repeat for multi-provider programs, or pass explicitly to override resolution |
+| `--schema-dir DIR` | no | none | Extra directory to search for a local `<plugin>.json` during auto-resolution. Repeatable. Use it for custom or in-house providers that have no public plugin |
 | `--config PATH` | no | `./act.toml` | Path to an `act.toml` config file. Precedence per field: CLI flags > env > file > default |
 | `--quiet` | no | off | Suppress the one-line `Summary:` footer (the PASS/FAIL report still prints) |
 | `--output DIR` | no | none | Write a structured run artefact (JSON) to this directory |

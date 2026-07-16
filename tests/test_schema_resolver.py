@@ -1,4 +1,4 @@
-"""Schema auto-resolution: import detection, bundled CAPE, cache, and fetch.
+"""Schema auto-resolution: import detection, local convention, cache, and fetch.
 
 Every fetch path is mocked; no test touches the network or the pulumi CLI.
 """
@@ -38,13 +38,6 @@ def test_explicit_schema_is_full_override():
     assert schema_resolver.resolve_schemas("missing.py", ["a.json", "b.json"]) == ["a.json", "b.json"]
 
 
-def test_cape_resolves_from_bundled():
-    out = schema_resolver.resolve_schemas(CAPE_PROGRAM, None)
-    assert len(out) == 1
-    assert out[0].endswith("act/schemas/cape.json")
-    assert Path(out[0]).is_file()
-
-
 def test_no_pulumi_imports_resolves_empty(tmp_path):
     assert schema_resolver.resolve_schemas(_prog(tmp_path, "import os\nimport pulumi\n"), None) == []
 
@@ -54,30 +47,64 @@ def test_syntax_error_gives_clean_error(tmp_path):
         schema_resolver.resolve_schemas(_prog(tmp_path, "def (:\n"), None)
 
 
-def test_fetch_missing_pulumi_is_actionable(tmp_path, monkeypatch):
-    monkeypatch.setattr(schema_resolver, "_CACHE_DIR", tmp_path)
+def test_local_schema_next_to_program(tmp_path):
+    # A <plugin>.json beside the program is picked up with no fetch.
+    (tmp_path / "random.json").write_text('{"name":"random","resources":{}}')
+    out = schema_resolver.resolve_schemas(_prog(tmp_path, "import pulumi_random\n"), None)
+    assert len(out) == 1 and Path(out[0]).resolve() == (tmp_path / "random.json").resolve()
+
+
+def test_local_schema_in_schemas_subdir(tmp_path):
+    (tmp_path / "schemas").mkdir()
+    (tmp_path / "schemas" / "random.json").write_text('{"name":"random","resources":{}}')
+    out = schema_resolver.resolve_schemas(_prog(tmp_path, "import pulumi_random\n"), None)
+    assert len(out) == 1 and Path(out[0]).resolve() == (tmp_path / "schemas" / "random.json").resolve()
+
+
+def test_schema_dir_override(tmp_path):
+    custom = tmp_path / "vendor"
+    custom.mkdir()
+    (custom / "acme.json").write_text('{"name":"acme","resources":{}}')
+    out = schema_resolver.resolve_schemas(_prog(tmp_path, "import pulumi_acme\n"), None, schema_dirs=[str(custom)])
+    assert len(out) == 1 and Path(out[0]).resolve() == (custom / "acme.json").resolve()
+
+
+def test_cape_fixture_resolves_locally():
+    # The CAPE fixture ships a cape.json beside it; no special-casing in the resolver.
+    out = schema_resolver.resolve_schemas(CAPE_PROGRAM, None)
+    assert len(out) == 1 and out[0].endswith("tests/fixtures/cape/cape.json")
+    assert Path(out[0]).is_file()
+
+
+def test_unresolvable_provider_is_actionable(tmp_path, monkeypatch):
+    # No local schema and no pulumi CLI -> a single actionable error.
+    monkeypatch.setattr(schema_resolver, "_CACHE_DIR", tmp_path / "cache")
     monkeypatch.setattr(schema_resolver.shutil, "which", lambda name: None)
+    monkeypatch.chdir(tmp_path)
     with pytest.raises(schema_resolver.SchemaResolveError) as exc:
-        schema_resolver.resolve_schemas(_prog(tmp_path, "import pulumi_random\n"), None)
-    assert "pulumi" in str(exc.value) and "--schema" in str(exc.value)
+        schema_resolver.resolve_schemas(_prog(tmp_path, "import pulumi_acme\n"), None)
+    msg = str(exc.value)
+    assert "acme" in msg and "--schema" in msg
 
 
-def test_fetch_failure_is_clean(tmp_path, monkeypatch):
-    monkeypatch.setattr(schema_resolver, "_CACHE_DIR", tmp_path)
+def test_fetch_failure_is_actionable(tmp_path, monkeypatch):
+    monkeypatch.setattr(schema_resolver, "_CACHE_DIR", tmp_path / "cache")
     monkeypatch.setattr(schema_resolver.shutil, "which", lambda name: "/usr/bin/pulumi")
     monkeypatch.setattr(
         schema_resolver.subprocess,
         "run",
         lambda cmd, **kw: SimpleNamespace(returncode=1, stdout="", stderr="plugin not found"),
     )
+    monkeypatch.chdir(tmp_path)
     with pytest.raises(schema_resolver.SchemaResolveError) as exc:
         schema_resolver.resolve_schemas(_prog(tmp_path, "import pulumi_random\n"), None)
-    assert "get-schema failed" in str(exc.value)
+    assert "no schema found" in str(exc.value)
 
 
 def test_fetch_success_caches_and_reuses(tmp_path, monkeypatch):
     monkeypatch.setattr(schema_resolver, "_CACHE_DIR", tmp_path / "cache")
     monkeypatch.setattr(schema_resolver.shutil, "which", lambda name: "/usr/bin/pulumi")
+    monkeypatch.chdir(tmp_path)
     calls = []
 
     def fake_run(cmd, **kw):
