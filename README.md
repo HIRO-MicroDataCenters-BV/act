@@ -31,27 +31,25 @@ cd act
 git submodule update --init --recursive
 uv sync
 
-# 2. Validate a sample program
-uv run python -m act.run \
-    --program tests/fixtures/cape/path_a_valid.py \
-    --schema tests/fixtures/cape/schema.json
+# 2. Validate a sample program (the schema is auto-resolved from its imports)
+uv run act check --program tests/fixtures/cape/path_a_valid.py
 
 # Expected:
 # PASS  tests/fixtures/cape/path_a_valid.py
+# Summary: 2 resources, 0 violations, plan reproducible
 # (exit 0)
 ```
 
 Try the negative case:
 
 ```bash
-uv run python -m act.run \
-    --program tests/fixtures/cape/path_a_invalid.py \
-    --schema tests/fixtures/cape/schema.json
+uv run act check --program tests/fixtures/cape/path_a_invalid.py
 
 # Expected:
 # FAIL  tests/fixtures/cape/path_a_invalid.py
 #   [HIGH] spec.securityGroupRef: Instance has no security group - network traffic is uncontrolled
 #   [HIGH] spec.sshKeys: SSH keys configured but no security group - SSH access is open
+# Summary: 1 resource, 2 violations, plan reproducible
 # (exit 1)
 ```
 
@@ -134,12 +132,28 @@ Exit codes:
 
 ## CLI reference
 
-The entry point is `python -m act.run`.
+ACT installs an `act` console command (via `uv sync`). The canonical invocation is
+`uv run act check ...`. The older `uv run python -m act.run ...` and the Docker
+image's `python -m act.run` entrypoint remain supported and behave identically. A
+bare `act --program ...` with no subcommand also runs `check`.
+
+| Command | Purpose |
+|---------|---------|
+| `act check` | Validate a program (the default when no command is given) |
+| `act doctor` | Report external-tool availability and per-flag prerequisites |
+| `act list-rules` | List the security rules ACT applies |
+| `act list-providers` | List providers ACT has built-in rules for |
+| `act version` | Print the ACT version (also `act --version` / `-V`) |
+
+Flags for `act check`:
 
 | Flag | Required | Default | Description |
 |------|----------|---------|-------------|
 | `--program PATH` | yes | none | Path to the Pulumi program file (or project directory) |
-| `--schema PATH [PATH ...]` | yes | none | One or more provider schema JSON files. Repeat for multi-provider programs |
+| `--schema PATH [PATH ...]` | no | auto | Provider schema JSON files. Omit to auto-resolve from the program's `pulumi_*` imports: ACT looks for a local `<plugin>.json` (next to the program, in a `schemas/` dir, or a `--schema-dir`), otherwise fetches it with `pulumi package get-schema` and caches under `~/.cache/act/schemas`. A provider that resolves to nothing is reported with a request to pass `--schema`. Repeat for multi-provider programs, or pass explicitly to override resolution |
+| `--schema-dir DIR` | no | none | Extra directory to search for a local `<plugin>.json` during auto-resolution. Repeatable. Use it for custom or in-house providers that have no public plugin |
+| `--config PATH` | no | `./act.toml` | Path to an `act.toml` config file. Precedence per field: CLI flags > env > file > default |
+| `--quiet` | no | off | Suppress the one-line `Summary:` footer (the PASS/FAIL report still prints) |
 | `--output DIR` | no | none | Write a structured run artefact (JSON) to this directory |
 | `--log-level LEVEL` | no | `WARNING` | One of `DEBUG`, `INFO`, `WARNING`, `ERROR`. Env: `ACT_LOG_LEVEL` |
 | `--rules ENGINE [ENGINE ...]` | no | none | Load an additional rule engine. Currently: `checkov` (193+ Kubernetes checks) |
@@ -161,7 +175,10 @@ Both must be set, and the `acv` extra installed (`uv sync --extra acv`), for the
 
 Other environment variables (all read in one place, `act/config.py`). A missing,
 blank, or out-of-range value falls back to the listed default and logs a warning
-rather than breaking the run.
+rather than breaking the run. Any of these can also be set in an `act.toml` file
+using the field name without the `ACT_` prefix (for example `log_level = "INFO"`,
+`runtime_archs = ["amd64", "riscv64"]`); an environment variable overrides the
+file, and a CLI flag overrides both.
 
 Logging and analysis depth:
 
@@ -205,7 +222,9 @@ Accelerator Extended Resources:
 Show the help text:
 
 ```bash
-uv run python -m act.run --help
+uv run act --help          # command overview
+uv run act check --help    # all check flags
+uv run act doctor          # verify prerequisites for the optional checks
 ```
 
 ---
@@ -230,8 +249,19 @@ uv run python -m act.run \
 
 ### Validate a multi-provider program (CAPE + random)
 
+ACT resolves one schema per provider the program imports, so a program using
+several providers needs no special handling. Omit `--schema` to auto-resolve
+each provider independently (each via a local `<plugin>.json` or `pulumi package
+get-schema`):
+
 ```bash
-uv run python -m act.run \
+uv run act check --program my_program.py
+```
+
+Or pass every schema explicitly to override resolution for the whole program:
+
+```bash
+uv run act check \
     --program my_program.py \
     --schema tests/fixtures/cape/schema.json tests/fixtures/random/schema.json
 ```
@@ -367,12 +397,12 @@ pipeline {
 
 ### Docker
 
-A pre-built image is published. The image expects the program + schema on a mounted volume.
+A pre-built image is published. The current release is `0.4.0`; pin that tag for reproducible runs, or use `latest` to track the newest release. The image expects the program + schema on a mounted volume.
 
 ```bash
 docker run --rm \
   -v "$PWD/infra:/work" \
-  ghcr.io/hiro-microdatacenters-bv/act:latest \
+  ghcr.io/hiro-microdatacenters-bv/act:0.4.0 \
   --program /work/main.py --schema /work/schemas/cape.json
 ```
 

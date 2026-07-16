@@ -46,6 +46,7 @@ from act.reproducibility import (
     write_artefact,
 )
 from act.rules import auto_load
+from act.schema_resolver import SchemaResolveError, resolve_schemas
 
 
 class _JsonFormatter(logging.Formatter):
@@ -133,9 +134,29 @@ def _build_check_parser(cfg: ActConfig) -> argparse.ArgumentParser:
         "--schema",
         nargs="+",
         metavar="SCHEMA",
-        help="Path(s) to provider schema JSON. Repeat for multi-provider programs.",
+        help="Path(s) to provider schema JSON. Omit to auto-resolve from the program's imports. "
+        "Repeat for multi-provider programs.",
+    )
+    parser.add_argument(
+        "--schema-dir",
+        action="append",
+        default=[],
+        metavar="DIR",
+        help="Extra directory to search for a local <plugin>.json when auto-resolving schemas. Repeatable.",
     )
     parser.add_argument("--output", default=None, help="Directory to write run artefacts (optional)")
+    parser.add_argument(
+        "--quiet",
+        action="store_true",
+        help="Suppress the one-line Summary footer (the PASS/FAIL report still prints).",
+    )
+    parser.add_argument(
+        "--config",
+        default=None,
+        metavar="PATH",
+        help="Path to an act.toml config file (default: ./act.toml if present). "
+        "Precedence: CLI flags > env > file > default.",
+    )
     parser.add_argument(
         "--log-level",
         default=cfg.log_level,
@@ -354,26 +375,64 @@ def _validate_inputs(program: str, schemas: list) -> str | None:
     return None
 
 
+def _summary_line(pipeline_result, plan_result, arch_result, runtime_result) -> str:
+    """One-line outcome summary for the check command (suppressed by --quiet)."""
+    parts = []
+    if pipeline_result is not None:
+        n, v = pipeline_result.resource_count, len(pipeline_result.violations)
+        parts.append(f"{n} resource{'' if n == 1 else 's'}")
+        parts.append(f"{v} violation{'' if v == 1 else 's'}")
+    parts.append("plan reproducible" if plan_result.deterministic else "plan drift")
+    if arch_result is not None:
+        parts.append(f"arch {'ok' if arch_result.passed else 'fail'}")
+    if runtime_result is not None:
+        skip = any(f.stage in ("substrate_unavailable", "spec_unsupported") for f in runtime_result.failures)
+        parts.append("runtime " + ("skipped" if skip else "ok" if runtime_result.passed else "fail"))
+    return "Summary: " + ", ".join(parts)
+
+
+def _resolve_config_path(argv) -> str | None:
+    """Pre-parse --config so cfg (hence the parser defaults) reflects the file."""
+    pre = argparse.ArgumentParser(add_help=False)
+    pre.add_argument("--config", default=None)
+    known, _ = pre.parse_known_args(argv)
+    if known.config:
+        return known.config
+    return "act.toml" if Path("act.toml").is_file() else None
+
+
 def _cmd_check(argv=None) -> int:
-    cfg = ActConfig.from_env()
+    cfg = ActConfig.load(config_path=_resolve_config_path(argv))
     parser = _build_check_parser(cfg)
     args = parser.parse_args(argv)
 
-    missing = [name for name, val in (("--program", args.program), ("--schema", args.schema)) if not val]
-    if missing:
-        parser.error("the following arguments are required: " + ", ".join(missing))
+    if not args.program:
+        parser.error("the following arguments are required: --program")
 
     _configure_logging(args.log_level)
     log = logging.getLogger("act")
 
-    error = _validate_inputs(args.program, args.schema)
+    # The program must exist before we can scan it for providers.
+    error = _validate_inputs(args.program, [])
+    if error:
+        print(f"[ERROR] {error}", file=sys.stderr)
+        return 2
+
+    # --schema is a full override; otherwise resolve schemas from the program's imports.
+    try:
+        schemas = resolve_schemas(args.program, args.schema, schema_dirs=args.schema_dir)
+    except SchemaResolveError as e:
+        print(f"[ERROR] {e}", file=sys.stderr)
+        return 2
+
+    error = _validate_inputs(args.program, schemas)
     if error:
         print(f"[ERROR] {error}", file=sys.stderr)
         return 2
 
     try:
-        mg = MockGenerator(args.schema)
-        oracle = CorrectnessOracle(args.schema)
+        mg = MockGenerator(schemas)
+        oracle = CorrectnessOracle(schemas)
         auto_load(oracle)
         _load_extra_rules(oracle, mg, args.rules)
         # ACV is additive; from_env returns None unless ACT_ACV_MODEL + a base URL
@@ -399,34 +458,44 @@ def _cmd_check(argv=None) -> int:
         if exit_code == 2:
             return exit_code
 
-        plan_result = _run_plan_check(args.program, args.schema, log)
+        plan_result = _run_plan_check(args.program, schemas, log)
         if not plan_result.deterministic:
             exit_code = max(exit_code, 1)
 
         arch_result = None
         if args.check_deployment_arch:
-            arch_result = _run_deployment_arch_check(args.program, args.schema, args.check_deployment_arch, log, cfg)
+            arch_result = _run_deployment_arch_check(args.program, schemas, args.check_deployment_arch, log, cfg)
             if not arch_result.passed:
                 exit_code = max(exit_code, 1)
+            if any(f.reason == "docker_missing" for f in arch_result.failures):
+                print("[HINT] deployment-arch check needs docker; run 'act doctor'.", file=sys.stderr)
 
         runtime_result = None
         if args.check_deployment_runtime:
-            runtime_result = _run_runtime_check(args.program, args.schema, log, cfg)
+            runtime_result = _run_runtime_check(args.program, schemas, log, cfg)
             skip_stages = {"substrate_unavailable", "spec_unsupported"}
             is_skip = any(f.stage in skip_stages for f in runtime_result.failures)
             if not runtime_result.passed and not is_skip:
                 exit_code = max(exit_code, 1)
+            if any(f.stage == "substrate_unavailable" for f in runtime_result.failures):
+                print(
+                    "[HINT] deployment-runtime check skipped; run 'act doctor' to check prerequisites.",
+                    file=sys.stderr,
+                )
 
         if args.output:
             artefact = ReproducibilityArtefact(
                 program_path=args.program,
-                schemas=list(args.schema),
+                schemas=list(schemas),
                 plan_check=plan_result,
                 deployment_arch=arch_result,
                 runtime_check=runtime_result,
             )
             path = write_artefact(artefact, args.output)
             log.info("artefact_written", extra={"artefact_path": path})
+
+        if not args.quiet:
+            print(_summary_line(gate.last_result, plan_result, arch_result, runtime_result))
 
         return exit_code
     except FileNotFoundError as e:
@@ -461,6 +530,7 @@ def _print_top_level_help() -> None:
         "\n"
         "commands:\n"
         "  check            Validate a program (default when no command is given)\n"
+        "  doctor           Report external-tool availability and per-flag prerequisites\n"
         "  list-rules       List the security rules ACT will apply\n"
         "  list-providers   List providers ACT has built-in rules for\n"
         "  version          Print the ACT version\n"
@@ -505,6 +575,10 @@ def main(argv=None) -> int:
     if argv[0] in ("version", "--version", "-V"):
         print(_version_string())
         return 0
+    if argv[0] == "doctor":
+        from act.doctor import run as _doctor_run
+
+        return _doctor_run()
     if argv[0] == "list-rules":
         return _cmd_list_rules(argv[1:])
     if argv[0] == "list-providers":

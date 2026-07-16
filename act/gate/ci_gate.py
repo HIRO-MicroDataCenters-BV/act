@@ -1,3 +1,5 @@
+from typing import Optional
+
 import logging
 import sys
 import traceback
@@ -11,11 +13,15 @@ log = logging.getLogger(__name__)
 class CIGate:
     def __init__(self, pipeline: ACTPipeline):
         self._pipeline = pipeline
+        # The most recent PipelineResult, for callers that want to summarise the run.
+        # None until evaluate() completes without raising.
+        self.last_result: Optional[PipelineResult] = None
 
     def evaluate(self, program_path: str) -> int:
         """Run the pipeline and return exit code: 0 = pass, 1 = violations, 2 = error."""
         try:
             result = self._pipeline.run(program_path)
+            self.last_result = result
             exit_code = 0 if result.passed else 1
             log.info(
                 "ci_gate.result",
