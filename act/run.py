@@ -137,6 +137,11 @@ def _build_check_parser(cfg: ActConfig) -> argparse.ArgumentParser:
     )
     parser.add_argument("--output", default=None, help="Directory to write run artefacts (optional)")
     parser.add_argument(
+        "--quiet",
+        action="store_true",
+        help="Suppress the one-line Summary footer (the PASS/FAIL report still prints).",
+    )
+    parser.add_argument(
         "--config",
         default=None,
         metavar="PATH",
@@ -361,6 +366,22 @@ def _validate_inputs(program: str, schemas: list) -> str | None:
     return None
 
 
+def _summary_line(pipeline_result, plan_result, arch_result, runtime_result) -> str:
+    """One-line outcome summary for the check command (suppressed by --quiet)."""
+    parts = []
+    if pipeline_result is not None:
+        n, v = pipeline_result.resource_count, len(pipeline_result.violations)
+        parts.append(f"{n} resource{'' if n == 1 else 's'}")
+        parts.append(f"{v} violation{'' if v == 1 else 's'}")
+    parts.append("plan reproducible" if plan_result.deterministic else "plan drift")
+    if arch_result is not None:
+        parts.append(f"arch {'ok' if arch_result.passed else 'fail'}")
+    if runtime_result is not None:
+        skip = any(f.stage in ("substrate_unavailable", "spec_unsupported") for f in runtime_result.failures)
+        parts.append("runtime " + ("skipped" if skip else "ok" if runtime_result.passed else "fail"))
+    return "Summary: " + ", ".join(parts)
+
+
 def _resolve_config_path(argv) -> str | None:
     """Pre-parse --config so cfg (hence the parser defaults) reflects the file."""
     pre = argparse.ArgumentParser(add_help=False)
@@ -425,6 +446,8 @@ def _cmd_check(argv=None) -> int:
             arch_result = _run_deployment_arch_check(args.program, args.schema, args.check_deployment_arch, log, cfg)
             if not arch_result.passed:
                 exit_code = max(exit_code, 1)
+            if any(f.reason == "docker_missing" for f in arch_result.failures):
+                print("[HINT] deployment-arch check needs docker; run 'act doctor'.", file=sys.stderr)
 
         runtime_result = None
         if args.check_deployment_runtime:
@@ -433,6 +456,11 @@ def _cmd_check(argv=None) -> int:
             is_skip = any(f.stage in skip_stages for f in runtime_result.failures)
             if not runtime_result.passed and not is_skip:
                 exit_code = max(exit_code, 1)
+            if any(f.stage == "substrate_unavailable" for f in runtime_result.failures):
+                print(
+                    "[HINT] deployment-runtime check skipped; run 'act doctor' to check prerequisites.",
+                    file=sys.stderr,
+                )
 
         if args.output:
             artefact = ReproducibilityArtefact(
@@ -444,6 +472,9 @@ def _cmd_check(argv=None) -> int:
             )
             path = write_artefact(artefact, args.output)
             log.info("artefact_written", extra={"artefact_path": path})
+
+        if not args.quiet:
+            print(_summary_line(gate.last_result, plan_result, arch_result, runtime_result))
 
         return exit_code
     except FileNotFoundError as e:

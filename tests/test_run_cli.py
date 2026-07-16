@@ -103,6 +103,34 @@ def test_program_stdout_does_not_leak(capsys):
     assert "PASS" in out
 
 
+def test_summary_prints_by_default(capsys):
+    assert main(["check", "--program", CAPE_PROGRAM, "--schema", CAPE_SCHEMA]) == 0
+    out = capsys.readouterr().out
+    assert "PASS" in out
+    assert "Summary:" in out
+    assert "0 violations" in out
+
+
+def test_summary_suppressed_by_quiet(capsys):
+    assert main(["check", "--program", CAPE_PROGRAM, "--schema", CAPE_SCHEMA, "--quiet"]) == 0
+    out = capsys.readouterr().out
+    assert "PASS" in out
+    assert "Summary:" not in out
+
+
+def test_summary_on_failing_check(capsys):
+    assert main(["--program", CAPE_INVALID, "--schema", CAPE_SCHEMA]) == 1
+    out = capsys.readouterr().out
+    assert "FAIL" in out
+    assert "Summary:" in out
+    assert "violation" in out
+
+
+def test_no_summary_on_input_error(capsys):
+    assert main(["check", "--program", "nope.py", "--schema", CAPE_SCHEMA]) == 2
+    assert "Summary:" not in capsys.readouterr().out
+
+
 def test_doctor_runs_and_exits_zero(capsys):
     assert main(["doctor"]) == 0
     out = capsys.readouterr().out
