@@ -103,6 +103,32 @@ def test_program_stdout_does_not_leak(capsys):
     assert "PASS" in out
 
 
+def test_doctor_runs_and_exits_zero(capsys):
+    assert main(["doctor"]) == 0
+    out = capsys.readouterr().out
+    assert "ACT preflight" in out
+    assert "--check-deployment-runtime" in out
+    assert "--acv-mode blocking" in out
+
+
+def test_doctor_in_top_level_help(capsys):
+    main([])
+    assert "doctor" in capsys.readouterr().out
+
+
+def test_doctor_reflects_acv_env(capsys):
+    import re
+
+    from act.config import ActConfig
+    from act.doctor import run as doctor_run
+
+    cfg = ActConfig.from_env({"ACT_ACV_MODEL": "m", "ACT_ACV_BASE_URL": "http://x"})
+    assert doctor_run(cfg) == 0
+    norm = re.sub(r" +", " ", capsys.readouterr().out)
+    assert "ACT_ACV_MODEL set yes" in norm
+    assert "ACT_ACV_BASE_URL set yes" in norm
+
+
 def test_check_accepts_config_flag(tmp_path, capsys):
     cfg = tmp_path / "act.toml"
     cfg.write_text('log_level = "ERROR"\n')

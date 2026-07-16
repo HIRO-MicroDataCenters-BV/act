@@ -478,6 +478,7 @@ def _print_top_level_help() -> None:
         "\n"
         "commands:\n"
         "  check            Validate a program (default when no command is given)\n"
+        "  doctor           Report external-tool availability and per-flag prerequisites\n"
         "  list-rules       List the security rules ACT will apply\n"
         "  list-providers   List providers ACT has built-in rules for\n"
         "  version          Print the ACT version\n"
@@ -522,6 +523,10 @@ def main(argv=None) -> int:
     if argv[0] in ("version", "--version", "-V"):
         print(_version_string())
         return 0
+    if argv[0] == "doctor":
+        from act.doctor import run as _doctor_run
+
+        return _doctor_run()
     if argv[0] == "list-rules":
         return _cmd_list_rules(argv[1:])
     if argv[0] == "list-providers":
