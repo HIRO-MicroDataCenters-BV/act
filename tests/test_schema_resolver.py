@@ -95,7 +95,7 @@ def test_multi_provider_mixes_local_and_fetched(tmp_path, monkeypatch):
     out = schema_resolver.resolve_schemas(prog, None)
     assert len(out) == 2
     assert any(p.endswith("kubernetes.json") for p in out)  # local
-    assert any(p.endswith("aws-6.0.0.json") for p in out)  # fetched + cached
+    assert any(p.endswith("aws/6.0.0.json") for p in out)  # fetched + cached
 
 
 def test_cape_fixture_resolves_locally():
@@ -127,7 +127,20 @@ def test_fetch_failure_is_actionable(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     with pytest.raises(schema_resolver.SchemaResolveError) as exc:
         schema_resolver.resolve_schemas(_prog(tmp_path, "import pulumi_random\n"), None)
-    assert "no schema found" in str(exc.value)
+    msg = str(exc.value)
+    # The underlying reason is surfaced, and the message stays actionable.
+    assert "get-schema failed" in msg and "plugin not found" in msg and "--schema" in msg
+
+
+def test_cache_lookup_is_not_prefix_collided(tmp_path, monkeypatch):
+    # A cached aws-native schema must never be returned when resolving aws.
+    monkeypatch.setattr(schema_resolver, "_CACHE_DIR", tmp_path / "cache")
+    native = tmp_path / "cache" / "aws-native"
+    native.mkdir(parents=True)
+    (native / "6.0.0.json").write_text('{"name":"aws-native"}')
+    assert schema_resolver._cached_schema("aws") is None
+    native_hit = schema_resolver._cached_schema("aws-native")
+    assert native_hit is not None and native_hit.endswith("aws-native/6.0.0.json")
 
 
 def test_fetch_success_caches_and_reuses(tmp_path, monkeypatch):
@@ -144,7 +157,7 @@ def test_fetch_success_caches_and_reuses(tmp_path, monkeypatch):
     prog = _prog(tmp_path, "import pulumi_random\n")
 
     out = schema_resolver.resolve_schemas(prog, None)
-    assert len(out) == 1 and out[0].endswith("random-4.16.0.json")
+    assert len(out) == 1 and out[0].endswith("random/4.16.0.json")
     assert Path(out[0]).is_file()
 
     # A second run hits the cache; no further get-schema call.

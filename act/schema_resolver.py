@@ -3,10 +3,11 @@
 AST-scans the entry point's imports for ``pulumi_*`` packages, maps each to a
 Pulumi plugin, and resolves a schema for it from, in order:
 
-1. a local ``<plugin>.json`` in the program's directory, a ``schemas/`` subdir,
-   the working directory, or any directory passed via ``--schema-dir`` (this is
+1. a local ``<plugin>.json`` from a ``--schema-dir``, then the program's
+   directory, a ``schemas/`` subdir beside it, or the working directory (this is
    how custom or in-house providers with no public plugin are covered);
-2. a previously cached ``pulumi package get-schema`` under ``~/.cache/act/schemas``;
+2. a previously cached ``pulumi package get-schema`` under
+   ``~/.cache/act/schemas/<plugin>/``;
 3. a live ``pulumi package get-schema`` for standard providers, cached by version.
 
 If none yields a schema, :class:`SchemaResolveError` is raised asking the user to
@@ -85,16 +86,20 @@ def _local_schema(plugin: str, program_path: str, extra_dirs: Sequence[str]) -> 
 
 
 def _cached_schema(plugin: str) -> Optional[str]:
-    if not _CACHE_DIR.is_dir():
+    # Per-plugin subdirectory so a prefix-sharing name (e.g. aws vs aws-native)
+    # can never cross-match another provider's cached schema.
+    plugin_dir = _CACHE_DIR / plugin
+    if not plugin_dir.is_dir():
         return None
-    hits = sorted(_CACHE_DIR.glob(f"{plugin}-*.json"))
+    hits = sorted(plugin_dir.glob("*.json"))
     return str(hits[-1]) if hits else None
 
 
 def _cache_write(plugin: str, version: str, content: str) -> str:
-    _CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    target = _CACHE_DIR / f"{plugin}-{version}.json"
-    fd, tmp = tempfile.mkstemp(dir=_CACHE_DIR, prefix=f".{plugin}-", suffix=".tmp")
+    plugin_dir = _CACHE_DIR / plugin
+    plugin_dir.mkdir(parents=True, exist_ok=True)
+    target = plugin_dir / f"{version}.json"
+    fd, tmp = tempfile.mkstemp(dir=plugin_dir, prefix=f".{version}-", suffix=".tmp")
     try:
         with os.fdopen(fd, "w") as fh:
             fh.write(content)
@@ -108,12 +113,14 @@ def _cache_write(plugin: str, version: str, content: str) -> str:
 def _fetch_schema(plugin: str) -> Optional[str]:
     """Fetch via `pulumi package get-schema`, cache it, and return the path.
 
-    Returns None when the CLI is absent or the plugin has no fetchable schema (a
-    custom provider); the caller turns that into a 'pass --schema' error.
+    Returns None when the pulumi CLI is absent (the caller turns that into a
+    generic 'pass --schema' error). Raises SchemaResolveError, surfacing the
+    underlying reason, when the CLI is present but cannot produce a schema.
     """
     if shutil.which("pulumi") is None:
         return None
     print(f"resolving schema for '{plugin}' via pulumi...", file=sys.stderr)
+    hint = f"Pass --schema <path>, put '{plugin}.json' in a schemas/ directory, or use --schema-dir."
     try:
         proc = subprocess.run(
             ["pulumi", "package", "get-schema", plugin],
@@ -121,23 +128,25 @@ def _fetch_schema(plugin: str) -> Optional[str]:
             text=True,
             timeout=_GET_SCHEMA_TIMEOUT_S,
         )
-    except (OSError, subprocess.SubprocessError):
-        return None
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise SchemaResolveError(f"cannot resolve a schema for '{plugin}': {exc}. {hint}")
     if proc.returncode != 0:
-        return None
+        detail = (proc.stderr or "").strip().splitlines()
+        tail = f" ({detail[-1]})" if detail else ""
+        raise SchemaResolveError(f"cannot resolve a schema for '{plugin}': pulumi get-schema failed{tail}. {hint}")
     try:
         version = str(json.loads(proc.stdout).get("version") or "latest")
     except (ValueError, TypeError):
-        return None
+        raise SchemaResolveError(f"cannot resolve a schema for '{plugin}': pulumi returned invalid JSON. {hint}")
     return _cache_write(plugin, version, proc.stdout)
 
 
 def _resolve_one(plugin: str, program_path: str, extra_dirs: Sequence[str]) -> str:
     schema = _local_schema(plugin, program_path, extra_dirs) or _cached_schema(plugin) or _fetch_schema(plugin)
-    if schema is None:
+    if schema is None:  # pulumi CLI absent, and no local or cached schema
         raise SchemaResolveError(
             f"no schema found for provider '{plugin}': no local '{plugin}.json' on the search path, "
-            "and it could not be fetched with 'pulumi package get-schema'. "
+            "and the pulumi CLI is not available to fetch it. "
             f"Pass --schema <path>, put '{plugin}.json' in a schemas/ directory, or use --schema-dir."
         )
     return schema
