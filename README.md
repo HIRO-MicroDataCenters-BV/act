@@ -62,7 +62,7 @@ That's the gate. Wire the same invocation into CI and bad commits stop at the ga
 For every Pulumi program you run through it, ACT does up to five things:
 
 1. **Captures the plan without provisioning.** It hooks the Pulumi SDK and records what resources *would* be created and what inputs they carry. Never calls a real cloud API.
-2. **Checks structural rules.** Security and policy violations (missing security groups, exposed credentials, wrong arch labels, weak random passwords, etc.) surface as `Violation` objects with severity and a recommendation.
+2. **Checks structural rules.** The oracle flags missing required fields (for example a missing security group), wrong types, and out-of-range or invalid enum values, plus provider rules such as CAPE network exposure. Each surfaces as a `Violation` with severity and a recommendation. Content checks (embedded secrets) are the cognitive validator's job.
 3. **Fuzzes parameterised programs.** When the program takes inputs, ACT mutates them (atheris fuzz + hypothesis property tests) to find configurations that pass the type checker but break the policy.
 4. **Verifies reproducibility.** Optional: re-runs the program against an ephemeral cluster (k3s in Docker) twice and confirms the deployed state hashes identically. Covers amd64, arm64, riscv64, GPU, FPGA, and CXL targets.
 5. **Offers AI advice.** Optional: with the cognitive validator enabled, ACT sends the program to an LLM for extra security advice. The findings are advisory by default and don't change the pass/fail result unless you opt into `--acv-mode blocking`.
@@ -118,7 +118,7 @@ flowchart TB
     class GATE,REPORT,JSON out
 ```
 
-Solid arrows are the always-on validation pipeline; dotted arrows are the opt-in reproducibility checks. The CI gate maps the combined result to an exit code that any CI system can act on.
+Solid arrows are the core validation pipeline; dotted arrows are the reproducibility checks (plan determinism always runs; the arch and runtime checks are opt-in). The CI gate maps the combined result to an exit code that any CI system can act on.
 
 Exit codes:
 
@@ -150,13 +150,13 @@ Flags for `act check`:
 | Flag | Required | Default | Description |
 |------|----------|---------|-------------|
 | `--program PATH` | yes | none | Path to the Pulumi program file (or project directory) |
-| `--schema PATH [PATH ...]` | no | auto | Provider schema JSON files. Omit to auto-resolve from the program's `pulumi_*` imports: ACT looks for a local `<plugin>.json` (next to the program, in a `schemas/` dir, or a `--schema-dir`), otherwise fetches it with `pulumi package get-schema` and caches under `~/.cache/act/schemas`. A provider that resolves to nothing is reported with a request to pass `--schema`. Repeat for multi-provider programs, or pass explicitly to override resolution |
+| `--schema PATH [PATH ...]` | no | auto | Provider schema JSON. Omit to auto-resolve one per provider from the program's `pulumi_*` imports (local `<plugin>.json` or `pulumi get-schema`); pass explicitly (repeatable) to override. |
 | `--schema-dir DIR` | no | none | Extra directory to search for a local `<plugin>.json` during auto-resolution. Repeatable. Use it for custom or in-house providers that have no public plugin |
 | `--config PATH` | no | `./act.toml` | Path to an `act.toml` config file. Precedence per field: CLI flags > env > file > default |
 | `--quiet` | no | off | Suppress the one-line `Summary:` footer (the PASS/FAIL report still prints) |
 | `--output DIR` | no | none | Write a structured run artefact (JSON) to this directory |
 | `--log-level LEVEL` | no | `WARNING` | One of `DEBUG`, `INFO`, `WARNING`, `ERROR`. Env: `ACT_LOG_LEVEL` |
-| `--rules ENGINE [ENGINE ...]` | no | none | Load an additional rule engine. Currently: `checkov` (193+ Kubernetes checks) |
+| `--rules ENGINE [ENGINE ...]` | no | none | Load an additional rule engine. Currently: `checkov` (100+ Kubernetes checks) |
 | `--check-deployment-arch ARCH` | no | off | Smoke-boot every container image referenced by the program under `linux/<ARCH>` via QEMU. Example: `--check-deployment-arch riscv64` |
 | `--check-deployment-runtime` | no | off | Provision an ephemeral k3s cluster matching the program's target, run `pulumi up` twice, and verify the deployed state hashes identically. Requires `docker`, `kubectl`, and `pulumi` CLI |
 | `--acv-mode {advisory,blocking}` | no | `advisory` | Whether the cognitive validator's verdict gates the exit code. `advisory` (default) never blocks; `blocking` fails the gate on an ACV FAIL. Env: `ACT_ACV_MODE` |
@@ -171,14 +171,12 @@ The optional cognitive validator has no flag of its own; it is enabled through e
 | `ACT_ACV_TIMEOUT` | Optional per-request timeout in seconds (default 20; raise it for slower or reasoning models) |
 | `ACT_ACV_EXTRA_BODY` | Optional JSON object merged into every chat-completions request body, for endpoint-specific fields. Example: `{"chat_template_kwargs":{"enable_thinking":false}}` to turn off Qwen3 thinking. Invalid JSON is ignored with a warning |
 
-Both must be set, and the `acv` extra installed (`uv sync --extra acv`), for the validator to run; otherwise it is skipped. Its findings are advisory by default and only affect the exit code when you pass `--acv-mode blocking`.
+Both must be set, and the `acv` extra installed (`uv sync --extra acv`), for the validator to run; otherwise it is skipped.
 
-Other environment variables (all read in one place, `act/config.py`). A missing,
-blank, or out-of-range value falls back to the listed default and logs a warning
-rather than breaking the run. Any of these can also be set in an `act.toml` file
-using the field name without the `ACT_` prefix (for example `log_level = "INFO"`,
-`runtime_archs = ["amd64", "riscv64"]`); an environment variable overrides the
-file, and a CLI flag overrides both.
+Other environment variables are all read in `act/config.py`; a missing, blank, or
+out-of-range value falls back to the default with a warning. Any of them can also be
+set in `act.toml` using the field name without the `ACT_` prefix (e.g. `log_level =
+"INFO"`), with precedence CLI > env > file.
 
 Logging and analysis depth:
 
@@ -234,7 +232,7 @@ uv run act doctor          # verify prerequisites for the optional checks
 ### Validate a CAPE program
 
 ```bash
-uv run python -m act.run \
+uv run act check \
     --program tests/fixtures/cape/path_a_valid.py \
     --schema tests/fixtures/cape/schema.json
 ```
@@ -242,7 +240,7 @@ uv run python -m act.run \
 ### Validate a Kubernetes program
 
 ```bash
-uv run python -m act.run \
+uv run act check \
     --program tests/fixtures/kubernetes/nginx_deployment.py \
     --schema examples/kubernetes/schema.json
 ```
@@ -269,7 +267,7 @@ uv run act check \
 ### Add Checkov rules on top of the built-in oracle
 
 ```bash
-uv run python -m act.run \
+uv run act check \
     --program tests/fixtures/kubernetes/nginx_deployment.py \
     --schema examples/kubernetes/schema.json \
     --rules checkov
@@ -281,17 +279,17 @@ uv run python -m act.run \
 uv sync --extra acv
 export ACT_ACV_MODEL=<served-model-id>
 export ACT_ACV_BASE_URL=http://localhost:8000/openai/v1
-uv run python -m act.run \
+uv run act check \
     --program tests/fixtures/cape/path_a_invalid.py \
     --schema tests/fixtures/cape/schema.json
 ```
 
-The report gains an `ACV (advisory)` block with the model's suggestions. By default pass/fail is unchanged; the validator only affects the exit code when you run it with `--acv-mode blocking`.
+The report gains an `ACV (advisory)` block with the model's suggestions.
 
 ### Check that every image in the program can boot under riscv64
 
 ```bash
-uv run python -m act.run \
+uv run act check \
     --program tests/fixtures/kubernetes/nginx_deployment.py \
     --schema examples/kubernetes/schema.json \
     --check-deployment-arch riscv64
@@ -300,7 +298,7 @@ uv run python -m act.run \
 ### Full reproducibility check on a real ephemeral cluster
 
 ```bash
-uv run python -m act.run \
+uv run act check \
     --program tests/fixtures/kubernetes/configmap.py \
     --schema examples/kubernetes/schema.json \
     --check-deployment-runtime \
@@ -312,7 +310,7 @@ The `--output` directory will contain `act_run_<TIMESTAMP>.json` with plan-check
 ### Get JSON logs for a log aggregator
 
 ```bash
-uv run python -m act.run \
+uv run act check \
     --program my_program.py --schema schema.json \
     --log-level INFO 2>&1 1>/dev/null | jq .
 ```
@@ -348,7 +346,7 @@ jobs:
 
       - name: Validate IaC
         run: |
-          uv run python -m act.run \
+          uv run act check \
             --program infra/main.py \
             --schema schemas/cape.json schemas/kubernetes.json \
             --check-deployment-arch riscv64 \
@@ -371,7 +369,7 @@ act:
     GIT_SUBMODULE_STRATEGY: recursive
   script:
     - uv sync --frozen
-    - uv run python -m act.run --program infra/main.py --schema schemas/cape.json
+    - uv run act check --program infra/main.py --schema schemas/cape.json
   artifacts:
     when: always
     paths: [act_runs/]
@@ -387,7 +385,7 @@ pipeline {
       steps {
         sh '''
           uv sync --frozen
-          uv run python -m act.run --program infra/main.py --schema schemas/cape.json
+          uv run act check --program infra/main.py --schema schemas/cape.json
         '''
       }
     }
@@ -397,12 +395,12 @@ pipeline {
 
 ### Docker
 
-A pre-built image is published. The current release is `0.4.0`; pin that tag for reproducible runs, or use `latest` to track the newest release. The image expects the program + schema on a mounted volume.
+A pre-built image is published per release. `latest` tracks the newest; pin a release tag (e.g. `:0.5.1`) for reproducible runs. The image expects the program + schema on a mounted volume.
 
 ```bash
 docker run --rm \
   -v "$PWD/infra:/work" \
-  ghcr.io/hiro-microdatacenters-bv/act:0.4.0 \
+  ghcr.io/hiro-microdatacenters-bv/act:latest \
   --program /work/main.py --schema /work/schemas/cape.json
 ```
 
@@ -418,7 +416,7 @@ helm install act ./charts/act \
 
 `program` and `schema` are the in-container paths ACT reads. Mount the actual files at those paths via the chart's `volumes` / `volumeMounts` values (or a configMap / init container), as noted in `charts/act/values.yaml`.
 
-The in-cluster Job runs the plan-time checks only: mock generation, the correctness oracle, and (when reachable) the cognitive validator. The reproducibility flags (`--check-deployment-arch`, `--check-deployment-runtime`) are intentionally not exposed by the chart. They shell out to `docker`, `kubectl`, and the `pulumi` CLI on the host, and the runtime check provisions an ephemeral k3s container next to ACT, which requires a docker socket and privileged access. That trust profile is appropriate for a developer workstation or a dedicated CI runner, not for a pod scheduled inside the cluster being validated. Run these checks from CI (see the GitHub Actions, GitLab CI, and Jenkins snippets above) or locally with `uv run python -m act.run`.
+The in-cluster Job runs the plan-time checks only (mock generation, oracle, and the cognitive validator when reachable). The reproducibility flags (`--check-deployment-arch`, `--check-deployment-runtime`) are not exposed by the chart: they need `docker`/`kubectl`/`pulumi` and privileged host access, which suits a workstation or CI runner, not a pod inside the validated cluster. Run them from CI or locally with `uv run act check`.
 
 ---
 
@@ -428,32 +426,42 @@ ACT accepts any standard Pulumi Python program. No special imports, no decorator
 
 ### Two flavours
 
-**LLM-generated programs**: hard-coded inputs, no parameters. ACT runs the mock generator + oracle + (optionally) the cognitive validator.
+**LLM-generated programs (Path A)**: hard-coded inputs, no parameters. ACT runs the mock generator + oracle + (optionally) the cognitive validator.
 
 ```python
 # valid_instance.py
-import pulumi_cape as cape
+from pulumi_cape.compute import Instance
+from pulumi_cape.schemas import InstanceSpecArgs, ReferenceArgs, VolumeReferenceArgs
 
-cape.Instance("web",
-    zone="zone-1",
-    sku_ref=cape.SkuReference(resource="skus/medium"),
-    security_group_ref=cape.SecurityGroupReference(resource="security-groups/web"),
-    ssh_keys=["ssh-keys/admin"],
+Instance("web",
+    spec=InstanceSpecArgs(
+        boot_volume=VolumeReferenceArgs(device_ref=ReferenceArgs(resource="volumes/boot")),
+        sku_ref=ReferenceArgs(resource="skus/medium"),
+        zone="zone-1",
+        security_group_ref=ReferenceArgs(resource="security-groups/web"),
+    ),
+    workspace="default",
 )
 ```
 
-**Developer-written programs**: parameterised, accept config. ACT additionally fuzzes the inputs and runs hypothesis property tests to explore corners that pass typing but fail policy.
+**Developer-written programs (Path B)**: read inputs from `os.environ` / `sys.argv`. ACT additionally fuzzes those inputs and runs hypothesis property tests to explore corners that pass typing but fail policy.
 
 ```python
 # parameterised.py
-import pulumi
-import pulumi_cape as cape
+import os
 
-config = pulumi.Config()
-zone = config.require("zone")
-sku  = config.require("sku")
+from pulumi_cape.compute import Instance
+from pulumi_cape.schemas import InstanceSpecArgs, ReferenceArgs, VolumeReferenceArgs
 
-cape.Instance("web", zone=zone, sku_ref=cape.SkuReference(resource=sku))
+Instance("web",
+    spec=InstanceSpecArgs(
+        boot_volume=VolumeReferenceArgs(device_ref=ReferenceArgs(resource="volumes/boot")),
+        sku_ref=ReferenceArgs(resource=f"skus/{os.environ.get('CAPE_SKU', 'medium')}"),
+        zone=os.environ.get("CAPE_ZONE", "zone-1"),
+        security_group_ref=ReferenceArgs(resource="security-groups/web"),
+    ),
+    workspace="default",
+)
 ```
 
 ### Rules
@@ -478,7 +486,7 @@ For any other Pulumi provider:
 
 ```bash
 pulumi package get-schema <provider-name> > schemas/<provider>.json
-uv run python -m act.run --program my_program.py --schema schemas/<provider>.json
+uv run act check --program my_program.py --schema schemas/<provider>.json
 ```
 
 ---
@@ -568,8 +576,8 @@ Design decisions worth knowing:
 
 - **Provider-agnostic by construction.** No provider is hardcoded; the mock generator reads any Pulumi schema and works.
 - **Oracle is structural.** Missing fields, wrong types, policy violations. Content analysis (shell-command-in-`user_data`, embedded secrets) is the cognitive validator's job.
-- **The cognitive validator is optional.** For AI-assisted advice on top of the deterministic checks, install the `acv` extra (`uv sync --extra acv`) and set `ACT_ACV_MODEL` and `ACT_ACV_BASE_URL` to an OpenAI-compatible LLM endpoint (for example a vLLM server). Its findings are advisory by default and only affect the exit code when run with `--acv-mode blocking`.
-- **Logging is two-stream.** Structured JSON on stderr (for log aggregators); human report on stdout (for terminals and CI logs). The two streams are independent; redirect them separately.
+- **The cognitive validator is optional.** For AI-assisted advice on top of the deterministic checks, install the `acv` extra (`uv sync --extra acv`) and set `ACT_ACV_MODEL` and `ACT_ACV_BASE_URL` to an OpenAI-compatible LLM endpoint (for example a vLLM server).
+- **Logging is two-stream.** Structured JSON on stderr, human PASS/FAIL report on stdout.
 - **Plugins are stable.** `OraclePlugin` and `TestGeneratorPlugin` are the two extension points; everything else is internal.
 
 ---
@@ -624,13 +632,13 @@ The substrate is selected automatically from the program's target architecture a
 
 ```bash
 # Silent (default): only the PASS/FAIL report on stdout
-uv run python -m act.run ...
+uv run act check ...
 
 # INFO: one JSON line per pipeline stage with duration_ms
-uv run python -m act.run ... --log-level INFO
+uv run act check ... --log-level INFO
 
 # DEBUG: every oracle call, every fuzz/property entry/exit
-uv run python -m act.run ... --log-level DEBUG
+uv run act check ... --log-level DEBUG
 ```
 
 Example INFO output (stderr):
@@ -645,7 +653,7 @@ Example INFO output (stderr):
 Pipe the JSON to `jq` (stderr) and keep the report on stdout:
 
 ```bash
-uv run python -m act.run ... --log-level INFO 2> >(jq .) > report.txt
+uv run act check ... --log-level INFO 2> >(jq .) > report.txt
 ```
 
 ---
