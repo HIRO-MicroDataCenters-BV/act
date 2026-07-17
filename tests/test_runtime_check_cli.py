@@ -2,7 +2,7 @@
 
 These exercise act.run.main with all heavy dependencies mocked so we can
 verify exit-code escalation and structured logging without spinning up
-nixos-compose or Pulumi.
+a real substrate or Pulumi.
 """
 
 import json
@@ -41,7 +41,7 @@ def test_cli_does_not_invoke_runtime_check_without_flag():
 
 
 def test_cli_invokes_runtime_check_with_flag():
-    fake_result = RuntimeCheckResult(passed=True, substrate="nixos-compose", spec=_spec())
+    fake_result = RuntimeCheckResult(passed=True, substrate="docker:linux/amd64", spec=_spec())
     rc = MagicMock()
     rc.run.return_value = fake_result
 
@@ -56,7 +56,7 @@ def test_cli_invokes_runtime_check_with_flag():
 def test_cli_failure_escalates_exit_code():
     fake_result = RuntimeCheckResult(
         passed=False,
-        substrate="nixos-compose",
+        substrate="docker:linux/amd64",
         spec=_spec(),
         failures=[RuntimeCheckFailure(stage="output_mismatch", detail="hashes differ")],
     )
@@ -72,7 +72,7 @@ def test_cli_failure_escalates_exit_code():
 def test_cli_substrate_unavailable_does_not_fail_pipeline():
     fake_result = RuntimeCheckResult(
         passed=False,
-        substrate="nixos-compose",
+        substrate="docker:linux/amd64",
         spec=_spec(),
         failures=[RuntimeCheckFailure(stage="substrate_unavailable", detail="nxc missing")],
     )
@@ -88,7 +88,7 @@ def test_cli_substrate_unavailable_does_not_fail_pipeline():
 def test_cli_writes_runtime_check_to_artefact(tmp_path):
     fake_result = RuntimeCheckResult(
         passed=True,
-        substrate="nixos-compose",
+        substrate="docker:linux/amd64",
         spec=_spec(),
         hash_1="x",
         hash_2="x",
@@ -113,5 +113,5 @@ def test_cli_writes_runtime_check_to_artefact(tmp_path):
     assert len(artefacts) == 1
     data = json.loads(artefacts[0].read_text())
     assert data["runtime_check"]["passed"] is True
-    assert data["runtime_check"]["substrate"] == "nixos-compose"
+    assert data["runtime_check"]["substrate"] == "docker:linux/amd64"
     assert data["runtime_check"]["capture_duration_ms"] == 42

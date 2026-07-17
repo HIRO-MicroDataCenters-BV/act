@@ -63,9 +63,9 @@ def test_spec_orchestrator_from_resource_type(resource_type, expected_orchestrat
 
 def test_runtime_check_result_default_fields():
     spec = TargetSpec(arch="x86_64-linux", orchestrator="k8s")
-    result = RuntimeCheckResult(passed=True, substrate="nixos-compose", spec=spec)
+    result = RuntimeCheckResult(passed=True, substrate="docker:linux/amd64", spec=spec)
     assert result.passed is True
-    assert result.substrate == "nixos-compose"
+    assert result.substrate == "docker:linux/amd64"
     assert result.spec.arch == "x86_64-linux"
     assert result.hash_1 == ""
     assert result.hash_2 == ""
@@ -75,15 +75,15 @@ def test_runtime_check_result_default_fields():
 
 
 def test_runtime_check_failure_classifies_stage():
-    failure = RuntimeCheckFailure(stage="provision_failed", detail="nxc build exit 1")
+    failure = RuntimeCheckFailure(stage="provision_failed", detail="k3s boot exit 1")
     assert failure.stage == "provision_failed"
-    assert "nxc" in failure.detail
+    assert "k3s" in failure.detail
 
 
 def test_runtime_check_result_holds_failures():
     spec = TargetSpec(arch="riscv64-linux", orchestrator="k8s")
-    failures = [RuntimeCheckFailure(stage="substrate_unavailable", detail="nxc not found")]
-    result = RuntimeCheckResult(passed=False, substrate="nixos-compose", spec=spec, failures=failures)
+    failures = [RuntimeCheckFailure(stage="substrate_unavailable", detail="docker not found")]
+    result = RuntimeCheckResult(passed=False, substrate="docker:linux/amd64", spec=spec, failures=failures)
     assert len(result.failures) == 1
     assert result.failures[0].stage == "substrate_unavailable"
 
