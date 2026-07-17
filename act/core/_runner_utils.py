@@ -1,43 +1,16 @@
-"""Shared helpers for FuzzRunner and PropertyRunner."""
+"""Shared helpers for FuzzRunner and PropertyRunner: re-run a program under boundary
+combinations of the env vars it reads and check the oracle on each plan."""
 
-import copy
+from typing import Optional
 
+import ast
+import itertools
+
+from act.core.mock_generator import MockGenerator
 from act.core.violations import Violation
 
-# Boundary values to try per schema field type
-_BOUNDARY_VALUES: dict[str, list] = {
-    "string": ["", None],
-    "integer": [-1, 0, 99999, None],
-    "boolean": [None],
-    "array": [[], None],
-    "object": [{}, None],
-}
-
-
-def collect_resource_info(mock_generator, program_path: str) -> list[tuple]:
-    """Run the program once; return [(token, resource_name, base_outputs)]."""
-    outputs = mock_generator.run_with_mocks(program_path)
-    result = []
-    for name, resource_outputs in outputs.items():
-        token = mock_generator.get_resource_type(name)
-        if token:
-            result.append((token, name, resource_outputs))
-    return result
-
-
-def generate_mutations(base_outputs: dict, schema_inputs: dict) -> list[dict]:
-    """Return mutated copies of base_outputs, one per (field, boundary_value) pair.
-
-    Only top-level fields declared in schema_inputs are mutated.
-    """
-    mutations = []
-    for field, prop_schema in schema_inputs.items():
-        field_type = prop_schema.get("type", "string")
-        for val in _BOUNDARY_VALUES.get(field_type, [None]):
-            mutated = copy.deepcopy(base_outputs)
-            mutated[field] = val
-            mutations.append(mutated)
-    return mutations
+# Per-variable boundary values: unset, empty, and a representative non-empty value.
+_ENV_BOUNDARY_VALUES: tuple = (None, "", "act-fuzz")
 
 
 def deduplicate(violations: list[Violation], seen: set) -> list[Violation]:
@@ -51,69 +24,85 @@ def deduplicate(violations: list[Violation], seen: set) -> list[Violation]:
     return new
 
 
-def _atheris_mutate(base_outputs: dict, schema_inputs: dict, fdp) -> dict:
-    """Return a mutated copy of base_outputs; the field/value are chosen by an atheris FuzzedDataProvider."""
-    fields = list(schema_inputs.items())
-    if not fields:
-        return copy.deepcopy(base_outputs)
-
-    field_idx = fdp.ConsumeIntInRange(0, len(fields) - 1)
-    field, prop_schema = fields[field_idx]
-    field_type = prop_schema.get("type", "string")
-    boundary_values = _BOUNDARY_VALUES.get(field_type, [None])
-
-    val_idx = fdp.ConsumeIntInRange(0, len(boundary_values) - 1)
-    val = boundary_values[val_idx]
-
-    mutated = copy.deepcopy(base_outputs)
-    mutated[field] = val
-    return mutated
+def _is_name(node, ident: str) -> bool:
+    return isinstance(node, ast.Name) and node.id == ident
 
 
-def build_field_strategy(prop_schema: dict):
-    """Return a hypothesis strategy for a single schema field."""
+def _is_os_environ(node) -> bool:
+    return isinstance(node, ast.Attribute) and node.attr == "environ" and _is_name(node.value, "os")
+
+
+def _const_str(node) -> Optional[str]:
+    return node.value if isinstance(node, ast.Constant) and isinstance(node.value, str) else None
+
+
+def _env_var_from_node(node) -> Optional[str]:
+    """Return the env var name a node reads (os.environ[...] / os.environ.get / os.getenv), else None."""
+    if isinstance(node, ast.Subscript) and _is_os_environ(node.value):
+        return _const_str(node.slice)
+    if isinstance(node, ast.Call) and node.args:
+        func = node.func
+        if isinstance(func, ast.Attribute) and func.attr == "get" and _is_os_environ(func.value):
+            return _const_str(node.args[0])
+        if isinstance(func, ast.Attribute) and func.attr == "getenv" and _is_name(func.value, "os"):
+            return _const_str(node.args[0])
+    return None
+
+
+def discover_env_vars(program_path: str) -> list[str]:
+    """AST-scan the program for the environment variables it reads (unique, order-preserving)."""
+    with open(MockGenerator._entry_point(program_path)) as f:
+        tree = ast.parse(f.read())
+    names: list[str] = []
+    for node in ast.walk(tree):
+        name = _env_var_from_node(node)
+        if name and name not in names:
+            names.append(name)
+    return names
+
+
+def generate_env_combinations(var_names: list[str], cap: int = 64) -> list[dict]:
+    """Boundary combos (unset / empty / non-empty): full cartesian under cap, else one-at-a-time."""
+    if not var_names:
+        return []
+    if len(_ENV_BOUNDARY_VALUES) ** len(var_names) <= cap:
+        return [dict(zip(var_names, vals)) for vals in itertools.product(_ENV_BOUNDARY_VALUES, repeat=len(var_names))]
+    baseline = {name: None for name in var_names}
+    combos = [dict(baseline)]
+    for var in var_names:
+        for value in _ENV_BOUNDARY_VALUES:
+            if value is not None:
+                combos.append({**baseline, var: value})
+    return combos
+
+
+def build_env_strategy(var_names: list[str]):
+    """Return a hypothesis strategy assigning each env var unset / empty / arbitrary text."""
     from hypothesis import strategies as st
 
-    field_type = prop_schema.get("type", "string")
-    enum_values = prop_schema.get("enum")
-    if enum_values:
-        return st.sampled_from(enum_values + [None])
-
-    minimum = prop_schema.get("minimum")
-    maximum = prop_schema.get("maximum")
-
-    if field_type == "string":
-        return st.one_of(st.just(""), st.just(None), st.text(max_size=64))
-    if field_type == "integer":
-        min_val = minimum if minimum is not None else -999
-        max_val = maximum if maximum is not None else 99999
-        return st.one_of(
-            st.just(None),
-            st.just(-1),
-            st.just(0),
-            st.integers(min_value=min_val, max_value=max_val),
-        )
-    if field_type == "boolean":
-        return st.one_of(st.booleans(), st.just(None))
-    if field_type == "array":
-        return st.one_of(st.just([]), st.just(None), st.lists(st.text(), max_size=5))
-    if field_type == "object":
-        return st.one_of(st.just({}), st.just(None))
-    return st.just(None)
+    per_var = st.one_of(st.none(), st.just(""), st.text(max_size=32))
+    return st.fixed_dictionaries({name: per_var for name in var_names})
 
 
-def build_strategy(base_outputs: dict, schema_inputs: dict):
-    """Return a hypothesis strategy over base_outputs; schema fields vary independently, others stay fixed."""
-    from hypothesis import strategies as st
+def check_env(mock_generator, oracle, program_path: str, env: dict, seen: set) -> list[Violation]:
+    """Re-run the program under one env assignment; return new oracle violations."""
+    try:
+        # A program that raises on some input is not itself a policy violation.
+        outputs = mock_generator.run_with_mocks(program_path, env=env)
+    except Exception:
+        return []
+    found: list[Violation] = []
+    for name, resource_outputs in outputs.items():
+        token = mock_generator.get_resource_type(name)
+        if token:
+            found.extend(deduplicate(oracle.check(token, resource_outputs), seen))
+    return found
 
-    field_strategies: dict = {}
-    for field, prop_schema in schema_inputs.items():
-        base_val = base_outputs.get(field)
-        field_strategies[field] = st.one_of(
-            st.just(base_val),
-            build_field_strategy(prop_schema),
-        )
-    for field, val in base_outputs.items():
-        if field not in field_strategies:
-            field_strategies[field] = st.just(val)
-    return st.fixed_dictionaries(field_strategies)
+
+def explore_env_inputs(mock_generator, oracle, program_path: str, env_combos) -> list[Violation]:
+    """Run the oracle across each env combination; return deduped violations."""
+    seen: set = set()
+    found: list[Violation] = []
+    for env in env_combos:
+        found.extend(check_env(mock_generator, oracle, program_path, env, seen))
+    return found

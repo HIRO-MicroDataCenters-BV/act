@@ -16,27 +16,33 @@ def _runner(schema_path, iterations=20):
     return FuzzRunner(mg, oracle, iterations=iterations)
 
 
-def test_fuzz_runner_skips_without_atheris(cape_schema_path, cape_fixtures, monkeypatch):
-    """Returns [] when atheris is not importable."""
+def test_fuzz_runner_skips_without_atheris(cape_schema_path, path_b_fixture, monkeypatch):
     monkeypatch.setitem(sys.modules, "atheris", None)
-    runner = _runner(cape_schema_path)
-    result = runner.run(str(cape_fixtures / "path_a_valid.py"))
-    assert result == []
+    assert _runner(cape_schema_path).run(str(path_b_fixture)) == []
+
+
+def test_fuzz_runner_skips_static_program(cape_schema_path, cape_fixtures):
+    """A program with no env inputs has no Path B input space to explore."""
+    pytest.importorskip("atheris")
+    assert _runner(cape_schema_path).run(str(cape_fixtures / "path_a_valid.py")) == []
 
 
 def test_fuzz_runner_finds_violations(cape_schema_path, path_b_fixture):
-    """Finds boundary violations via atheris mutation (Linux only)."""
     pytest.importorskip("atheris")
-    runner = _runner(cape_schema_path, iterations=50)
-    violations = runner.run(str(path_b_fixture))
+    violations = _runner(cape_schema_path, iterations=50).run(str(path_b_fixture))
     assert len(violations) >= 1
     assert all(v.severity in ("HIGH", "MEDIUM", "LOW") for v in violations)
 
 
-def test_fuzz_runner_deduplicates(cape_schema_path, path_b_fixture):
-    """Violations are deduplicated - same (field, message) pair appears once."""
+def test_fuzz_runner_reaches_ssh_without_security_group(cape_schema_path, path_b_fixture):
+    """The insecure combo lives inside the nested spec, reachable only by varying env inputs."""
     pytest.importorskip("atheris")
-    runner = _runner(cape_schema_path, iterations=200)
-    violations = runner.run(str(path_b_fixture))
+    violations = _runner(cape_schema_path, iterations=50).run(str(path_b_fixture))
+    assert any(v.field == "spec.sshKeys" for v in violations)
+
+
+def test_fuzz_runner_deduplicates(cape_schema_path, path_b_fixture):
+    pytest.importorskip("atheris")
+    violations = _runner(cape_schema_path, iterations=200).run(str(path_b_fixture))
     keys = [(v.field, v.message) for v in violations]
     assert len(keys) == len(set(keys))
