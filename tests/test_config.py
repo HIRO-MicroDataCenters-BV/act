@@ -1,6 +1,10 @@
+import re
+from pathlib import Path
+
 import pytest
 
 from act.config import (
+    _FILE_TO_ENV,
     DEFAULT_ACV_TIMEOUT_S,
     DEFAULT_K3S_IMAGE,
     DEFAULT_K3S_RISCV64_IMAGE,
@@ -8,6 +12,14 @@ from act.config import (
     SUPPORTED_ARCHS,
     ActConfig,
 )
+
+
+def test_example_toml_keys_match_config():
+    """Every key in act.example.toml must be a real config field, so the sample can't drift."""
+    text = (Path(__file__).parent.parent / "act.example.toml").read_text()
+    keys = set(re.findall(r"^#\s*(\w+)\s*=", text, re.MULTILINE))
+    valid = set(_FILE_TO_ENV) | {"acv_base_url"}
+    assert keys and keys <= valid, f"unknown keys in sample: {keys - valid}"
 
 
 def test_defaults():

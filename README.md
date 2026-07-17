@@ -152,7 +152,7 @@ Flags for `act check`:
 | `--program PATH` | yes | none | Path to the Pulumi program file (or project directory) |
 | `--schema PATH [PATH ...]` | no | auto | Provider schema JSON. Omit to auto-resolve one per provider from the program's `pulumi_*` imports (local `<plugin>.json` or `pulumi get-schema`); pass explicitly (repeatable) to override. |
 | `--schema-dir DIR` | no | none | Extra directory to search for a local `<plugin>.json` during auto-resolution. Repeatable. Use it for custom or in-house providers that have no public plugin |
-| `--config PATH` | no | `./act.toml` | Path to an `act.toml` config file. Precedence per field: CLI flags > env > file > default |
+| `--config PATH` | no | `./act.toml` | Path to an `act.toml` config file. Precedence per field: CLI flags > env > file > default. See `act.example.toml` for all keys |
 | `--quiet` | no | off | Suppress the one-line `Summary:` footer (the PASS/FAIL report still prints) |
 | `--output DIR` | no | none | Write a structured run artefact (JSON) to this directory |
 | `--log-level LEVEL` | no | `WARNING` | One of `DEBUG`, `INFO`, `WARNING`, `ERROR`. Env: `ACT_LOG_LEVEL` |
