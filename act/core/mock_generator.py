@@ -98,11 +98,14 @@ class MockGenerator:
         result: dict = {}
         for token, resource in self._schema.get("resources", {}).items():
             class_name = token.split(":")[-1]
-            if class_name in result and result[class_name]["token"] != token:
+            existing = result.get(class_name)
+            # Only a cross-provider clash is ambiguous; the same class across a provider's own
+            # API versions (e.g. kubernetes apps/v1 vs apps/v1beta1) is expected, not a collision.
+            if existing and existing["token"].split(":")[0] != token.split(":")[0]:
                 log.warning(
                     "mock_generator.class_name_collision class=%s tokens=%s,%s",
                     class_name,
-                    result[class_name]["token"],
+                    existing["token"],
                     token,
                 )
             result[class_name] = {
