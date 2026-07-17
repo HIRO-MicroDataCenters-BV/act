@@ -21,6 +21,17 @@ log = logging.getLogger(__name__)
 DEFAULT_EXEC_TIMEOUT_S = 30
 
 
+def _import_aliases(tree: ast.AST) -> dict:
+    """Map a local alias to its original imported name (`from m import Orig as Alias`)."""
+    aliases: dict = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            for a in node.names:
+                if a.asname:
+                    aliases[a.asname] = a.name
+    return aliases
+
+
 def _set_or_unset_env(key: str, value: Optional[str]) -> None:
     if value is None:
         os.environ.pop(key, None)
@@ -84,9 +95,16 @@ class MockGenerator:
 
     def _build_type_map(self) -> dict:
         """Map class name (last token segment) -> {token, inputs, outputs, required}."""
-        result = {}
+        result: dict = {}
         for token, resource in self._schema.get("resources", {}).items():
             class_name = token.split(":")[-1]
+            if class_name in result and result[class_name]["token"] != token:
+                log.warning(
+                    "mock_generator.class_name_collision class=%s tokens=%s,%s",
+                    class_name,
+                    result[class_name]["token"],
+                    token,
+                )
             result[class_name] = {
                 "token": token,
                 "inputs": resource.get("inputProperties", {}),
@@ -115,6 +133,7 @@ class MockGenerator:
         with open(self._entry_point(program_path)) as f:
             tree = ast.parse(f.read())
 
+        aliases = _import_aliases(tree)
         found = set()
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call):
@@ -124,8 +143,11 @@ class MockGenerator:
                 name = node.func.id
             elif isinstance(node.func, ast.Attribute):
                 name = node.func.attr
-            if name and name in self._type_map:
-                found.add(name)
+            if name is None:
+                continue
+            resolved = aliases.get(name, name)  # `from m import Instance as VM` -> resolve VM to Instance
+            if resolved in self._type_map:
+                found.add(resolved)
         return found
 
     def generate(self, program_path: str) -> type:
