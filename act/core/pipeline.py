@@ -110,9 +110,9 @@ class ACTPipeline:
                 },
             )
 
-        # ACV gates the verdict only in blocking mode; deterministic `violations` stay oracle-only.
+        # ACV gates only in blocking mode; an empty capture can never pass (fail-closed).
         acv_blocked = bool(self._acv_blocking and acv_result and acv_result.verdict == "FAIL")
-        passed = len(violations) == 0 and not acv_blocked
+        passed = len(violations) == 0 and not acv_blocked and bool(mock_outputs)
         log.info(
             "pipeline.done",
             extra={

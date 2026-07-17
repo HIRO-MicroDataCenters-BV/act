@@ -100,22 +100,20 @@ def test_check_nonexistent_schema_is_clean(capsys):
     assert "Traceback" not in err
 
 
-def test_zero_resources_warns_but_passes(capsys):
+def test_zero_resources_warns_and_fails_closed(capsys):
     code = main(["check", "--program", "tests/fixtures/no_resources.py", "--schema", CAPE_SCHEMA])
     out = capsys.readouterr().out
-    assert code == 0
-    assert "PASS" in out
+    assert code == 2  # nothing captured -> nothing validated
+    assert "FAIL" in out
     assert "WARN  no resources captured" in out
 
 
 def test_program_stdout_does_not_leak(capsys):
-    # The program prints a marker; it must not pollute ACT's report, and the run
-    # (including the plan-determinism subprocess) must still pass.
+    # The program prints a marker; it must not pollute ACT's report.
     code = main(["check", "--program", "tests/fixtures/prints_to_stdout.py", "--schema", CAPE_SCHEMA])
     out = capsys.readouterr().out
-    assert code == 0
+    assert code == 2  # fixture declares no resources
     assert "LEAK_MARKER_SHOULD_NOT_APPEAR" not in out
-    assert "PASS" in out
 
 
 def test_summary_prints_by_default(capsys):

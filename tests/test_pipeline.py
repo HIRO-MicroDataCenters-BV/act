@@ -38,3 +38,10 @@ def test_result_carries_program_path(cape_schema_path, cape_fixtures):
     path = str(cape_fixtures / "path_a_valid.py")
     result = pipeline.run(path)
     assert result.program_path == path
+
+
+def test_zero_resource_program_does_not_pass(cape_schema_path, cape_fixtures):
+    pipeline = _cape_pipeline(cape_schema_path)
+    result = pipeline.run(str(cape_fixtures.parent / "no_resources.py"))
+    assert not result.passed
+    assert result.resource_count == 0

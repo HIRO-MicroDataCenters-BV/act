@@ -37,6 +37,15 @@ def test_exit_2_on_missing_program(cape_schema_path):
     assert code == 2
 
 
+def test_exit_2_on_zero_resources(cape_schema_path, cape_fixtures, capsys):
+    gate = _gate(cape_schema_path)
+    code = gate.evaluate(str(cape_fixtures.parent / "no_resources.py"))
+    assert code == 2
+    out = capsys.readouterr().out
+    assert "FAIL" in out
+    assert "no resources captured" in out
+
+
 def test_unexpected_error_writes_traceback_to_stderr(capsys):
     """Unexpected pipeline errors emit the message + a full traceback on stderr (not stdout)."""
     pipeline = MagicMock()
