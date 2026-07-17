@@ -7,6 +7,10 @@
 # Log verbosity: DEBUG | INFO | WARNING | ERROR
 # log_level = "WARNING"
 
+# Network `pulumi package get-schema` fallback when no local schema is found: allow | deny
+# (deny for offline or hardened runs)
+# schema_fetch = "allow"
+
 # --- ACT Cognitive Validator (optional; needs the `acv` extra and a served model) ---
 # acv_model = ""              # served model name; leaving it unset disables ACV
 # acv_base_url = ""           # OpenAI-compatible endpoint

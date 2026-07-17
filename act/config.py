@@ -27,6 +27,8 @@ DEFAULT_ACV_MAX_RETRIES = 3
 DEFAULT_FUZZ_ITERATIONS = 100
 DEFAULT_PROPERTY_MAX_EXAMPLES = 50
 DEFAULT_EXEC_TIMEOUT_S = 30
+SCHEMA_FETCH_MODES: tuple[str, ...] = ("allow", "deny")
+DEFAULT_SCHEMA_FETCH = "allow"
 DEFAULT_K3S_IMAGE = "rancher/k3s:v1.32.1-k3s1"
 DEFAULT_K3S_RISCV64_IMAGE = "ghcr.io/carv-ics-forth/k3s:v1.32.1-k3s1-riscv64"
 DEFAULT_K8S_NAMESPACE = "default"
@@ -67,6 +69,9 @@ class ActConfig:
 
     # Wall-clock cap on running a program under mocks (seconds).
     exec_timeout_s: int = DEFAULT_EXEC_TIMEOUT_S
+
+    # Whether a missing schema may be fetched over the network; deny for offline/hardened runs.
+    schema_fetch: str = DEFAULT_SCHEMA_FETCH
 
     # Reproducibility substrate images.
     k3s_image: str = DEFAULT_K3S_IMAGE
@@ -126,6 +131,9 @@ class ActConfig:
             ),
             exec_timeout_s=_read_int(
                 env.get("ACT_EXEC_TIMEOUT_S"), DEFAULT_EXEC_TIMEOUT_S, name="ACT_EXEC_TIMEOUT_S", minimum=1
+            ),
+            schema_fetch=_read_choice(
+                env.get("ACT_SCHEMA_FETCH"), SCHEMA_FETCH_MODES, DEFAULT_SCHEMA_FETCH, name="ACT_SCHEMA_FETCH"
             ),
             k3s_image=_read_str(env.get("ACT_K3S_IMAGE"), DEFAULT_K3S_IMAGE),
             k3s_riscv64_image=_read_str(env.get("ACT_K3S_RISCV64_IMAGE"), DEFAULT_K3S_RISCV64_IMAGE),
@@ -296,6 +304,7 @@ _FILE_TO_ENV: dict[str, str] = {
     "fuzz_iterations": "ACT_FUZZ_ITERATIONS",
     "property_max_examples": "ACT_PROPERTY_MAX_EXAMPLES",
     "exec_timeout_s": "ACT_EXEC_TIMEOUT_S",
+    "schema_fetch": "ACT_SCHEMA_FETCH",
     "k3s_image": "ACT_K3S_IMAGE",
     "k3s_riscv64_image": "ACT_K3S_RISCV64_IMAGE",
     "k8s_namespace": "ACT_K8S_NAMESPACE",

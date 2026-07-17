@@ -144,6 +144,12 @@ def _build_check_parser(cfg: ActConfig) -> argparse.ArgumentParser:
         metavar="DIR",
         help="Extra directory to search for a local <plugin>.json when auto-resolving schemas. Repeatable.",
     )
+    parser.add_argument(
+        "--no-schema-fetch",
+        action="store_true",
+        help="Disable the network 'pulumi package get-schema' fallback (for offline or hardened runs); "
+        "resolution then uses only local and cached schemas.",
+    )
     parser.add_argument("--output", default=None, help="Directory to write run artefacts (optional)")
     parser.add_argument(
         "--quiet",
@@ -422,8 +428,9 @@ def _cmd_check(argv=None) -> int:
         return 2
 
     # --schema is a full override; otherwise resolve schemas from the program's imports.
+    allow_fetch = cfg.schema_fetch == "allow" and not args.no_schema_fetch
     try:
-        schemas = resolve_schemas(args.program, args.schema, schema_dirs=args.schema_dir)
+        schemas = resolve_schemas(args.program, args.schema, schema_dirs=args.schema_dir, allow_fetch=allow_fetch)
     except SchemaResolveError as e:
         print(f"[ERROR] {e}", file=sys.stderr)
         return 2

@@ -51,6 +51,8 @@ def test_defaults():
         # enums: valid kept, invalid -> default
         ({"ACT_ACV_MODE": "blocking"}, "acv_mode", "blocking"),
         ({"ACT_ACV_MODE": "bogus"}, "acv_mode", "advisory"),
+        ({"ACT_SCHEMA_FETCH": "deny"}, "schema_fetch", "deny"),
+        ({"ACT_SCHEMA_FETCH": "bogus"}, "schema_fetch", "allow"),
         ({"ACT_LOG_LEVEL": "DEBUG"}, "log_level", "DEBUG"),
         ({"ACT_LOG_LEVEL": "bogus"}, "log_level", DEFAULT_LOG_LEVEL),
         # strings: override / blank+whitespace -> default / surrounding whitespace stripped

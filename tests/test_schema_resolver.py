@@ -33,9 +33,47 @@ def test_detect_plugins_maps_underscores(tmp_path):
     assert schema_resolver.detect_plugins(_prog(tmp_path, "import pulumi_aws_native\n")) == ["aws-native"]
 
 
-def test_explicit_schema_is_full_override():
-    # Explicit schemas skip detection entirely (program is never read).
-    assert schema_resolver.resolve_schemas("missing.py", ["a.json", "b.json"]) == ["a.json", "b.json"]
+def test_explicit_schema_passes_through_when_no_providers(tmp_path):
+    # A program importing no providers: the given schemas pass through unchanged.
+    prog = _prog(tmp_path, "import pulumi\n")
+    assert schema_resolver.resolve_schemas(prog, ["a.json", "b.json"]) == ["a.json", "b.json"]
+
+
+def test_explicit_schema_wins_and_never_fetches(tmp_path, monkeypatch):
+    # A given schema that declares the imported provider is used outright: no fetch.
+    given = tmp_path / "given.json"
+    given.write_text('{"name":"random","resources":{}}')
+    calls: list = []
+    monkeypatch.setattr(schema_resolver.shutil, "which", lambda name: "/usr/bin/pulumi")
+    monkeypatch.setattr(schema_resolver.subprocess, "run", lambda cmd, **kw: calls.append(cmd))
+    out = schema_resolver.resolve_schemas(_prog(tmp_path, "import pulumi_random\n"), [str(given)], allow_fetch=True)
+    assert out == [str(given)]
+    assert calls == []
+
+
+def test_mixes_explicit_files_and_fetched_across_providers(tmp_path, monkeypatch):
+    # 3 providers: aws + cape given by file (custom); random not covered, so it is fetched.
+    monkeypatch.setattr(schema_resolver, "_CACHE_DIR", tmp_path / "cache")
+    monkeypatch.setattr(schema_resolver.shutil, "which", lambda name: "/usr/bin/pulumi")
+    fetched: list = []
+
+    def fake_run(cmd, **kw):
+        fetched.append(cmd)
+        return SimpleNamespace(returncode=0, stdout='{"name":"random","version":"4.16.0","resources":{}}', stderr="")
+
+    monkeypatch.setattr(schema_resolver.subprocess, "run", fake_run)
+    monkeypatch.chdir(tmp_path)
+    aws = tmp_path / "aws.json"
+    aws.write_text('{"name":"aws","resources":{}}')
+    cape = tmp_path / "custom-cape.json"
+    cape.write_text('{"name":"cape","resources":{}}')
+    prog = _prog(tmp_path, "import pulumi_aws\nimport pulumi_cape\nimport pulumi_random\n")
+
+    out = schema_resolver.resolve_schemas(prog, [str(aws), str(cape)], allow_fetch=True)
+
+    assert str(aws) in out and str(cape) in out  # hardcoded files kept
+    assert any(p.endswith("random/4.16.0.json") for p in out)  # uncovered provider fetched
+    assert len(fetched) == 1 and len(out) == 3  # only the one uncovered provider was fetched
 
 
 def test_no_pulumi_imports_resolves_empty(tmp_path):
@@ -92,7 +130,7 @@ def test_multi_provider_mixes_local_and_fetched(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "kubernetes.json").write_text('{"name":"kubernetes","resources":{}}')
     prog = _prog(tmp_path, "import pulumi_aws\nimport pulumi_kubernetes\n")
-    out = schema_resolver.resolve_schemas(prog, None)
+    out = schema_resolver.resolve_schemas(prog, None, allow_fetch=True)
     assert len(out) == 2
     assert any(p.endswith("kubernetes.json") for p in out)  # local
     assert any(p.endswith("aws/6.0.0.json") for p in out)  # fetched + cached
@@ -126,10 +164,34 @@ def test_fetch_failure_is_actionable(tmp_path, monkeypatch):
     )
     monkeypatch.chdir(tmp_path)
     with pytest.raises(schema_resolver.SchemaResolveError) as exc:
-        schema_resolver.resolve_schemas(_prog(tmp_path, "import pulumi_random\n"), None)
+        schema_resolver.resolve_schemas(_prog(tmp_path, "import pulumi_random\n"), None, allow_fetch=True)
     msg = str(exc.value)
     # The underlying reason is surfaced, and the message stays actionable.
     assert "get-schema failed" in msg and "plugin not found" in msg and "--schema" in msg
+
+
+def test_lists_all_unresolved_providers_together(tmp_path, monkeypatch):
+    # Two providers with no schema are reported in one error, not one-at-a-time.
+    monkeypatch.setattr(schema_resolver, "_CACHE_DIR", tmp_path / "cache")
+    monkeypatch.setattr(schema_resolver.shutil, "which", lambda name: None)
+    monkeypatch.chdir(tmp_path)
+    prog = _prog(tmp_path, "import pulumi_acme\nimport pulumi_widget\n")
+    with pytest.raises(schema_resolver.SchemaResolveError) as exc:
+        schema_resolver.resolve_schemas(prog, None, allow_fetch=True)
+    msg = str(exc.value)
+    assert "acme" in msg and "widget" in msg and "--schema" in msg
+
+
+def test_fetch_off_does_not_call_pulumi(tmp_path, monkeypatch):
+    monkeypatch.setattr(schema_resolver, "_CACHE_DIR", tmp_path / "cache")
+    monkeypatch.setattr(schema_resolver.shutil, "which", lambda name: "/usr/bin/pulumi")
+    calls: list = []
+    monkeypatch.setattr(schema_resolver.subprocess, "run", lambda cmd, **kw: calls.append(cmd))
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(schema_resolver.SchemaResolveError) as exc:
+        schema_resolver.resolve_schemas(_prog(tmp_path, "import pulumi_random\n"), None, allow_fetch=False)
+    assert "ACT_SCHEMA_FETCH=allow" in str(exc.value)
+    assert calls == []  # never shelled out to pulumi
 
 
 def test_cache_lookup_is_not_prefix_collided(tmp_path, monkeypatch):
@@ -174,10 +236,10 @@ def test_fetch_success_caches_and_reuses(tmp_path, monkeypatch):
     monkeypatch.setattr(schema_resolver.subprocess, "run", fake_run)
     prog = _prog(tmp_path, "import pulumi_random\n")
 
-    out = schema_resolver.resolve_schemas(prog, None)
+    out = schema_resolver.resolve_schemas(prog, None, allow_fetch=True)
     assert len(out) == 1 and out[0].endswith("random/4.16.0.json")
     assert Path(out[0]).is_file()
 
     # A second run hits the cache; no further get-schema call.
-    assert schema_resolver.resolve_schemas(prog, None) == out
+    assert schema_resolver.resolve_schemas(prog, None, allow_fetch=True) == out
     assert len(calls) == 1

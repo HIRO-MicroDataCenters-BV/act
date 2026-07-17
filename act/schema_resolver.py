@@ -120,17 +120,15 @@ def _cache_write(plugin: str, version: str, content: str) -> str:
     return str(target)
 
 
-def _fetch_schema(plugin: str) -> Optional[str]:
-    """Fetch via `pulumi package get-schema`, cache it, and return the path.
+def _fetch_schema(plugin: str) -> tuple[Optional[str], Optional[str]]:
+    """Fetch via `pulumi package get-schema` and cache it.
 
-    Returns None when the pulumi CLI is absent (the caller turns that into a
-    generic 'pass --schema' error). Raises SchemaResolveError, surfacing the
-    underlying reason, when the CLI is present but cannot produce a schema.
+    Returns (path, None) on success, or (None, reason) when the CLI is absent or
+    cannot produce a schema.
     """
     if shutil.which("pulumi") is None:
-        return None
+        return None, "the pulumi CLI is not available to fetch it"
     print(f"resolving schema for '{plugin}' via pulumi...", file=sys.stderr)
-    hint = f"Pass --schema <path>, put '{plugin}.json' in a schemas/ directory, or use --schema-dir."
     try:
         proc = subprocess.run(
             ["pulumi", "package", "get-schema", plugin],
@@ -139,36 +137,74 @@ def _fetch_schema(plugin: str) -> Optional[str]:
             timeout=_GET_SCHEMA_TIMEOUT_S,
         )
     except (OSError, subprocess.SubprocessError) as exc:
-        raise SchemaResolveError(f"cannot resolve a schema for '{plugin}': {exc}. {hint}")
+        return None, f"pulumi get-schema errored: {exc}"
     if proc.returncode != 0:
         detail = (proc.stderr or "").strip().splitlines()
         tail = f" ({detail[-1]})" if detail else ""
-        raise SchemaResolveError(f"cannot resolve a schema for '{plugin}': pulumi get-schema failed{tail}. {hint}")
+        return None, f"pulumi get-schema failed{tail}"
     try:
         version = str(json.loads(proc.stdout).get("version") or "latest")
     except (ValueError, TypeError):
-        raise SchemaResolveError(f"cannot resolve a schema for '{plugin}': pulumi returned invalid JSON. {hint}")
-    return _cache_write(plugin, version, proc.stdout)
+        return None, "pulumi returned invalid JSON"
+    return _cache_write(plugin, version, proc.stdout), None
 
 
-def _resolve_one(plugin: str, program_path: str, extra_dirs: Sequence[str]) -> str:
-    schema = _local_schema(plugin, program_path, extra_dirs) or _cached_schema(plugin) or _fetch_schema(plugin)
-    if schema is None:  # pulumi CLI absent, and no local or cached schema
-        raise SchemaResolveError(
-            f"no schema found for provider '{plugin}': no local '{plugin}.json' on the search path, "
-            "and the pulumi CLI is not available to fetch it. "
-            f"Pass --schema <path>, put '{plugin}.json' in a schemas/ directory, or use --schema-dir."
-        )
-    return schema
+def _resolve_one(
+    plugin: str, program_path: str, extra_dirs: Sequence[str], allow_fetch: bool = False
+) -> tuple[Optional[str], Optional[str]]:
+    """Return (schema_path, None) on success, or (None, reason) if it can't be resolved."""
+    schema = _local_schema(plugin, program_path, extra_dirs) or _cached_schema(plugin)
+    if schema is not None:
+        return schema, None
+    # A network fetch downloads and runs the provider plugin binary named by an
+    # untrusted program's imports, so it can be disabled for offline/hardened runs.
+    if allow_fetch:
+        return _fetch_schema(plugin)
+    return None, "no local schema and fetch is disabled"
+
+
+def _schema_provider_name(path: str) -> Optional[str]:
+    """The provider name a schema file declares, or None if unreadable/unnamed."""
+    try:
+        with open(path) as f:
+            return json.load(f).get("name")
+    except (OSError, ValueError):
+        return None
+
+
+def _missing_schemas_error(missing: list[tuple[str, Optional[str]]]) -> SchemaResolveError:
+    lines = "\n".join(f"  - {plugin}: {reason}" for plugin, reason in missing)
+    return SchemaResolveError(
+        f"no schema for provider(s):\n{lines}\n"
+        "Pass --schema <path> for each, put '<plugin>.json' in a schemas/ directory, "
+        "use --schema-dir, or allow fetch (drop --no-schema-fetch / set ACT_SCHEMA_FETCH=allow)."
+    )
 
 
 def resolve_schemas(
     program_path: str,
     explicit_schemas: Optional[Iterable[str]],
     schema_dirs: Sequence[str] = (),
+    allow_fetch: bool = False,
 ) -> list[str]:
-    """Schema paths for a program. An explicit --schema is a full override; otherwise
-    resolve one per provider imported by the program (empty if it imports none)."""
-    if explicit_schemas:
-        return list(explicit_schemas)
-    return [_resolve_one(plugin, program_path, schema_dirs) for plugin in detect_plugins(program_path)]
+    """Schema paths for a program. Explicit --schema files are always included and take
+    priority for the providers they declare; any imported provider not covered by one is
+    resolved (local -> cached -> fetch when ``allow_fetch``). No --schema resolves them all.
+
+    Every provider that still has no schema is collected and raised together, so the user
+    sees the full set to supply rather than fixing them one run at a time."""
+    explicit = list(explicit_schemas or [])
+    covered = {name for name in (_schema_provider_name(p) for p in explicit) if name}
+    resolved: list[str] = []
+    missing: list[tuple[str, Optional[str]]] = []
+    for plugin in detect_plugins(program_path):
+        if plugin in covered:
+            continue
+        path, reason = _resolve_one(plugin, program_path, schema_dirs, allow_fetch)
+        if path is not None:
+            resolved.append(path)
+        else:
+            missing.append((plugin, reason))
+    if missing:
+        raise _missing_schemas_error(missing)
+    return explicit + resolved

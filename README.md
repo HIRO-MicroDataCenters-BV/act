@@ -150,8 +150,9 @@ Flags for `act check`:
 | Flag | Required | Default | Description |
 |------|----------|---------|-------------|
 | `--program PATH` | yes | none | Path to the Pulumi program file (or project directory) |
-| `--schema PATH [PATH ...]` | no | auto | Provider schema JSON. Omit to auto-resolve one per provider from the program's `pulumi_*` imports (local `<plugin>.json` or `pulumi get-schema`); pass explicitly (repeatable) to override. |
+| `--schema PATH [PATH ...]` | no | auto | Provider schema JSON. Each file takes priority for the provider it declares; any imported provider you do not supply is auto-resolved (local `<plugin>.json`, then cache, then `pulumi get-schema`). So you can hardcode custom providers by file and let the rest resolve. Repeatable. A provider that still has no schema fails the run. |
 | `--schema-dir DIR` | no | none | Extra directory to search for a local `<plugin>.json` during auto-resolution. Repeatable. Use it for custom or in-house providers that have no public plugin |
+| `--no-schema-fetch` | no | off | Disable the network `pulumi get-schema` fallback (for offline or hardened runs); resolution then uses only local and cached schemas. Env: `ACT_SCHEMA_FETCH=deny` |
 | `--config PATH` | no | `./act.toml` | Path to an `act.toml` config file. Precedence per field: CLI flags > env > file > default. See `act.example.toml` for all keys |
 | `--quiet` | no | off | Suppress the one-line `Summary:` footer (the PASS/FAIL report still prints) |
 | `--output DIR` | no | none | Write a structured run artefact (JSON) to this directory |
