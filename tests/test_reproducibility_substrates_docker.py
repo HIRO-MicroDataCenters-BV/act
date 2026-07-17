@@ -107,6 +107,10 @@ def _setup_provision_mocks(monkeypatch, tmp_path):
         "act.reproducibility.substrates.docker.DockerSubstrate._wait_for_api",
         lambda self, container_id, port: None,
     )
+    monkeypatch.setattr(
+        "act.reproducibility.substrates.docker._wait_for_node",
+        lambda kubeconfig, timeout: "node-1",
+    )
     return calls
 
 

@@ -14,6 +14,7 @@ import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from act.reproducibility.substrates._extended_resource import _wait_for_node
 from act.reproducibility.substrates.base import (
     ProvisionedTarget,
     Substrate,
@@ -29,6 +30,7 @@ class DockerSubstrate(Substrate):
     features: frozenset[str] = field(default_factory=frozenset)
     api_host_port: int = 6443
     startup_timeout: int = 180
+    api_ready_timeout: int = 60
     extra_docker_args: tuple[str, ...] = ()
     command: tuple[str, ...] = ()
 
@@ -92,6 +94,9 @@ class DockerSubstrate(Substrate):
                 kubeconfig_text,
             )
             kubeconfig.write_text(kubeconfig_text)
+            # The kubeconfig file exists before the API server can serve requests; wait for a
+            # registered node so `pulumi up` doesn't hit an unready API (matters on slow QEMU archs).
+            _wait_for_node(str(kubeconfig), self.api_ready_timeout)
         except Exception:
             if container_started:
                 subprocess.run(

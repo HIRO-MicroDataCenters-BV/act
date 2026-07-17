@@ -237,6 +237,7 @@ def _default_substrates(cfg: ActConfig) -> list:
         "extra_docker_args": _K3S_DOCKER_ARGS,
         "api_host_port": cfg.k3s_api_host_port,
         "startup_timeout": cfg.k3s_startup_timeout_s,
+        "api_ready_timeout": cfg.k8s_api_ready_timeout_s,
     }
     substrates: list = [
         DockerSubstrate(
@@ -253,7 +254,6 @@ def _default_substrates(cfg: ActConfig) -> list:
             spec_arch="x86_64-linux",
             command=_K3S_COMMAND,
             count=cfg.accelerator_count,
-            api_ready_timeout=cfg.k8s_api_ready_timeout_s,
             **common,
         )
         for substrate_cls, feature, resource_name in (
