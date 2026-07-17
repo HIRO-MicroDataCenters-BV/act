@@ -53,6 +53,9 @@ def test_defaults():
         ({"ACT_ACV_MODE": "bogus"}, "acv_mode", "advisory"),
         ({"ACT_SCHEMA_FETCH": "deny"}, "schema_fetch", "deny"),
         ({"ACT_SCHEMA_FETCH": "bogus"}, "schema_fetch", "allow"),
+        ({"ACT_RULES": "checkov"}, "rules", ("checkov",)),
+        ({"ACT_RULES": "checkov, foo"}, "rules", ("checkov", "foo")),
+        ({"ACT_RULES": ""}, "rules", ()),
         ({"ACT_LOG_LEVEL": "DEBUG"}, "log_level", "DEBUG"),
         ({"ACT_LOG_LEVEL": "bogus"}, "log_level", DEFAULT_LOG_LEVEL),
         # strings: override / blank+whitespace -> default / surrounding whitespace stripped
@@ -152,3 +155,8 @@ def test_load_malformed_toml_falls_back(tmp_path):
 def test_load_tool_act_table(tmp_path):
     cfg = ActConfig.load(env={}, config_path=_write(tmp_path, '[tool.act]\nlog_level = "INFO"\n'))
     assert cfg.log_level == "INFO"
+
+
+def test_load_rules_list_from_file(tmp_path):
+    cfg = ActConfig.load(env={}, config_path=_write(tmp_path, 'rules = ["checkov"]\n'))
+    assert cfg.rules == ("checkov",)

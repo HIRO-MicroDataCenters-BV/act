@@ -172,9 +172,9 @@ def _build_check_parser(cfg: ActConfig) -> argparse.ArgumentParser:
     parser.add_argument(
         "--rules",
         nargs="*",
-        default=[],
+        default=list(cfg.rules),
         metavar="ENGINE",
-        help="Extra rule engines to load (e.g. --rules checkov). Repeatable.",
+        help="Extra rule engines to load (e.g. --rules checkov). Overrides ACT_RULES / config. Repeatable.",
     )
     parser.add_argument(
         "--check-deployment-arch",

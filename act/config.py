@@ -49,6 +49,9 @@ class ActConfig:
 
     log_level: str = DEFAULT_LOG_LEVEL
 
+    # Extra rule engines to load (e.g. "checkov"); a CLI --rules overrides this.
+    rules: tuple[str, ...] = ()
+
     # ACT Cognitive Validator (optional feature).
     acv_model: Optional[str] = None
     acv_base_url: Optional[str] = None
@@ -100,6 +103,7 @@ class ActConfig:
         env = os.environ if env is None else env
         return cls(
             log_level=_read_choice(env.get("ACT_LOG_LEVEL"), LOG_LEVELS, DEFAULT_LOG_LEVEL, name="ACT_LOG_LEVEL"),
+            rules=_read_str_list(env.get("ACT_RULES")),
             acv_model=_read_str(env.get("ACT_ACV_MODEL"), None),
             acv_base_url=_read_str(env.get("ACT_ACV_BASE_URL"), None) or _read_str(env.get("CAPE_ACV_MODEL_URL"), None),
             acv_api_key=_read_str(env.get("ACT_ACV_API_KEY"), None),
@@ -268,6 +272,13 @@ def _read_choice(raw: Optional[str], choices: tuple[str, ...], default: str, *, 
     return default
 
 
+def _read_str_list(raw: Optional[str]) -> tuple[str, ...]:
+    """Parse a comma-separated env value into a tuple; empty/blank -> ()."""
+    if not raw:
+        return ()
+    return tuple(item for item in (p.strip() for p in raw.split(",")) if item)
+
+
 def _read_archs(raw: Optional[str], default: tuple[str, ...]) -> tuple[str, ...]:
     if not raw:
         return default
@@ -293,6 +304,7 @@ def _read_json_obj(raw: Optional[str], *, name: Optional[str] = None) -> dict:
 # separately (OR-chain) in ActConfig.load.
 _FILE_TO_ENV: dict[str, str] = {
     "log_level": "ACT_LOG_LEVEL",
+    "rules": "ACT_RULES",
     "acv_model": "ACT_ACV_MODEL",
     "acv_api_key": "ACT_ACV_API_KEY",
     "acv_timeout": "ACT_ACV_TIMEOUT",

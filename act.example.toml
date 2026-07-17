@@ -7,6 +7,9 @@
 # Log verbosity: DEBUG | INFO | WARNING | ERROR
 # log_level = "WARNING"
 
+# Extra rule engines to always load (a CLI --rules overrides this)
+# rules = ["checkov"]
+
 # Network `pulumi package get-schema` fallback when no local schema is found: allow | deny
 # (deny for offline or hardened runs)
 # schema_fetch = "allow"
