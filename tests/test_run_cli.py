@@ -157,6 +157,16 @@ def test_doctor_in_top_level_help(capsys):
     assert "doctor" in capsys.readouterr().out
 
 
+def test_doctor_flags_missing_checkov(capsys, monkeypatch):
+    import act.doctor as doctor
+    from act.config import ActConfig
+
+    monkeypatch.setattr(doctor, "_checkov_installed", lambda: False)
+    assert doctor.run(ActConfig.from_env({})) == 0
+    out = capsys.readouterr().out
+    assert "--rules checkov" in out and "needs checkov" in out
+
+
 def test_doctor_reflects_acv_env(capsys):
     import re
 

@@ -1,8 +1,32 @@
+import os
+
 import pytest
 
 from act.core.mock_generator import MockGenerator
 from act.core.oracle import CorrectnessOracle
 from act.integrations.checkov_adapter import load_checkov_rules
+
+
+def test_run_checkov_cleans_temp_on_dump_failure(monkeypatch, tmp_path):
+    import act.integrations.checkov_adapter as ca
+
+    created: list[str] = []
+    real_mkstemp = ca.tempfile.mkstemp
+
+    def _tracked_mkstemp(*a, **k):
+        fd, path = real_mkstemp(dir=tmp_path, suffix=".yaml")
+        created.append(path)
+        return fd, path
+
+    def _boom(*a, **k):
+        raise RuntimeError("dump failed")
+
+    monkeypatch.setattr(ca.tempfile, "mkstemp", _tracked_mkstemp)
+    monkeypatch.setattr(ca.yaml, "dump", _boom)
+
+    with pytest.raises(RuntimeError):
+        ca._run_checkov("kubernetes", {"kind": "Deployment"})
+    assert created and not any(os.path.exists(p) for p in created)
 
 
 @pytest.fixture
