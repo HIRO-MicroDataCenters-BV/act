@@ -22,7 +22,12 @@ class CIGate:
         try:
             result = self._pipeline.run(program_path)
             self.last_result = result
-            exit_code = 0 if result.passed else 1
+            # No captured resources means nothing could be validated: report an error
+            # (2), distinct from a policy violation (1).
+            if result.resource_count == 0:
+                exit_code = 2
+            else:
+                exit_code = 0 if result.passed else 1
             log.info(
                 "ci_gate.result",
                 extra={
