@@ -212,7 +212,8 @@ def test_cached_schema_picks_newest_by_semver(tmp_path, monkeypatch):
     plugin_dir.mkdir(parents=True)
     for name in ("9.0.0.json", "10.0.0.json", "latest.json"):
         (plugin_dir / name).write_text("{}")
-    assert schema_resolver._cached_schema("aws").endswith("aws/10.0.0.json")
+    hit = schema_resolver._cached_schema("aws")
+    assert hit is not None and hit.endswith("aws/10.0.0.json")
 
 
 def test_cached_schema_falls_back_to_latest_when_only_option(tmp_path, monkeypatch):
@@ -220,7 +221,8 @@ def test_cached_schema_falls_back_to_latest_when_only_option(tmp_path, monkeypat
     plugin_dir = tmp_path / "cache" / "aws"
     plugin_dir.mkdir(parents=True)
     (plugin_dir / "latest.json").write_text("{}")
-    assert schema_resolver._cached_schema("aws").endswith("aws/latest.json")
+    hit = schema_resolver._cached_schema("aws")
+    assert hit is not None and hit.endswith("aws/latest.json")
 
 
 def test_fetch_success_caches_and_reuses(tmp_path, monkeypatch):
