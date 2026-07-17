@@ -62,11 +62,10 @@ def _run_checkov(check_type: str, outputs: dict) -> List[Violation]:
     # Checkov needs metadata to build its context; add a fallback if absent.
     payload = outputs if "metadata" in outputs else {**outputs, "metadata": {"name": "act-resource"}}
 
-    with tempfile.NamedTemporaryFile(suffix=".yaml", mode="w", delete=False) as f:
-        yaml.dump(payload, f)
-        tmp_path = f.name
-
+    fd, tmp_path = tempfile.mkstemp(suffix=".yaml")
     try:
+        with os.fdopen(fd, "w") as f:
+            yaml.dump(payload, f)
         report = runner_mod.Runner().run(
             root_folder=None,
             files=[tmp_path],
@@ -76,7 +75,8 @@ def _run_checkov(check_type: str, outputs: dict) -> List[Violation]:
             Violation(field=fc.check_id, message=fc.check_name, severity=_severity(fc)) for fc in report.failed_checks
         ]
     finally:
-        os.unlink(tmp_path)
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
 
 
 def load_checkov_rules(

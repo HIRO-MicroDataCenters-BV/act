@@ -1,6 +1,10 @@
+import re
+from pathlib import Path
+
 import pytest
 
 from act.config import (
+    _FILE_TO_ENV,
     DEFAULT_ACV_TIMEOUT_S,
     DEFAULT_K3S_IMAGE,
     DEFAULT_K3S_RISCV64_IMAGE,
@@ -8,6 +12,14 @@ from act.config import (
     SUPPORTED_ARCHS,
     ActConfig,
 )
+
+
+def test_example_toml_keys_match_config():
+    """Every key in act.example.toml must be a real config field, so the sample can't drift."""
+    text = (Path(__file__).parent.parent / "act.example.toml").read_text()
+    keys = set(re.findall(r"^#\s*(\w+)\s*=", text, re.MULTILINE))
+    valid = set(_FILE_TO_ENV) | {"acv_base_url"}
+    assert keys and keys <= valid, f"unknown keys in sample: {keys - valid}"
 
 
 def test_defaults():
@@ -39,6 +51,13 @@ def test_defaults():
         # enums: valid kept, invalid -> default
         ({"ACT_ACV_MODE": "blocking"}, "acv_mode", "blocking"),
         ({"ACT_ACV_MODE": "bogus"}, "acv_mode", "advisory"),
+        ({"ACT_SCHEMA_FETCH": "deny"}, "schema_fetch", "deny"),
+        ({"ACT_SCHEMA_FETCH": "bogus"}, "schema_fetch", "allow"),
+        ({"ACT_RULES": "checkov"}, "rules", ("checkov",)),
+        ({"ACT_RULES": "checkov, foo"}, "rules", ("checkov", "foo")),
+        ({"ACT_RULES": ""}, "rules", ()),
+        ({"ACT_SCHEMA_DIR": "schemas, /opt/s"}, "schema_dirs", ("schemas", "/opt/s")),
+        ({"ACT_SCHEMA_DIR": ""}, "schema_dirs", ()),
         ({"ACT_LOG_LEVEL": "DEBUG"}, "log_level", "DEBUG"),
         ({"ACT_LOG_LEVEL": "bogus"}, "log_level", DEFAULT_LOG_LEVEL),
         # strings: override / blank+whitespace -> default / surrounding whitespace stripped
@@ -97,6 +116,12 @@ def test_load_env_overrides_file(tmp_path):
     assert cfg.log_level == "DEBUG"
 
 
+def test_load_blank_env_still_layers_file(tmp_path):
+    # A blank env value must not block the file value and revert to the default.
+    cfg = ActConfig.load(env={"ACT_LOG_LEVEL": ""}, config_path=_write(tmp_path, 'log_level = "INFO"\n'))
+    assert cfg.log_level == "INFO"
+
+
 def test_load_cli_precedence_left_to_caller(tmp_path):
     # The file sets INFO; a caller-supplied CLI value would override the loaded cfg upstream.
     cfg = ActConfig.load(env={}, config_path=_write(tmp_path, 'log_level = "INFO"\n'))
@@ -132,3 +157,8 @@ def test_load_malformed_toml_falls_back(tmp_path):
 def test_load_tool_act_table(tmp_path):
     cfg = ActConfig.load(env={}, config_path=_write(tmp_path, '[tool.act]\nlog_level = "INFO"\n'))
     assert cfg.log_level == "INFO"
+
+
+def test_load_rules_list_from_file(tmp_path):
+    cfg = ActConfig.load(env={}, config_path=_write(tmp_path, 'rules = ["checkov"]\n'))
+    assert cfg.rules == ("checkov",)

@@ -1,0 +1,57 @@
+# ACT configuration sample.
+# Copy to `act.toml` (auto-loaded from the working dir) or pass with `--config PATH`.
+# Precedence per field: CLI flag > environment variable > this file > built-in default.
+# Values shown are the defaults; uncomment a line to override. Keys also work nested
+# under an [act] or [tool.act] table.
+
+# Log verbosity: DEBUG | INFO | WARNING | ERROR
+# log_level = "WARNING"
+
+# Extra rule engines to always load (a CLI --rules overrides this)
+# rules = ["checkov"]
+
+# Network `pulumi package get-schema` fallback when no local schema is found: allow | deny
+# (deny for offline or hardened runs)
+# schema_fetch = "allow"
+
+# Extra directories to search for a local <plugin>.json (in-house providers); CLI --schema-dir overrides
+# schema_dirs = ["./schemas"]
+
+# --- ACT Cognitive Validator (optional; needs the `acv` extra and a served model) ---
+# acv_model = ""              # served model name; leaving it unset disables ACV
+# acv_base_url = ""           # OpenAI-compatible endpoint
+# acv_api_key = ""            # bearer token for hosted endpoints
+# acv_mode = "advisory"       # advisory | blocking
+# acv_timeout = 20.0
+# acv_max_iterations = 3
+# acv_min_request_interval_s = 0.0
+# acv_max_retries = 3
+# acv_extra_body = {}         # merged into each request body, e.g. {chat_template_kwargs = {enable_thinking = false}}
+
+# --- Path B test depth (parameterized programs) ---
+# fuzz_iterations = 100
+# property_max_examples = 50
+
+# Wall-clock cap on running a program under mocks, seconds (Unix)
+# exec_timeout_s = 30
+
+# --- Reproducibility: substrate images ---
+# k3s_image = "rancher/k3s:v1.32.1-k3s1"
+# k3s_riscv64_image = "ghcr.io/carv-ics-forth/k3s:v1.32.1-k3s1-riscv64"
+
+# --- Reproducibility: target ---
+# k8s_namespace = "default"
+# k3s_api_host_port = 6443
+# runtime_archs = ["amd64", "arm64", "riscv64"]
+
+# --- Reproducibility: timeouts (seconds) ---
+# k3s_startup_timeout_s = 180
+# image_boot_timeout_s = 60
+# k8s_api_ready_timeout_s = 60
+# k8s_probe_timeout_s = 60
+
+# --- Accelerator Extended Resources ---
+# gpu_resource_name = "nvidia.com/gpu"
+# fpga_resource_name = "cape.eu/fpga"
+# cxl_resource_name = "cape.eu/cxl"
+# accelerator_count = 1

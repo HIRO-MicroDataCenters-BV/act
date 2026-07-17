@@ -26,6 +26,9 @@ DEFAULT_ACV_MIN_REQUEST_INTERVAL_S = 0.0
 DEFAULT_ACV_MAX_RETRIES = 3
 DEFAULT_FUZZ_ITERATIONS = 100
 DEFAULT_PROPERTY_MAX_EXAMPLES = 50
+DEFAULT_EXEC_TIMEOUT_S = 30
+SCHEMA_FETCH_MODES: tuple[str, ...] = ("allow", "deny")
+DEFAULT_SCHEMA_FETCH = "allow"
 DEFAULT_K3S_IMAGE = "rancher/k3s:v1.32.1-k3s1"
 DEFAULT_K3S_RISCV64_IMAGE = "ghcr.io/carv-ics-forth/k3s:v1.32.1-k3s1-riscv64"
 DEFAULT_K8S_NAMESPACE = "default"
@@ -46,6 +49,9 @@ class ActConfig:
 
     log_level: str = DEFAULT_LOG_LEVEL
 
+    # Extra rule engines to load (e.g. "checkov"); a CLI --rules overrides this.
+    rules: tuple[str, ...] = ()
+
     # ACT Cognitive Validator (optional feature).
     acv_model: Optional[str] = None
     acv_base_url: Optional[str] = None
@@ -63,6 +69,15 @@ class ActConfig:
     # Path B (parameterized programs) test depth.
     fuzz_iterations: int = DEFAULT_FUZZ_ITERATIONS
     property_max_examples: int = DEFAULT_PROPERTY_MAX_EXAMPLES
+
+    # Wall-clock cap on running a program under mocks (seconds).
+    exec_timeout_s: int = DEFAULT_EXEC_TIMEOUT_S
+
+    # Whether a missing schema may be fetched over the network; deny for offline/hardened runs.
+    schema_fetch: str = DEFAULT_SCHEMA_FETCH
+
+    # Extra directories to search for a local <plugin>.json (in-house providers); CLI --schema-dir overrides.
+    schema_dirs: tuple[str, ...] = ()
 
     # Reproducibility substrate images.
     k3s_image: str = DEFAULT_K3S_IMAGE
@@ -91,6 +106,7 @@ class ActConfig:
         env = os.environ if env is None else env
         return cls(
             log_level=_read_choice(env.get("ACT_LOG_LEVEL"), LOG_LEVELS, DEFAULT_LOG_LEVEL, name="ACT_LOG_LEVEL"),
+            rules=_read_str_list(env.get("ACT_RULES")),
             acv_model=_read_str(env.get("ACT_ACV_MODEL"), None),
             acv_base_url=_read_str(env.get("ACT_ACV_BASE_URL"), None) or _read_str(env.get("CAPE_ACV_MODEL_URL"), None),
             acv_api_key=_read_str(env.get("ACT_ACV_API_KEY"), None),
@@ -120,6 +136,13 @@ class ActConfig:
                 name="ACT_PROPERTY_MAX_EXAMPLES",
                 minimum=1,
             ),
+            exec_timeout_s=_read_int(
+                env.get("ACT_EXEC_TIMEOUT_S"), DEFAULT_EXEC_TIMEOUT_S, name="ACT_EXEC_TIMEOUT_S", minimum=1
+            ),
+            schema_fetch=_read_choice(
+                env.get("ACT_SCHEMA_FETCH"), SCHEMA_FETCH_MODES, DEFAULT_SCHEMA_FETCH, name="ACT_SCHEMA_FETCH"
+            ),
+            schema_dirs=_read_str_list(env.get("ACT_SCHEMA_DIR")),
             k3s_image=_read_str(env.get("ACT_K3S_IMAGE"), DEFAULT_K3S_IMAGE),
             k3s_riscv64_image=_read_str(env.get("ACT_K3S_RISCV64_IMAGE"), DEFAULT_K3S_RISCV64_IMAGE),
             k8s_namespace=_read_str(env.get("ACT_K8S_NAMESPACE"), DEFAULT_K8S_NAMESPACE),
@@ -182,12 +205,18 @@ class ActConfig:
         if not toml:
             return cls.from_env(env)
         merged = dict(env)
+
+        # A blank/whitespace env value counts as unset, so a file value still layers
+        # in rather than the env "" reverting the field to its hardcoded default.
+        def _unset(name: str) -> bool:
+            return not merged.get(name, "").strip()
+
         for key, env_name in _FILE_TO_ENV.items():
-            if key in toml and env_name not in merged:
+            if key in toml and _unset(env_name):
                 merged[env_name] = _toml_to_env_str(toml[key])
         # acv_base_url is an OR-chain (ACT_ACV_BASE_URL then CAPE_ACV_MODEL_URL);
         # layer the file value under both, never over a set one.
-        if "acv_base_url" in toml and "ACT_ACV_BASE_URL" not in merged and "CAPE_ACV_MODEL_URL" not in merged:
+        if "acv_base_url" in toml and _unset("ACT_ACV_BASE_URL") and _unset("CAPE_ACV_MODEL_URL"):
             merged["ACT_ACV_BASE_URL"] = _toml_to_env_str(toml["acv_base_url"])
         return cls.from_env(merged)
 
@@ -247,6 +276,13 @@ def _read_choice(raw: Optional[str], choices: tuple[str, ...], default: str, *, 
     return default
 
 
+def _read_str_list(raw: Optional[str]) -> tuple[str, ...]:
+    """Parse a comma-separated env value into a tuple; empty/blank -> ()."""
+    if not raw:
+        return ()
+    return tuple(item for item in (p.strip() for p in raw.split(",")) if item)
+
+
 def _read_archs(raw: Optional[str], default: tuple[str, ...]) -> tuple[str, ...]:
     if not raw:
         return default
@@ -272,6 +308,7 @@ def _read_json_obj(raw: Optional[str], *, name: Optional[str] = None) -> dict:
 # separately (OR-chain) in ActConfig.load.
 _FILE_TO_ENV: dict[str, str] = {
     "log_level": "ACT_LOG_LEVEL",
+    "rules": "ACT_RULES",
     "acv_model": "ACT_ACV_MODEL",
     "acv_api_key": "ACT_ACV_API_KEY",
     "acv_timeout": "ACT_ACV_TIMEOUT",
@@ -282,6 +319,9 @@ _FILE_TO_ENV: dict[str, str] = {
     "acv_extra_body": "ACT_ACV_EXTRA_BODY",
     "fuzz_iterations": "ACT_FUZZ_ITERATIONS",
     "property_max_examples": "ACT_PROPERTY_MAX_EXAMPLES",
+    "exec_timeout_s": "ACT_EXEC_TIMEOUT_S",
+    "schema_fetch": "ACT_SCHEMA_FETCH",
+    "schema_dirs": "ACT_SCHEMA_DIR",
     "k3s_image": "ACT_K3S_IMAGE",
     "k3s_riscv64_image": "ACT_K3S_RISCV64_IMAGE",
     "k8s_namespace": "ACT_K8S_NAMESPACE",

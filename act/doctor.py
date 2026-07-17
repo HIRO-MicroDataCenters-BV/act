@@ -33,6 +33,10 @@ def _acv_extra_installed() -> bool:
     return find_spec("langgraph") is not None and find_spec("langchain_core") is not None
 
 
+def _checkov_installed() -> bool:
+    return find_spec("checkov") is not None
+
+
 def _yesno(present: bool) -> str:
     return "yes" if present else "no"
 
@@ -57,6 +61,7 @@ def run(cfg: Optional[ActConfig] = None) -> int:
     acv_extra = _acv_extra_installed()
     acv_model = bool(cfg.acv_model)
     acv_url = bool(cfg.acv_base_url)
+    checkov_missing = [] if _checkov_installed() else ["checkov"]
 
     # qemu counts as missing only when explicitly absent on Linux; unknown does not block.
     arch_missing = [n for n, ok in (("docker", docker), ("qemu binfmt", qemu is not False)) if not ok]
@@ -83,7 +88,7 @@ def run(cfg: Optional[ActConfig] = None) -> int:
         f"  --check-deployment-arch     docker + qemu binfmt         -> {_readiness(arch_missing)}",
         f"  --check-deployment-runtime  docker + kubectl + pulumi    -> {_readiness(runtime_missing)}",
         f"  --acv-mode blocking         acv extra + ACV env vars     -> {_readiness(acv_missing)}",
-        "  --rules checkov             bundled                      -> ready",
+        f"  --rules checkov             checkov package              -> {_readiness(checkov_missing)}",
         "",
         "Run 'act check --help' for all options.",
     ]

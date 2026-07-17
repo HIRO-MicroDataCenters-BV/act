@@ -9,6 +9,22 @@ from act.plugins.base import OraclePlugin
 log = logging.getLogger(__name__)
 
 
+def _is_empty_required(value) -> bool:
+    """True for a missing or empty required value (0, False, and {} stay valid)."""
+    return value is None or (isinstance(value, (str, list)) and len(value) == 0)
+
+
+def _type_matches(value, expected_type: str) -> bool:
+    """Whether value matches a scalar schema type; bool is not an integer."""
+    if expected_type == "integer":
+        return isinstance(value, int) and not isinstance(value, bool)
+    if expected_type == "boolean":
+        return isinstance(value, bool)
+    if expected_type == "string":
+        return isinstance(value, str)
+    return True  # unknown/complex type: not checked here
+
+
 class CorrectnessOracle(OraclePlugin):
     """Provider-agnostic rule engine.
 
@@ -71,28 +87,22 @@ class CorrectnessOracle(OraclePlugin):
         violations = []
 
         for field in required:
-            if inputs.get(field) is None:
+            if _is_empty_required(inputs.get(field)):
                 violations.append(
                     Violation(
                         field=field,
-                        message=f"Required field '{field}' is missing",
+                        message=f"Required field '{field}' is missing or empty",
                         severity="HIGH",
                     )
                 )
 
-        type_checks = {
-            "string": str,
-            "integer": int,
-            "boolean": bool,
-        }
         for field, prop_schema in input_props.items():
             value = inputs.get(field)
             # Skip None; the required-field check above already covers it (avoids double violation).
             if value is None:
                 continue
             expected_type = prop_schema.get("type")
-            python_type = type_checks.get(expected_type)
-            if python_type and not isinstance(value, python_type):
+            if expected_type in ("string", "integer", "boolean") and not _type_matches(value, expected_type):
                 violations.append(
                     Violation(
                         field=field,

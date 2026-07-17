@@ -8,13 +8,28 @@ import io
 import json
 import logging
 import os
+import signal
 import sys
+import threading
 from pathlib import Path
 
 import pulumi
 import pulumi.runtime
 
 log = logging.getLogger(__name__)
+
+DEFAULT_EXEC_TIMEOUT_S = 30
+
+
+def _import_aliases(tree: ast.AST) -> dict:
+    """Map a local alias to its original imported name (`from m import Orig as Alias`)."""
+    aliases: dict = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            for a in node.names:
+                if a.asname:
+                    aliases[a.asname] = a.name
+    return aliases
 
 
 def _set_or_unset_env(key: str, value: Optional[str]) -> None:
@@ -40,6 +55,26 @@ def _env_overrides(overrides: Optional[dict]):
             _set_or_unset_env(k, v)
 
 
+@contextlib.contextmanager
+def _exec_timeout(seconds: float):
+    """Best-effort wall-clock cap on program execution (SIGALRM; Unix main thread only)."""
+    usable = seconds > 0 and hasattr(signal, "SIGALRM") and threading.current_thread() is threading.main_thread()
+    if not usable:
+        yield
+        return
+
+    def _raise(signum, frame):
+        raise TimeoutError(f"program execution exceeded {seconds:g}s")
+
+    prev = signal.signal(signal.SIGALRM, _raise)
+    signal.setitimer(signal.ITIMER_REAL, seconds)
+    try:
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, prev)
+
+
 class MockGenerator:
     """Generates pulumi.runtime.Mocks from any Pulumi provider schema.
 
@@ -47,7 +82,7 @@ class MockGenerator:
     CustomResource registrations at the Pulumi SDK level.
     """
 
-    def __init__(self, schema_path: str | list[str]):
+    def __init__(self, schema_path: str | list[str], exec_timeout_s: float = DEFAULT_EXEC_TIMEOUT_S):
         paths = [schema_path] if isinstance(schema_path, str) else schema_path
         merged_resources: dict = {}
         for p in paths:
@@ -55,13 +90,21 @@ class MockGenerator:
                 merged_resources.update(json.load(f).get("resources", {}))
         self._schema = {"resources": merged_resources}
         self._schema_path = paths
+        self._exec_timeout_s = exec_timeout_s
         self._type_map = self._build_type_map()
 
     def _build_type_map(self) -> dict:
         """Map class name (last token segment) -> {token, inputs, outputs, required}."""
-        result = {}
+        result: dict = {}
         for token, resource in self._schema.get("resources", {}).items():
             class_name = token.split(":")[-1]
+            if class_name in result and result[class_name]["token"] != token:
+                log.warning(
+                    "mock_generator.class_name_collision class=%s tokens=%s,%s",
+                    class_name,
+                    result[class_name]["token"],
+                    token,
+                )
             result[class_name] = {
                 "token": token,
                 "inputs": resource.get("inputProperties", {}),
@@ -90,6 +133,7 @@ class MockGenerator:
         with open(self._entry_point(program_path)) as f:
             tree = ast.parse(f.read())
 
+        aliases = _import_aliases(tree)
         found = set()
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call):
@@ -99,8 +143,11 @@ class MockGenerator:
                 name = node.func.id
             elif isinstance(node.func, ast.Attribute):
                 name = node.func.attr
-            if name and name in self._type_map:
-                found.add(name)
+            if name is None:
+                continue
+            resolved = aliases.get(name, name)  # `from m import Instance as VM` -> resolve VM to Instance
+            if resolved in self._type_map:
+                found.add(resolved)
         return found
 
     def generate(self, program_path: str) -> type:
@@ -191,7 +238,7 @@ class MockGenerator:
         try:
             # Divert the program's own stdout so its prints don't pollute ACT's report
             # or corrupt the canonical JSON the plan-determinism subprocess emits.
-            with contextlib.redirect_stdout(io.StringIO()), _env_overrides(env):
+            with contextlib.redirect_stdout(io.StringIO()), _env_overrides(env), _exec_timeout(self._exec_timeout_s):
                 loop.run_until_complete(_execute())
         finally:
             asyncio.set_event_loop(None)
