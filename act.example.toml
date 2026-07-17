@@ -22,6 +22,9 @@
 # fuzz_iterations = 100
 # property_max_examples = 50
 
+# Wall-clock cap on running a program under mocks, seconds (Unix)
+# exec_timeout_s = 30
+
 # --- Reproducibility: substrate images ---
 # k3s_image = "rancher/k3s:v1.32.1-k3s1"
 # k3s_riscv64_image = "ghcr.io/carv-ics-forth/k3s:v1.32.1-k3s1-riscv64"

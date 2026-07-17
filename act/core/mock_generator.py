@@ -8,13 +8,17 @@ import io
 import json
 import logging
 import os
+import signal
 import sys
+import threading
 from pathlib import Path
 
 import pulumi
 import pulumi.runtime
 
 log = logging.getLogger(__name__)
+
+DEFAULT_EXEC_TIMEOUT_S = 30
 
 
 def _set_or_unset_env(key: str, value: Optional[str]) -> None:
@@ -40,6 +44,26 @@ def _env_overrides(overrides: Optional[dict]):
             _set_or_unset_env(k, v)
 
 
+@contextlib.contextmanager
+def _exec_timeout(seconds: float):
+    """Best-effort wall-clock cap on program execution (SIGALRM; Unix main thread only)."""
+    usable = seconds > 0 and hasattr(signal, "SIGALRM") and threading.current_thread() is threading.main_thread()
+    if not usable:
+        yield
+        return
+
+    def _raise(signum, frame):
+        raise TimeoutError(f"program execution exceeded {seconds:g}s")
+
+    prev = signal.signal(signal.SIGALRM, _raise)
+    signal.setitimer(signal.ITIMER_REAL, seconds)
+    try:
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, prev)
+
+
 class MockGenerator:
     """Generates pulumi.runtime.Mocks from any Pulumi provider schema.
 
@@ -47,7 +71,7 @@ class MockGenerator:
     CustomResource registrations at the Pulumi SDK level.
     """
 
-    def __init__(self, schema_path: str | list[str]):
+    def __init__(self, schema_path: str | list[str], exec_timeout_s: float = DEFAULT_EXEC_TIMEOUT_S):
         paths = [schema_path] if isinstance(schema_path, str) else schema_path
         merged_resources: dict = {}
         for p in paths:
@@ -55,6 +79,7 @@ class MockGenerator:
                 merged_resources.update(json.load(f).get("resources", {}))
         self._schema = {"resources": merged_resources}
         self._schema_path = paths
+        self._exec_timeout_s = exec_timeout_s
         self._type_map = self._build_type_map()
 
     def _build_type_map(self) -> dict:
@@ -191,7 +216,7 @@ class MockGenerator:
         try:
             # Divert the program's own stdout so its prints don't pollute ACT's report
             # or corrupt the canonical JSON the plan-determinism subprocess emits.
-            with contextlib.redirect_stdout(io.StringIO()), _env_overrides(env):
+            with contextlib.redirect_stdout(io.StringIO()), _env_overrides(env), _exec_timeout(self._exec_timeout_s):
                 loop.run_until_complete(_execute())
         finally:
             asyncio.set_event_loop(None)

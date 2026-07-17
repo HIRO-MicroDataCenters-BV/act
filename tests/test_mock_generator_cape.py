@@ -1,4 +1,14 @@
+import pytest
+
 from act.core.mock_generator import MockGenerator
+
+
+def test_run_with_mocks_times_out_on_slow_program(cape_schema_path, tmp_path):
+    prog = tmp_path / "slow.py"
+    prog.write_text("import time\ntime.sleep(5)\n")
+    mg = MockGenerator(cape_schema_path, exec_timeout_s=1)
+    with pytest.raises(TimeoutError):
+        mg.run_with_mocks(str(prog))
 
 
 def test_type_map_loaded(cape_schema_path):

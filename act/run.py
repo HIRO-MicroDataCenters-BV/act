@@ -434,7 +434,7 @@ def _cmd_check(argv=None) -> int:
         return 2
 
     try:
-        mg = MockGenerator(schemas)
+        mg = MockGenerator(schemas, exec_timeout_s=cfg.exec_timeout_s)
         oracle = CorrectnessOracle(schemas)
         auto_load(oracle)
         _load_extra_rules(oracle, mg, args.rules)
