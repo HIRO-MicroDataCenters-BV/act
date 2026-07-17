@@ -22,8 +22,7 @@ class CIGate:
         try:
             result = self._pipeline.run(program_path)
             self.last_result = result
-            # No captured resources means nothing could be validated: report an error
-            # (2), distinct from a policy violation (1).
+            # Nothing captured -> nothing validated: error (2), not a violation (1).
             if result.resource_count == 0:
                 exit_code = 2
             else:
