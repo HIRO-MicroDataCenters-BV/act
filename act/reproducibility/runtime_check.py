@@ -208,14 +208,18 @@ def _resource_arch(outputs: dict) -> str | None:
     return None
 
 
-def _mentions_cxl(outputs: dict) -> bool:
-    """True if the resource declares a CXL hardware marker.
+# Canonical hardware markers per accelerator feature (Extended Resource request or node label).
+# Anchored to these keys so we don't match incidental substrings in image names or free text.
+_FEATURE_MARKERS: dict[str, tuple[str, ...]] = {
+    "cxl": ("hardware.cape/cxl", "cape.eu/cxl"),
+    "gpu": ("hardware.cape/gpu", "nvidia.com/gpu"),
+    "fpga": ("hardware.cape/fpga", "cape.eu/fpga"),
+}
 
-    Anchored to the canonical keys (`hardware.cape/cxl`, `cape.eu/cxl`) so it
-    doesn't match incidental "cxl" in image names or other free text.
-    """
+
+def _mentions_feature(outputs: dict, markers: tuple[str, ...]) -> bool:
     text = json.dumps(outputs, default=str)
-    return "hardware.cape/cxl" in text or "cape.eu/cxl" in text
+    return any(m in text for m in markers)
 
 
 # System-managed objects in the `default` namespace, not user-deployed.
@@ -470,8 +474,9 @@ def extract_target_spec(plan: dict, mg: MockGenerator) -> TargetSpec:
             found_arch = _resource_arch(outputs)
             if found_arch is not None:
                 arch = found_arch
-            if _mentions_cxl(outputs) and "cxl" not in features:
-                features.append("cxl")
+            for feature, markers in _FEATURE_MARKERS.items():
+                if feature not in features and _mentions_feature(outputs, markers):
+                    features.append(feature)
 
     return TargetSpec(arch=arch, orchestrator=orchestrator, features=features)
 

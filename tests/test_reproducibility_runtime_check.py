@@ -320,6 +320,19 @@ def test_spec_features_cxl_detection(plan, types, expect_cxl):
 
 
 @pytest.mark.parametrize(
+    "resource_request, feature",
+    [("nvidia.com/gpu", "gpu"), ("cape.eu/fpga", "fpga"), ("cape.eu/cxl", "cxl")],
+)
+def test_spec_features_accelerator_detection(resource_request, feature):
+    # GPU/FPGA are now reachable (not dead registry entries), detected like CXL.
+    plan = {
+        "w": {"spec": {"template": {"spec": {"containers": [{"resources": {"requests": {resource_request: "1"}}}]}}}}
+    }
+    spec = extract_target_spec(plan, _mg_returning_types({"w": "kubernetes:apps/v1:Deployment"}))
+    assert feature in spec.features
+
+
+@pytest.mark.parametrize(
     "a, b, should_equal",
     [
         ({"items": [{"name": "x"}]}, {"items": [{"name": "x"}]}, True),  # stable for equal input
