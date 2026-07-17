@@ -184,42 +184,41 @@ def test_normalise_strips_volatile_keys():
     assert metadata["name"] == "nginx-1"
 
 
-def test_normalise_strips_volatile_string_values():
-    raw = {"log": "pid: 1234 started ok at 1716123456"}
+def test_normalise_strips_volatile_pid_in_logs():
+    """The one remaining value scrub is the pid pattern; other digits survive."""
+    raw = {"log": "started with pid: 4242 and ran at 1700000009"}
     cleaned = normalise_output(raw)
-    assert "1234" not in cleaned["log"]
-    assert "1716123456" not in cleaned["log"]
+    assert "4242" not in cleaned["log"]  # pid scrubbed
+    assert "1700000009" in cleaned["log"]  # non-pid digits preserved so real drift is caught
 
 
-def test_normalise_keeps_node_port_outside_url_context():
-    """5-digit ports in JSON values (e.g. nodePort) must survive normalisation."""
-    raw = {"spec": {"ports": [{"nodePort": 30001, "targetPort": 8080}]}}
+def test_normalise_strips_system_assigned_network_keys():
+    """System-assigned network/identity fields are dropped by key (lossless)."""
+    raw = {
+        "status": {"podIP": "10.1.2.3", "hostIP": "192.168.0.5"},
+        "spec": {"clusterIP": "10.96.0.1", "ports": [{"nodePort": 30001}]},
+    }
     cleaned = normalise_output(raw)
-    # Values are ints, not strings, so they're untouched anyway; but the
-    # JSON-rendered hash must still see the same number.
-    assert cleaned == raw
-
-    # And the string-rendered form keeps the number too.
-    raw_str = {"line": "nodePort=30001 targetPort=8080"}
-    cleaned_str = normalise_output(raw_str)
-    assert "30001" in cleaned_str["line"]
-    assert "8080" in cleaned_str["line"]
+    assert "podIP" not in cleaned["status"]
+    assert "hostIP" not in cleaned["status"]
+    assert "clusterIP" not in cleaned["spec"]
+    # nodePort is left intact: an explicitly-set port is stable and meaningful.
+    assert cleaned["spec"]["ports"][0]["nodePort"] == 30001
 
 
-def test_normalise_keeps_long_numeric_id_outside_epoch_range():
-    """A 10-digit identifier that isn't an epoch timestamp must survive."""
-    raw = {"trace_id": "9876543210", "epoch": "1716123456"}
+def test_normalise_keeps_numeric_ids_in_values():
+    """Numeric identifiers in values survive; volatility is dropped by key, not digit shape."""
+    raw = {"trace_id": "9876543210", "ts": "1716123456"}
     cleaned = normalise_output(raw)
-    # Non-epoch-shaped ID kept; epoch-shaped stripped.
     assert "9876543210" in cleaned["trace_id"]
-    assert "1716123456" not in cleaned["epoch"]
+    assert "1716123456" in cleaned["ts"]
 
 
-def test_normalise_strips_ephemeral_port_in_url_context():
-    """Ports inside host:port URLs are scrubbed."""
-    raw = {"endpoint": "https://127.0.0.1:34567/api"}
+def test_normalise_keeps_port_in_url_value():
+    """host:port fragments are no longer value-scrubbed, so distinct endpoints stay distinct."""
+    raw = {"endpoint": "https://svc.default:34567/api"}
     cleaned = normalise_output(raw)
-    assert "34567" not in cleaned["endpoint"]
+    assert "34567" in cleaned["endpoint"]
 
 
 @pytest.mark.parametrize(
@@ -271,6 +270,23 @@ def test_spec_features_cxl_detection(plan, types, expect_cxl):
 )
 def test_hash_output(a, b, should_equal):
     assert (hash_output(a) == hash_output(b)) is should_equal
+
+
+def test_hash_distinguishes_values_that_look_like_ports():
+    """Two distinct image tags must not collapse to an equal hash and mask drift."""
+    assert hash_output({"image": "app:12345"}) != hash_output({"image": "app:67890"})
+
+
+def test_hash_distinguishes_distinct_epoch_shaped_ids():
+    """Two distinct epoch-shaped identifiers must hash differently."""
+    assert hash_output({"id": "1700000001"}) != hash_output({"id": "1700000002"})
+
+
+def test_hash_ignores_system_assigned_network_fields():
+    """Runs differing only in an assigned podIP/clusterIP hash equal (no false drift)."""
+    a = {"status": {"podIP": "10.1.2.3", "phase": "Running"}}
+    b = {"status": {"podIP": "10.4.5.6", "phase": "Running"}}
+    assert hash_output(a) == hash_output(b)
 
 
 def test_run_pulumi_against_sets_kubeconfig_config(tmp_path):

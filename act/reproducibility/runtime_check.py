@@ -35,19 +35,21 @@ VOLATILE_KEYS: frozenset[str] = frozenset(
         "lastTransitionTime",
         "startTime",
         "completionTime",
+        # System-assigned network/node identity; reassigned each apply, so drop by key.
+        "clusterIP",
+        "clusterIPs",
+        "podIP",
+        "podIPs",
+        "hostIP",
+        "bootID",
+        "machineID",
     }
 )
 
 VOLATILE_VALUE_PATTERNS: tuple[re.Pattern[str], ...] = (
-    # "pid: 12345" process ids.
+    # Anchored pid scrub for logs; broader value scrubbing is omitted so distinct
+    # values never hash equal (which would mask real drift).
     re.compile(r"pid:\s*\d+", flags=re.IGNORECASE),
-    # Unix epoch timestamps; narrowed to "1[5-9]<8-11 digits>" so it scrubs
-    # 2017-2055 timestamps without blanking long numeric IDs.
-    re.compile(r"\b1[5-9]\d{8,11}\b"),
-    # Ephemeral ports in a host:port fragment; the fixed-width lookbehind
-    # requires a host-like char before the colon, so it skips JSON like
-    # `"nodePort": 30001` but still scrubs `127.0.0.1:34567`.
-    re.compile(r"(?<=[A-Za-z0-9.-]:)\b[0-9]{4,5}\b"),
 )
 
 
