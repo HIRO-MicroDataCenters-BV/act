@@ -259,6 +259,10 @@ def _default_substrates(cfg: ActConfig) -> list:
     return substrates
 
 
+# Runtime-check stages that mean "could not verify", not "failed": they never escalate the exit code.
+_RUNTIME_SKIP_STAGES = frozenset({"substrate_unavailable", "spec_unsupported", "nothing_observed"})
+
+
 def _run_runtime_check(program: str, schemas: list[str], log: logging.Logger, cfg: ActConfig) -> RuntimeCheckResult:
     check = RuntimeCheck(
         substrates=_default_substrates(cfg),
@@ -267,10 +271,9 @@ def _run_runtime_check(program: str, schemas: list[str], log: logging.Logger, cf
     )
     result = check.run(program, schemas)
 
-    substrate_unavailable = any(f.stage == "substrate_unavailable" for f in result.failures)
-    spec_unsupported = any(f.stage == "spec_unsupported" for f in result.failures)
+    skipped = any(f.stage in _RUNTIME_SKIP_STAGES for f in result.failures)
 
-    if substrate_unavailable or spec_unsupported:
+    if skipped:
         log.warning(
             "runtime_check_skipped",
             extra={
@@ -386,7 +389,7 @@ def _summary_line(pipeline_result, plan_result, arch_result, runtime_result) -> 
     if arch_result is not None:
         parts.append(f"arch {'ok' if arch_result.passed else 'fail'}")
     if runtime_result is not None:
-        skip = any(f.stage in ("substrate_unavailable", "spec_unsupported") for f in runtime_result.failures)
+        skip = any(f.stage in _RUNTIME_SKIP_STAGES for f in runtime_result.failures)
         parts.append("runtime " + ("skipped" if skip else "ok" if runtime_result.passed else "fail"))
     return "Summary: " + ", ".join(parts)
 
@@ -473,8 +476,7 @@ def _cmd_check(argv=None) -> int:
         runtime_result = None
         if args.check_deployment_runtime:
             runtime_result = _run_runtime_check(args.program, schemas, log, cfg)
-            skip_stages = {"substrate_unavailable", "spec_unsupported"}
-            is_skip = any(f.stage in skip_stages for f in runtime_result.failures)
+            is_skip = any(f.stage in _RUNTIME_SKIP_STAGES for f in runtime_result.failures)
             if not runtime_result.passed and not is_skip:
                 exit_code = max(exit_code, 1)
             if any(f.stage == "substrate_unavailable" for f in runtime_result.failures):

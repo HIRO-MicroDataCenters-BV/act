@@ -55,6 +55,7 @@ VOLATILE_VALUE_PATTERNS: tuple[re.Pattern[str], ...] = (
 
 RuntimeCheckStage = Literal[
     "internal_error",
+    "nothing_observed",
     "output_mismatch",
     "probe_failed",
     "provision_failed",
@@ -375,6 +376,13 @@ def hash_output(value: Any) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
+def _is_empty_probe(probe: Any) -> bool:
+    """True when a probe observed no user resources or logs (nothing to compare)."""
+    if not isinstance(probe, dict):
+        return not probe
+    return not probe.get("items") and not probe.get("_act_workload_logs")
+
+
 def extract_target_spec(plan: dict, mg: MockGenerator) -> TargetSpec:
     arch = "x86_64-linux"
     orchestrator: str | None = None
@@ -517,6 +525,14 @@ class RuntimeCheck:
                             RuntimeCheckFailure(
                                 stage="output_mismatch",
                                 detail="probe output hashes differ between runs",
+                            )
+                        )
+                    elif len(last_normalised) == 2 and all(_is_empty_probe(p) for p in last_normalised):
+                        # Matching but empty probes verify nothing; don't report reproducible.
+                        failures.append(
+                            RuntimeCheckFailure(
+                                stage="nothing_observed",
+                                detail="no user resources observed; runtime reproducibility could not be verified",
                             )
                         )
                 except Exception as exc:

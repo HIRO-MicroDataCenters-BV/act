@@ -400,6 +400,22 @@ def test_runtime_check_fails_when_probes_differ(tmp_path):
     assert any(f.stage == "output_mismatch" for f in result.failures)
 
 
+def test_runtime_check_flags_nothing_observed(tmp_path):
+    sub = _FakeSubstrate(matches_fn=lambda s: s.orchestrator == "k8s")
+    probes: list[dict] = [{"items": []}, {"items": []}]
+
+    mg_patch, pulumi_patch = _patched_check_dependencies(probes)
+    with mg_patch as mg_cls, pulumi_patch:
+        mg = mg_cls.return_value
+        mg.run_with_mocks.return_value = {"nginx": {}}
+        mg.get_resource_type.return_value = "kubernetes:apps/v1:Deployment"
+
+        result = RuntimeCheck(substrates=[sub]).run("some.py", "schema.json", backend_dir=str(tmp_path))
+
+    assert result.passed is False
+    assert any(f.stage == "nothing_observed" for f in result.failures)
+
+
 def test_runtime_check_records_substrate_unavailable(tmp_path):
     sub = _FakeSubstrate(available=False, matches_fn=lambda s: True)
 
