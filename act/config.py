@@ -76,6 +76,9 @@ class ActConfig:
     # Whether a missing schema may be fetched over the network; deny for offline/hardened runs.
     schema_fetch: str = DEFAULT_SCHEMA_FETCH
 
+    # Extra directories to search for a local <plugin>.json (in-house providers); CLI --schema-dir overrides.
+    schema_dirs: tuple[str, ...] = ()
+
     # Reproducibility substrate images.
     k3s_image: str = DEFAULT_K3S_IMAGE
     k3s_riscv64_image: str = DEFAULT_K3S_RISCV64_IMAGE
@@ -139,6 +142,7 @@ class ActConfig:
             schema_fetch=_read_choice(
                 env.get("ACT_SCHEMA_FETCH"), SCHEMA_FETCH_MODES, DEFAULT_SCHEMA_FETCH, name="ACT_SCHEMA_FETCH"
             ),
+            schema_dirs=_read_str_list(env.get("ACT_SCHEMA_DIR")),
             k3s_image=_read_str(env.get("ACT_K3S_IMAGE"), DEFAULT_K3S_IMAGE),
             k3s_riscv64_image=_read_str(env.get("ACT_K3S_RISCV64_IMAGE"), DEFAULT_K3S_RISCV64_IMAGE),
             k8s_namespace=_read_str(env.get("ACT_K8S_NAMESPACE"), DEFAULT_K8S_NAMESPACE),
@@ -317,6 +321,7 @@ _FILE_TO_ENV: dict[str, str] = {
     "property_max_examples": "ACT_PROPERTY_MAX_EXAMPLES",
     "exec_timeout_s": "ACT_EXEC_TIMEOUT_S",
     "schema_fetch": "ACT_SCHEMA_FETCH",
+    "schema_dirs": "ACT_SCHEMA_DIR",
     "k3s_image": "ACT_K3S_IMAGE",
     "k3s_riscv64_image": "ACT_K3S_RISCV64_IMAGE",
     "k8s_namespace": "ACT_K8S_NAMESPACE",

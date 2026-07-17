@@ -14,6 +14,9 @@
 # (deny for offline or hardened runs)
 # schema_fetch = "allow"
 
+# Extra directories to search for a local <plugin>.json (in-house providers); CLI --schema-dir overrides
+# schema_dirs = ["./schemas"]
+
 # --- ACT Cognitive Validator (optional; needs the `acv` extra and a served model) ---
 # acv_model = ""              # served model name; leaving it unset disables ACV
 # acv_base_url = ""           # OpenAI-compatible endpoint

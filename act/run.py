@@ -429,8 +429,9 @@ def _cmd_check(argv=None) -> int:
 
     # --schema is a full override; otherwise resolve schemas from the program's imports.
     allow_fetch = cfg.schema_fetch == "allow" and not args.no_schema_fetch
+    schema_dirs = args.schema_dir or list(cfg.schema_dirs)  # CLI overrides env/config
     try:
-        schemas = resolve_schemas(args.program, args.schema, schema_dirs=args.schema_dir, allow_fetch=allow_fetch)
+        schemas = resolve_schemas(args.program, args.schema, schema_dirs=schema_dirs, allow_fetch=allow_fetch)
     except SchemaResolveError as e:
         print(f"[ERROR] {e}", file=sys.stderr)
         return 2

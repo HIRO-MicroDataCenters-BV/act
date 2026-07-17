@@ -56,6 +56,8 @@ def test_defaults():
         ({"ACT_RULES": "checkov"}, "rules", ("checkov",)),
         ({"ACT_RULES": "checkov, foo"}, "rules", ("checkov", "foo")),
         ({"ACT_RULES": ""}, "rules", ()),
+        ({"ACT_SCHEMA_DIR": "schemas, /opt/s"}, "schema_dirs", ("schemas", "/opt/s")),
+        ({"ACT_SCHEMA_DIR": ""}, "schema_dirs", ()),
         ({"ACT_LOG_LEVEL": "DEBUG"}, "log_level", "DEBUG"),
         ({"ACT_LOG_LEVEL": "bogus"}, "log_level", DEFAULT_LOG_LEVEL),
         # strings: override / blank+whitespace -> default / surrounding whitespace stripped
