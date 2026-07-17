@@ -171,3 +171,20 @@ def test_explicit_none_required_field_reported_once(tmp_path):
     name_violations = [v for v in violations if v.field == "name"]
     assert len(name_violations) == 1
     assert "missing" in name_violations[0].message.lower()
+
+
+def test_bool_not_accepted_for_integer_field(tmp_path):
+    oracle = CorrectnessOracle(_make_schema(tmp_path, {"count": {"type": "integer"}}))
+    violations = oracle.check(RTYPE, {"count": True})
+    assert any(v.field == "count" and "integer" in v.message for v in violations)
+
+
+def test_empty_string_required_field_flagged(tmp_path):
+    oracle = CorrectnessOracle(_make_schema(tmp_path, {"name": {"type": "string"}}, required=["name"]))
+    violations = oracle.check(RTYPE, {"name": ""})
+    assert any(v.field == "name" and v.severity == "HIGH" for v in violations)
+
+
+def test_zero_is_valid_for_required_integer(tmp_path):
+    oracle = CorrectnessOracle(_make_schema(tmp_path, {"count": {"type": "integer"}}, required=["count"]))
+    assert oracle.check(RTYPE, {"count": 0}) == []
