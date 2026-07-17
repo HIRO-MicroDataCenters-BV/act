@@ -33,12 +33,12 @@ class PipelineResult:
 
 
 def _is_parameterized(program_path: str) -> bool:
-    """Return True if the program reads from os.environ or sys.argv."""
+    """Return True if the program reads from os.environ/os.getenv or sys.argv."""
     with open(MockGenerator._entry_point(program_path)) as f:
         tree = ast.parse(f.read())
     for node in ast.walk(tree):
         if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):
-            if node.value.id == "os" and node.attr == "environ":
+            if node.value.id == "os" and node.attr in ("environ", "getenv"):
                 return True
             if node.value.id == "sys" and node.attr == "argv":
                 return True

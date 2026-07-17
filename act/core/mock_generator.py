@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Optional
 
 import ast
 import asyncio
@@ -7,6 +7,7 @@ import importlib.util
 import io
 import json
 import logging
+import os
 import sys
 from pathlib import Path
 
@@ -14,6 +15,29 @@ import pulumi
 import pulumi.runtime
 
 log = logging.getLogger(__name__)
+
+
+def _set_or_unset_env(key: str, value: Optional[str]) -> None:
+    if value is None:
+        os.environ.pop(key, None)
+    else:
+        os.environ[key] = value
+
+
+@contextlib.contextmanager
+def _env_overrides(overrides: Optional[dict]):
+    """Temporarily apply os.environ overrides (value None unsets the var); restore on exit."""
+    if not overrides:
+        yield
+        return
+    saved = {k: os.environ.get(k) for k in overrides}
+    try:
+        for k, v in overrides.items():
+            _set_or_unset_env(k, v)
+        yield
+    finally:
+        for k, v in saved.items():
+            _set_or_unset_env(k, v)
 
 
 class MockGenerator:
@@ -123,8 +147,12 @@ class MockGenerator:
         p = Path(program_path)
         return str(p / "__main__.py") if p.is_dir() else str(p)
 
-    def run_with_mocks(self, program_path: str) -> dict:
-        """Run a program (file or project dir) under mocks; return {resource name -> outputs}."""
+    def run_with_mocks(self, program_path: str, env: Optional[dict[str, Optional[str]]] = None) -> dict:
+        """Run a program (file or project dir) under mocks; return {resource name -> outputs}.
+
+        env: os.environ overrides applied during execution (value None unsets the var),
+        so a parameterised program can be re-run under varied inputs.
+        """
         program_path = self._entry_point(program_path)
         MockClass = self.generate(program_path)
         recorded: dict[str, dict] = {}
@@ -163,7 +191,7 @@ class MockGenerator:
         try:
             # Divert the program's own stdout so its prints don't pollute ACT's report
             # or corrupt the canonical JSON the plan-determinism subprocess emits.
-            with contextlib.redirect_stdout(io.StringIO()):
+            with contextlib.redirect_stdout(io.StringIO()), _env_overrides(env):
                 loop.run_until_complete(_execute())
         finally:
             asyncio.set_event_loop(None)
