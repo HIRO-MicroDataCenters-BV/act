@@ -27,6 +27,8 @@ import sys
 import tempfile
 from pathlib import Path
 
+from packaging.version import InvalidVersion, Version
+
 from act.core.mock_generator import MockGenerator
 
 # Overridable in tests via monkeypatch; defaults to the user cache.
@@ -85,14 +87,22 @@ def _local_schema(plugin: str, program_path: str, extra_dirs: Sequence[str]) -> 
     return None
 
 
+def _version_key(stem: str) -> tuple:
+    """Sort key so newer semver wins; unparseable names (e.g. 'latest') sort lowest."""
+    try:
+        return (1, Version(stem))
+    except InvalidVersion:
+        return (0, Version("0"))
+
+
 def _cached_schema(plugin: str) -> Optional[str]:
     # Per-plugin subdirectory so a prefix-sharing name (e.g. aws vs aws-native)
     # can never cross-match another provider's cached schema.
     plugin_dir = _CACHE_DIR / plugin
     if not plugin_dir.is_dir():
         return None
-    hits = sorted(plugin_dir.glob("*.json"))
-    return str(hits[-1]) if hits else None
+    hits = list(plugin_dir.glob("*.json"))
+    return str(max(hits, key=lambda p: _version_key(p.stem))) if hits else None
 
 
 def _cache_write(plugin: str, version: str, content: str) -> str:

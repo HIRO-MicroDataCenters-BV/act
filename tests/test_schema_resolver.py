@@ -143,6 +143,24 @@ def test_cache_lookup_is_not_prefix_collided(tmp_path, monkeypatch):
     assert native_hit is not None and native_hit.endswith("aws-native/6.0.0.json")
 
 
+def test_cached_schema_picks_newest_by_semver(tmp_path, monkeypatch):
+    # Lexical sort would wrongly pick 9.0.0 over 10.0.0, or latest over a real version.
+    monkeypatch.setattr(schema_resolver, "_CACHE_DIR", tmp_path / "cache")
+    plugin_dir = tmp_path / "cache" / "aws"
+    plugin_dir.mkdir(parents=True)
+    for name in ("9.0.0.json", "10.0.0.json", "latest.json"):
+        (plugin_dir / name).write_text("{}")
+    assert schema_resolver._cached_schema("aws").endswith("aws/10.0.0.json")
+
+
+def test_cached_schema_falls_back_to_latest_when_only_option(tmp_path, monkeypatch):
+    monkeypatch.setattr(schema_resolver, "_CACHE_DIR", tmp_path / "cache")
+    plugin_dir = tmp_path / "cache" / "aws"
+    plugin_dir.mkdir(parents=True)
+    (plugin_dir / "latest.json").write_text("{}")
+    assert schema_resolver._cached_schema("aws").endswith("aws/latest.json")
+
+
 def test_fetch_success_caches_and_reuses(tmp_path, monkeypatch):
     monkeypatch.setattr(schema_resolver, "_CACHE_DIR", tmp_path / "cache")
     monkeypatch.setattr(schema_resolver.shutil, "which", lambda name: "/usr/bin/pulumi")

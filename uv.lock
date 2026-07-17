@@ -15,6 +15,7 @@ source = { editable = "." }
 dependencies = [
     { name = "checkov" },
     { name = "hypothesis" },
+    { name = "packaging" },
     { name = "pulumi" },
     { name = "pulumi-policy" },
 ]
@@ -51,6 +52,7 @@ requires-dist = [
     { name = "hypothesis", specifier = ">=6.100.0" },
     { name = "langchain-core", marker = "extra == 'acv'", specifier = ">=1.0.0" },
     { name = "langgraph", marker = "extra == 'acv'", specifier = ">=1.0.0" },
+    { name = "packaging", specifier = ">=26.0" },
     { name = "pulumi", specifier = ">=3.230.0" },
     { name = "pulumi-policy", specifier = ">=1.20.0" },
 ]
