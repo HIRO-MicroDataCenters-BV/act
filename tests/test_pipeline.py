@@ -33,6 +33,14 @@ def test_parameterized_flag_false_for_static_program(cape_schema_path, cape_fixt
     assert result.parameterized is False
 
 
+def test_getenv_program_is_parameterized(tmp_path):
+    from act.core.pipeline import _is_parameterized
+
+    prog = tmp_path / "p.py"
+    prog.write_text("import os\nx = os.getenv('X')\n")
+    assert _is_parameterized(str(prog)) is True
+
+
 def test_result_carries_program_path(cape_schema_path, cape_fixtures):
     pipeline = _cape_pipeline(cape_schema_path)
     path = str(cape_fixtures / "path_a_valid.py")
