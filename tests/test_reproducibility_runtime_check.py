@@ -144,12 +144,16 @@ def test_run_pulumi_against_destroys_on_up_failure(tmp_path):
     stack.destroy.assert_called_once()
 
 
-def test_probe_k8s_returns_parsed_pod_list():
+def test_probe_k8s_projects_resources(monkeypatch):
+    # Projects each object to (kind, name, namespace, spec, ready) — not the raw dump.
+    monkeypatch.setattr("act.reproducibility.runtime_check._wait_for_pods_ready", lambda *a, **k: None)
     sample = {
         "items": [
             {
-                "metadata": {"name": "nginx-1", "namespace": "default"},
-                "spec": {"containers": [{"image": "nginx:1.25"}]},
+                "kind": "Deployment",
+                "metadata": {"name": "nginx", "namespace": "default"},
+                "spec": {"replicas": 1},
+                "status": {"readyReplicas": 1},
             }
         ]
     }
@@ -159,7 +163,61 @@ def test_probe_k8s_returns_parsed_pod_list():
     ):
         out = probe_k8s("/tmp/kube.config")
 
-    assert out == sample
+    assert out == {
+        "resources": [{"kind": "Deployment", "namespace": "default", "ready": True, "spec": {"replicas": 1}}]
+    }
+
+
+def test_probe_k8s_excludes_derived_resources(monkeypatch):
+    # A Deployment's owned Pod carries injected non-determinism (generated name, per-pod SA
+    # token volume); it must be excluded, its health reflected in the Deployment's readiness.
+    monkeypatch.setattr("act.reproducibility.runtime_check._wait_for_pods_ready", lambda *a, **k: None)
+    sample = {
+        "items": [
+            {
+                "kind": "Deployment",
+                "metadata": {"name": "pause"},
+                "spec": {"replicas": 1},
+                "status": {"readyReplicas": 1},
+            },
+            {
+                "kind": "Pod",
+                "metadata": {"name": "pause-abc-x1", "ownerReferences": [{"kind": "ReplicaSet"}]},
+                "spec": {"volumes": [{"name": "kube-api-access-rnd1"}]},
+            },
+        ]
+    }
+    with patch(
+        "act.reproducibility.runtime_check.subprocess.run",
+        return_value=MagicMock(stdout=json.dumps(sample).encode(), returncode=0),
+    ):
+        out = probe_k8s("/tmp/kube.config")
+    assert [r["kind"] for r in out["resources"]] == ["Deployment"]
+
+
+def test_projection_ignores_pod_suffix_and_status(monkeypatch):
+    # Two deploys of the same workload differ only by generated pod name + assigned IP;
+    # the projection must hash them equal (this is the property Step 0 exposed as broken).
+    monkeypatch.setattr("act.reproducibility.runtime_check._wait_for_pods_ready", lambda *a, **k: None)
+
+    def probe_with(suffix):
+        sample = {
+            "items": [
+                {
+                    "kind": "Pod",
+                    "metadata": {"name": f"pause-abc12-{suffix}", "namespace": "default", "uid": suffix},
+                    "spec": {"containers": [{"name": "pause", "image": "pause:3.9"}]},
+                    "status": {"podIP": f"10.0.0.{suffix}", "conditions": [{"type": "Ready", "status": "True"}]},
+                }
+            ]
+        }
+        with patch(
+            "act.reproducibility.runtime_check.subprocess.run",
+            return_value=MagicMock(stdout=json.dumps(sample).encode(), returncode=0),
+        ):
+            return probe_k8s("/tmp/kube.config")
+
+    assert hash_output(probe_with("11111")) == hash_output(probe_with("22222"))
 
 
 def test_normalise_strips_volatile_keys():
@@ -361,7 +419,7 @@ def _patched_check_dependencies(probe_responses):
 
 def test_runtime_check_passes_when_two_probes_match(tmp_path):
     sub = _FakeSubstrate(matches_fn=lambda s: s.orchestrator == "k8s")
-    probes = [{"items": [{"metadata": {"name": "a"}}]}, {"items": [{"metadata": {"name": "a"}}]}]
+    probes = [{"resources": [{"kind": "Pod", "name": "a"}]}, {"resources": [{"kind": "Pod", "name": "a"}]}]
 
     mg_patch, pulumi_patch = _patched_check_dependencies(probes)
     with mg_patch as mg_cls, pulumi_patch:
@@ -383,8 +441,8 @@ def test_runtime_check_passes_when_two_probes_match(tmp_path):
 def test_runtime_check_fails_when_probes_differ(tmp_path):
     sub = _FakeSubstrate(matches_fn=lambda s: s.orchestrator == "k8s")
     probes = [
-        {"items": [{"metadata": {"name": "a"}}]},
-        {"items": [{"metadata": {"name": "b"}}]},
+        {"resources": [{"kind": "Pod", "name": "a"}]},
+        {"resources": [{"kind": "Pod", "name": "b"}]},
     ]
 
     mg_patch, pulumi_patch = _patched_check_dependencies(probes)
@@ -554,7 +612,10 @@ def test_probe_k8s_with_workload_logs_waits_for_jobs_and_captures_logs():
 
     from act.reproducibility.runtime_check import probe_k8s_with_workload_logs
 
-    with patch("act.reproducibility.runtime_check.subprocess.run", side_effect=fake_run):
+    with (
+        patch("act.reproducibility.runtime_check.subprocess.run", side_effect=fake_run),
+        patch("act.reproducibility.runtime_check._wait_for_pods_ready", lambda *a, **k: None),
+    ):
         state = probe_k8s_with_workload_logs("/tmp/kube.config", namespace="default", timeout=5)
 
     assert "_act_workload_logs" in state

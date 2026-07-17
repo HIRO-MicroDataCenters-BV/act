@@ -41,8 +41,14 @@ VOLATILE_KEYS: frozenset[str] = frozenset(
         "podIP",
         "podIPs",
         "hostIP",
+        "hostIPs",
         "bootID",
         "machineID",
+        # Runtime status churn: reassigned/regenerated each apply even at steady state.
+        "containerID",
+        "imageID",
+        "startedAt",
+        "observedGeneration",
     }
 )
 
@@ -238,27 +244,92 @@ def _kubeconfig_path(target) -> str:
     return endpoint if endpoint is not None else target
 
 
-def probe_k8s(target, namespace: str = "default", timeout: int = 60) -> dict:
-    """Capture user-deployed state in the named namespace.
+_PROBE_KINDS = "pods,services,deployments,statefulsets,daemonsets,configmaps,secrets,jobs,cronjobs"
 
-    Scoped to one namespace: `--all-namespaces` pulls in kube-system pods
-    whose state drifts between probes (spurious reproducibility violations).
-    System-managed default-namespace objects (`kubernetes` Service,
-    `kube-root-ca.crt` ConfigMap) are filtered; their lifecycle races our
-    probe timing. Accepts a `ProvisionedTarget` or raw kubeconfig path.
-    """
-    kubeconfig = _kubeconfig_path(target)
-    kinds = "pods,services,deployments,statefulsets,daemonsets,configmaps,secrets,jobs,cronjobs"
+
+def _is_derived(item: dict) -> bool:
+    """True for cluster-generated children (e.g. a Deployment's Pods): their health is
+    reflected in the parent's readiness, and their specs carry injected non-determinism
+    (generated names, per-Pod service-account token volumes)."""
+    return bool((item.get("metadata") or {}).get("ownerReferences"))
+
+
+def _kubectl_items(kubeconfig: str, kinds: str, namespace: str, timeout: int = 15) -> list:
     result = subprocess.run(
         ["kubectl", "--kubeconfig", kubeconfig, "get", kinds, "-n", namespace, "-o", "json"],
         capture_output=True,
         check=True,
         timeout=timeout,
     )
-    payload = json.loads(result.stdout)
-    items = payload.get("items", [])
-    payload["items"] = [item for item in items if not _is_system_managed(item)]
-    return payload
+    return json.loads(result.stdout).get("items", [])
+
+
+def _resource_ready(item: dict) -> bool:
+    """Whether a resource reached its healthy state (True for kinds with no readiness concept)."""
+    kind = item.get("kind")
+    status = item.get("status") or {}
+    if kind == "Pod":
+        return any(c.get("type") == "Ready" and c.get("status") == "True" for c in status.get("conditions", []))
+    if kind in ("Deployment", "ReplicaSet", "StatefulSet"):
+        desired = (item.get("spec") or {}).get("replicas")
+        return desired is None or (status.get("readyReplicas") or 0) >= desired
+    if kind == "DaemonSet":
+        return (status.get("numberReady") or 0) >= (status.get("desiredNumberScheduled") or 0)
+    if kind == "Job":
+        return (status.get("succeeded") or 0) >= 1
+    return True
+
+
+def _project_resource(item: dict) -> dict:
+    """The deterministic 'deployment outcome' we compare across runs: kind, namespace, the
+    cluster-accepted desired state (spec/data), and whether it became ready. Names are
+    excluded on purpose — physical names are generated (Pulumi autonaming, k8s suffixes),
+    and program-level name determinism is Rung 1's (plan-hash) job. Observed status (IPs,
+    containerIDs, timestamps) is also excluded."""
+    projected = {
+        "kind": item.get("kind"),
+        "namespace": (item.get("metadata") or {}).get("namespace"),
+        "ready": _resource_ready(item),
+    }
+    for key in ("spec", "data"):
+        if key in item:
+            projected[key] = item[key]
+    return projected
+
+
+def _wait_for_pods_ready(kubeconfig: str, namespace: str, timeout: int) -> None:
+    """Wait until user pods are all Ready; return early if the workload has no pods."""
+    deadline = time.monotonic() + timeout
+    empty_polls = 0
+    while time.monotonic() < deadline:
+        pods = [p for p in _kubectl_items(kubeconfig, "pods", namespace) if not _is_system_managed(p)]
+        if pods:
+            empty_polls = 0
+            if all(_resource_ready(p) for p in pods):
+                return
+        elif (empty_polls := empty_polls + 1) >= 3:  # ~6s with no user pods -> pod-less workload
+            return
+        time.sleep(2)
+
+
+def probe_k8s(target, namespace: str = "default", timeout: int = 60) -> dict:
+    """Capture the reproducible deployment outcome of user resources in the namespace.
+
+    Waits for user pods to reach Ready, then projects each user-declared object to
+    (kind, namespace, accepted spec/data, readiness) — the deterministic "same deployment"
+    signal — rather than the full, churn-heavy cluster dump. System-managed objects and
+    cluster-derived children (Pods owned by a controller) are filtered out; the parent's
+    readiness reflects the children's health. Accepts a `ProvisionedTarget` or kubeconfig path.
+    """
+    kubeconfig = _kubeconfig_path(target)
+    _wait_for_pods_ready(kubeconfig, namespace, timeout)
+    resources = [
+        _project_resource(i)
+        for i in _kubectl_items(kubeconfig, _PROBE_KINDS, namespace, timeout)
+        if not _is_system_managed(i) and not _is_derived(i)
+    ]
+    resources.sort(key=lambda r: json.dumps(r, sort_keys=True, default=str))
+    return {"resources": resources}
 
 
 # Cluster-system pod prefixes (k3s defaults), skipped when capturing
@@ -361,6 +432,7 @@ def _strip_volatile_values(value: str) -> str:
 
 
 def normalise_output(value: Any) -> Any:
+    """Generic volatile-field scrub applied before hashing (drops volatile keys, scrubs pid values)."""
     if isinstance(value, dict):
         return {k: normalise_output(v) for k, v in value.items() if k not in VOLATILE_KEYS}
     if isinstance(value, list):
@@ -380,7 +452,7 @@ def _is_empty_probe(probe: Any) -> bool:
     """True when a probe observed no user resources or logs (nothing to compare)."""
     if not isinstance(probe, dict):
         return not probe
-    return not probe.get("items") and not probe.get("_act_workload_logs")
+    return not probe.get("resources") and not probe.get("_act_workload_logs")
 
 
 def extract_target_spec(plan: dict, mg: MockGenerator) -> TargetSpec:
