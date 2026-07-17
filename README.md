@@ -126,7 +126,7 @@ Exit codes:
 |------|---------|
 | 0 | All checks passed |
 | 1 | One or more violations found |
-| 2 | Pipeline error (bad schema, program crash, missing tooling) |
+| 2 | Pipeline error (bad schema, program crash, missing tooling), or no resources captured so nothing could be validated |
 
 ---
 
