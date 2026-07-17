@@ -97,6 +97,12 @@ def test_load_env_overrides_file(tmp_path):
     assert cfg.log_level == "DEBUG"
 
 
+def test_load_blank_env_still_layers_file(tmp_path):
+    # A blank env value must not block the file value and revert to the default.
+    cfg = ActConfig.load(env={"ACT_LOG_LEVEL": ""}, config_path=_write(tmp_path, 'log_level = "INFO"\n'))
+    assert cfg.log_level == "INFO"
+
+
 def test_load_cli_precedence_left_to_caller(tmp_path):
     # The file sets INFO; a caller-supplied CLI value would override the loaded cfg upstream.
     cfg = ActConfig.load(env={}, config_path=_write(tmp_path, 'log_level = "INFO"\n'))

@@ -182,12 +182,18 @@ class ActConfig:
         if not toml:
             return cls.from_env(env)
         merged = dict(env)
+
+        # A blank/whitespace env value counts as unset, so a file value still layers
+        # in rather than the env "" reverting the field to its hardcoded default.
+        def _unset(name: str) -> bool:
+            return not merged.get(name, "").strip()
+
         for key, env_name in _FILE_TO_ENV.items():
-            if key in toml and env_name not in merged:
+            if key in toml and _unset(env_name):
                 merged[env_name] = _toml_to_env_str(toml[key])
         # acv_base_url is an OR-chain (ACT_ACV_BASE_URL then CAPE_ACV_MODEL_URL);
         # layer the file value under both, never over a set one.
-        if "acv_base_url" in toml and "ACT_ACV_BASE_URL" not in merged and "CAPE_ACV_MODEL_URL" not in merged:
+        if "acv_base_url" in toml and _unset("ACT_ACV_BASE_URL") and _unset("CAPE_ACV_MODEL_URL"):
             merged["ACT_ACV_BASE_URL"] = _toml_to_env_str(toml["acv_base_url"])
         return cls.from_env(merged)
 
