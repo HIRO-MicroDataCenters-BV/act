@@ -326,6 +326,29 @@ def test_probe_k8s_sort_order_stable_under_volatile_fields():
     assert hash_output(run_a) == hash_output(run_b)
 
 
+def test_projection_distinguishes_binarydata_and_labels():
+    # Two ConfigMaps differing only in binaryData or only in user labels are different
+    # deployments and must not hash equal.
+    def probe(cm):
+        with patch(
+            "act.reproducibility.runtime_check.subprocess.run",
+            return_value=MagicMock(stdout=json.dumps({"items": [cm]}).encode(), returncode=0),
+        ):
+            return probe_k8s("/tmp/kube.config")
+
+    base = {
+        "kind": "ConfigMap",
+        "metadata": {"name": "c", "namespace": "default", "labels": {"app": "a"}},
+        "data": {"k": "v"},
+        "binaryData": {"b": "QUFB"},
+    }
+    diff_binary = {**base, "binaryData": {"b": "WlpaWg=="}}
+    diff_label = {**base, "metadata": {**base["metadata"], "labels": {"app": "b"}}}
+
+    assert hash_output(probe(base)) != hash_output(probe(diff_binary))
+    assert hash_output(probe(base)) != hash_output(probe(diff_label))
+
+
 def test_normalise_strips_volatile_keys():
     raw = {
         "items": [

@@ -324,17 +324,23 @@ def _kubectl_items(kubeconfig: str, kinds: str, namespace: str, timeout: int = 1
 
 
 def _project_resource(item: dict) -> dict:
-    """The deterministic 'deployment outcome' we compare across runs: kind, namespace, and
-    the cluster-accepted desired state (spec/data). Names are excluded on purpose — physical
-    names are generated (Pulumi autonaming, k8s suffixes), and program-level name determinism
-    is Rung 1's (plan-hash) job. Runtime status (readiness, IPs, containerIDs, timestamps) is
-    also excluded: under skipAwait we compare what the cluster accepted, not whether the
-    workload has finished coming up (which races between runs)."""
+    """The deterministic 'deployment outcome' we compare across runs: kind, namespace, user
+    labels, and the cluster-accepted desired state (spec/data/binaryData). Names are excluded
+    on purpose — physical names are generated (Pulumi autonaming, k8s suffixes), and
+    program-level name determinism is Rung 1's (plan-hash) job. Annotations are excluded (they
+    churn: last-applied-configuration, revision counters). Runtime status (readiness, IPs,
+    containerIDs, timestamps) is also excluded: under skipAwait we compare what the cluster
+    accepted, not whether the workload has finished coming up (which races between runs)."""
+    metadata = item.get("metadata") or {}
     projected = {
         "kind": item.get("kind"),
-        "namespace": (item.get("metadata") or {}).get("namespace"),
+        "namespace": metadata.get("namespace"),
     }
-    for key in ("spec", "data"):
+    labels = metadata.get("labels")
+    if labels:
+        projected["labels"] = labels
+    # binaryData carries a ConfigMap's non-UTF-8 payload alongside string `data`.
+    for key in ("spec", "data", "binaryData"):
         if key in item:
             projected[key] = item[key]
     return projected
