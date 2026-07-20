@@ -461,6 +461,13 @@ def test_spec_features_accelerator_detection(resource_request, feature):
     assert feature in spec.features
 
 
+def test_spec_features_ignores_marker_as_value():
+    # A marker appearing only as a value (e.g. inside an image name) is not a feature request.
+    plan = {"w": {"spec": {"template": {"spec": {"containers": [{"image": "registry/nvidia.com/gpu-tools:1"}]}}}}}
+    spec = extract_target_spec(plan, _mg_returning_types({"w": "kubernetes:apps/v1:Deployment"}))
+    assert "gpu" not in spec.features
+
+
 @pytest.mark.parametrize(
     "a, b, should_equal",
     [

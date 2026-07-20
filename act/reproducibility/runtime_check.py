@@ -272,9 +272,21 @@ _FEATURE_MARKERS: dict[str, tuple[str, ...]] = {
 }
 
 
+def _has_dict_key(obj: Any, keys: frozenset[str]) -> bool:
+    """True if any nested dict has one of `keys` as a key."""
+    if isinstance(obj, dict):
+        if not keys.isdisjoint(obj.keys()):
+            return True
+        return any(_has_dict_key(v, keys) for v in obj.values())
+    if isinstance(obj, list):
+        return any(_has_dict_key(v, keys) for v in obj)
+    return False
+
+
 def _mentions_feature(outputs: dict, markers: tuple[str, ...]) -> bool:
-    text = json.dumps(outputs, default=str)
-    return any(m in text for m in markers)
+    # Markers are Extended-Resource request or node-label KEYS; match them as keys, not as a
+    # substring of the serialised outputs (which would false-positive on an image name or value).
+    return _has_dict_key(outputs, frozenset(markers))
 
 
 # System-managed objects in the `default` namespace, not user-deployed.
