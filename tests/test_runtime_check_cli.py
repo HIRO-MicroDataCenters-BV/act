@@ -33,6 +33,22 @@ def _argv(*extra: str) -> list[str]:
     ]
 
 
+def test_default_substrates_scales_slow_arch_timeouts():
+    """riscv64 (emulated under QEMU) gets scaled provision timeouts; native amd64 stays at base."""
+    from act.config import ActConfig
+    from act.run import _SLOW_ARCH_TIMEOUT_SCALE, _default_substrates
+
+    cfg = ActConfig(runtime_archs=("amd64", "arm64", "riscv64"))
+    subs = _default_substrates(cfg)
+    riscv = next(s for s in subs if s.platform == "linux/riscv64")
+    amd64_base = next(s for s in subs if s.platform == "linux/amd64")
+
+    assert riscv.startup_timeout == cfg.k3s_startup_timeout_s * _SLOW_ARCH_TIMEOUT_SCALE
+    assert riscv.api_ready_timeout == cfg.k8s_api_ready_timeout_s * _SLOW_ARCH_TIMEOUT_SCALE
+    assert amd64_base.startup_timeout == cfg.k3s_startup_timeout_s
+    assert amd64_base.api_ready_timeout == cfg.k8s_api_ready_timeout_s
+
+
 def test_cli_does_not_invoke_runtime_check_without_flag():
     with patch("act.run.RuntimeCheck") as RuntimeCheckMock:
         exit_code = main(_argv("--log-level", "ERROR"))

@@ -226,26 +226,41 @@ _BASE_ROWS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
 )
 
 
+# Emulated non-native arches (riscv64 under QEMU) boot the cluster far slower than a native
+# arch; scale their provision timeouts off the configurable base so a slow-but-working boot
+# isn't a false timeout. Raising the base (ACT_K3S_STARTUP_TIMEOUT_S) scales these too.
+_SLOW_ARCHS: frozenset[str] = frozenset({"riscv64"})
+_SLOW_ARCH_TIMEOUT_SCALE = 4
+
+
 def _default_substrates(cfg: ActConfig) -> list:
     """Substrate registry, restricted to cfg.runtime_archs.
 
     One base k3s row per arch, plus the amd64 GPU/FPGA/CXL accelerators, which
     declare their Extended Resource so feature-flagged specs schedule without real
-    hardware. Images, timeouts, host port, resource names, and count come from ActConfig.
+    hardware. Images, timeouts, host port, resource names, and count come from ActConfig;
+    slow emulated arches get scaled provision timeouts.
     """
     common: dict = {
         "extra_docker_args": _K3S_DOCKER_ARGS,
         "api_host_port": cfg.k3s_api_host_port,
-        "startup_timeout": cfg.k3s_startup_timeout_s,
-        "api_ready_timeout": cfg.k8s_api_ready_timeout_s,
     }
-    substrates: list = [
-        DockerSubstrate(
-            image=getattr(cfg, image_attr), platform=platform, spec_arch=spec_arch, command=command, **common
+    substrates: list = []
+    for arch, platform, spec_arch, image_attr, command in _BASE_ROWS:
+        if arch not in cfg.runtime_archs:
+            continue
+        scale = _SLOW_ARCH_TIMEOUT_SCALE if arch in _SLOW_ARCHS else 1
+        substrates.append(
+            DockerSubstrate(
+                image=getattr(cfg, image_attr),
+                platform=platform,
+                spec_arch=spec_arch,
+                command=command,
+                startup_timeout=cfg.k3s_startup_timeout_s * scale,
+                api_ready_timeout=cfg.k8s_api_ready_timeout_s * scale,
+                **common,
+            )
         )
-        for arch, platform, spec_arch, image_attr, command in _BASE_ROWS
-        if arch in cfg.runtime_archs
-    ]
 
     if "amd64" in cfg.runtime_archs:
         accel: dict = dict(
@@ -254,6 +269,8 @@ def _default_substrates(cfg: ActConfig) -> list:
             spec_arch="x86_64-linux",
             command=_K3S_COMMAND,
             count=cfg.accelerator_count,
+            startup_timeout=cfg.k3s_startup_timeout_s,
+            api_ready_timeout=cfg.k8s_api_ready_timeout_s,
             **common,
         )
         for substrate_cls, feature, resource_name in (
