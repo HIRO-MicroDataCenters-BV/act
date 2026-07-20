@@ -7,6 +7,8 @@ import sys
 import time
 from dataclasses import dataclass, field
 
+DEFAULT_CAPTURE_TIMEOUT_S = 30
+
 
 @dataclass
 class PlanCheckResult:
@@ -43,6 +45,10 @@ def _diff_paths(a: bytes, b: bytes, limit: int = 5) -> List[str]:
 
 
 class PlanCheck:
+    def __init__(self, capture_timeout_s: float = DEFAULT_CAPTURE_TIMEOUT_S):
+        # Bound each capture subprocess so a hanging program can't stall the always-on rung.
+        self._capture_timeout_s = capture_timeout_s
+
     def run(self, program_path: str, schema_path) -> PlanCheckResult:
         schemas = [schema_path] if isinstance(schema_path, str) else list(schema_path)
         start = time.monotonic_ns()
@@ -62,4 +68,4 @@ class PlanCheck:
 
     def _capture_host(self, program_path: str, schemas: List[str]) -> bytes:
         cmd = [sys.executable, "-m", "act.reproducibility.capture", "--program", program_path, "--schema", *schemas]
-        return subprocess.run(cmd, capture_output=True, check=True).stdout
+        return subprocess.run(cmd, capture_output=True, check=True, timeout=self._capture_timeout_s).stdout

@@ -331,8 +331,8 @@ def _run_runtime_check(program: str, schemas: list[str], log: logging.Logger, cf
     return result
 
 
-def _run_plan_check(program: str, schemas: list[str], log: logging.Logger) -> PlanCheckResult:
-    result = PlanCheck().run(program, schemas)
+def _run_plan_check(program: str, schemas: list[str], log: logging.Logger, cfg: ActConfig) -> PlanCheckResult:
+    result = PlanCheck(capture_timeout_s=cfg.exec_timeout_s).run(program, schemas)
     if not result.deterministic:
         log.warning(
             "plan_drift",
@@ -486,7 +486,7 @@ def _cmd_check(argv=None) -> int:
         if exit_code == 2:
             return exit_code
 
-        plan_result = _run_plan_check(args.program, schemas, log)
+        plan_result = _run_plan_check(args.program, schemas, log, cfg)
         if not plan_result.deterministic:
             exit_code = max(exit_code, 1)
 
