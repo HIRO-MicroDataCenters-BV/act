@@ -222,22 +222,45 @@ def _normalise_arch(raw: str) -> str:
     return _ARCH_NORMALISE.get(cleaned, f"{cleaned}-linux")
 
 
-def _resource_arch(outputs: dict) -> str | None:
-    spec = outputs.get("spec") if isinstance(outputs.get("spec"), dict) else None
-    if not spec:
-        return None
-    template = spec.get("template") if isinstance(spec.get("template"), dict) else None
-    if not template:
-        return None
-    pod_spec = template.get("spec") if isinstance(template.get("spec"), dict) else None
-    if not pod_spec:
-        return None
+_ARCH_LABEL = "kubernetes.io/arch"
+
+
+def _arch_from_pod_spec(pod_spec: dict) -> str | None:
+    """Read the target arch from a pod spec's nodeSelector or required nodeAffinity."""
     node_selector = pod_spec.get("nodeSelector")
     if isinstance(node_selector, dict):
-        raw = node_selector.get("kubernetes.io/arch")
+        raw = node_selector.get(_ARCH_LABEL)
         if isinstance(raw, str) and raw:
             return _normalise_arch(raw)
+    affinity = pod_spec.get("affinity")
+    node_affinity = affinity.get("nodeAffinity") if isinstance(affinity, dict) else None
+    required = (
+        node_affinity.get("requiredDuringSchedulingIgnoredDuringExecution") if isinstance(node_affinity, dict) else None
+    )
+    terms = required.get("nodeSelectorTerms") if isinstance(required, dict) else None
+    for term in terms if isinstance(terms, list) else []:
+        for expr in (term.get("matchExpressions") or []) if isinstance(term, dict) else []:
+            if isinstance(expr, dict) and expr.get("key") == _ARCH_LABEL and expr.get("operator") == "In":
+                values = expr.get("values")
+                if isinstance(values, list) and values and isinstance(values[0], str):
+                    return _normalise_arch(values[0])
     return None
+
+
+def _resource_arch(outputs: dict) -> str | None:
+    """Detect the declared target arch across pod-bearing kinds and bare Pods.
+
+    Controllers (Deployment/StatefulSet/DaemonSet/Job/ReplicaSet) carry the pod spec under
+    spec.template.spec; a bare Pod carries it directly under spec."""
+    spec = outputs.get("spec")
+    if not isinstance(spec, dict):
+        return None
+    template = spec.get("template")
+    if isinstance(template, dict) and isinstance(template.get("spec"), dict):
+        pod_spec = template["spec"]
+    else:
+        pod_spec = spec
+    return _arch_from_pod_spec(pod_spec) if isinstance(pod_spec, dict) else None
 
 
 # Canonical hardware markers per accelerator feature (Extended Resource request or node label).

@@ -45,6 +45,33 @@ def test_spec_arch_from_node_selector(node_selector, expected_arch):
     assert spec.orchestrator == "k8s"
 
 
+def test_spec_arch_from_bare_pod_node_selector():
+    # A bare Pod carries the pod spec directly under spec (no template).
+    plan = {"pod": {"spec": {"nodeSelector": {"kubernetes.io/arch": "riscv64"}}}}
+    mg = _mg_returning_types({"pod": "kubernetes:core/v1:Pod"})
+
+    assert extract_target_spec(plan, mg).arch == "riscv64-linux"
+
+
+def test_spec_arch_from_node_affinity():
+    # nodeAffinity (required) matching kubernetes.io/arch In [..] is honored like nodeSelector.
+    pod_spec = {
+        "affinity": {
+            "nodeAffinity": {
+                "requiredDuringSchedulingIgnoredDuringExecution": {
+                    "nodeSelectorTerms": [
+                        {"matchExpressions": [{"key": "kubernetes.io/arch", "operator": "In", "values": ["riscv64"]}]}
+                    ]
+                }
+            }
+        }
+    }
+    plan = {"dep": {"spec": {"template": {"spec": pod_spec}}}}
+    mg = _mg_returning_types({"dep": "kubernetes:apps/v1:Deployment"})
+
+    assert extract_target_spec(plan, mg).arch == "riscv64-linux"
+
+
 @pytest.mark.parametrize(
     "resource_type, expected_orchestrator",
     [
