@@ -40,7 +40,7 @@ def test_no_collision_warning_same_provider_versions(tmp_path, caplog):
     import logging
 
     # Same class across a provider's own API versions is expected, not a collision.
-    schema = {"resources": {"k8s:apps/v1:Deployment": {}, "k8s:apps/v1beta1:Deployment": {}}}
+    schema: dict = {"resources": {"k8s:apps/v1:Deployment": {}, "k8s:apps/v1beta1:Deployment": {}}}
     (tmp_path / "s.json").write_text(json.dumps(schema))
     with caplog.at_level(logging.WARNING, logger="act"):
         MockGenerator(str(tmp_path / "s.json"))

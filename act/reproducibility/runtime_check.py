@@ -4,6 +4,7 @@ from typing import Any, Callable, Literal, Optional
 
 import functools
 import hashlib
+import inspect
 import json
 import re
 import shutil
@@ -18,6 +19,7 @@ from pathlib import Path
 from pulumi import automation
 
 from act.core.mock_generator import MockGenerator
+from act.reproducibility._skip_await import skip_await_transformation
 from act.reproducibility.substrates.base import (
     ProvisionedTarget,
     Substrate,
@@ -98,12 +100,31 @@ class PulumiUpOutcome:
     probed: Optional[dict] = None
 
 
+# Wrapper __main__ that registers the skipAwait transform (stamps `pulumi.com/skipAwait`
+# on every k8s resource so `pulumi up` returns on acceptance), then runs the user program.
+# We compare the accepted deployment, not a running workload, so waiting for readiness only
+# slows the check (and stalls it under QEMU); the annotation is the provider's own opt-out.
+# The transform's source is inlined (not imported) so the Pulumi program subprocess loads no
+# `act` package; `from __future__ import annotations` keeps its type hints string-only.
+_SKIP_AWAIT_WRAPPER = (
+    "from __future__ import annotations\n\n"
+    "import runpy\n"
+    "from pathlib import Path\n\n"
+    "import pulumi\n"
+    "from pulumi.runtime import register_stack_transformation\n\n\n"
+    + inspect.getsource(skip_await_transformation)
+    + "\n\nregister_stack_transformation(skip_await_transformation)\n"
+    + 'runpy.run_path(str(Path(__file__).with_name("_act_program.py")), run_name="__main__")\n'
+)
+
+
 def run_pulumi_against(
     target: ProvisionedTarget,
     program_path: str,
     backend_dir: str,
     project_name: str = "act-runtime-check",
     probe_fn: Optional[Callable[..., dict]] = None,
+    skip_await: bool = True,
 ) -> PulumiUpOutcome:
     """Run `pulumi up` against the provisioned target, then `destroy`.
 
@@ -111,6 +132,10 @@ def run_pulumi_against(
     inline mode races Pulumi's grpc engine cleanup against real clusters
     ("Event loop stopped before Future completed"). Project mode dodges it
     at the cost of one temp dir + file copy per run.
+
+    With `skip_await` (default), the program runs behind a wrapper that disables
+    the k8s provider's readiness await, so `up` returns on acceptance — the
+    deployment-accepted comparison never waits for the workload to run.
 
     `probe_fn` runs between `up` and `destroy` (into outcome.probed) so
     workloads whose state only exists while the stack is up (Jobs,
@@ -131,7 +156,11 @@ def run_pulumi_against(
             "    virtualenv: " + sys.prefix + "\n"
             "description: act runtime check\n"
         )
-        shutil.copy(program_path, work_dir / "__main__.py")
+        if skip_await:
+            shutil.copy(program_path, work_dir / "_act_program.py")
+            (work_dir / "__main__.py").write_text(_SKIP_AWAIT_WRAPPER)
+        else:
+            shutil.copy(program_path, work_dir / "__main__.py")
 
         env_vars = {
             "PULUMI_BACKEND_URL": f"file://{backend_dir}",
@@ -268,32 +297,16 @@ def _kubectl_items(kubeconfig: str, kinds: str, namespace: str, timeout: int = 1
     return json.loads(result.stdout).get("items", [])
 
 
-def _resource_ready(item: dict) -> bool:
-    """Whether a resource reached its healthy state (True for kinds with no readiness concept)."""
-    kind = item.get("kind")
-    status = item.get("status") or {}
-    if kind == "Pod":
-        return any(c.get("type") == "Ready" and c.get("status") == "True" for c in status.get("conditions", []))
-    if kind in ("Deployment", "ReplicaSet", "StatefulSet"):
-        desired = (item.get("spec") or {}).get("replicas")
-        return desired is None or (status.get("readyReplicas") or 0) >= desired
-    if kind == "DaemonSet":
-        return (status.get("numberReady") or 0) >= (status.get("desiredNumberScheduled") or 0)
-    if kind == "Job":
-        return (status.get("succeeded") or 0) >= 1
-    return True
-
-
 def _project_resource(item: dict) -> dict:
-    """The deterministic 'deployment outcome' we compare across runs: kind, namespace, the
-    cluster-accepted desired state (spec/data), and whether it became ready. Names are
-    excluded on purpose — physical names are generated (Pulumi autonaming, k8s suffixes),
-    and program-level name determinism is Rung 1's (plan-hash) job. Observed status (IPs,
-    containerIDs, timestamps) is also excluded."""
+    """The deterministic 'deployment outcome' we compare across runs: kind, namespace, and
+    the cluster-accepted desired state (spec/data). Names are excluded on purpose — physical
+    names are generated (Pulumi autonaming, k8s suffixes), and program-level name determinism
+    is Rung 1's (plan-hash) job. Runtime status (readiness, IPs, containerIDs, timestamps) is
+    also excluded: under skipAwait we compare what the cluster accepted, not whether the
+    workload has finished coming up (which races between runs)."""
     projected = {
         "kind": item.get("kind"),
         "namespace": (item.get("metadata") or {}).get("namespace"),
-        "ready": _resource_ready(item),
     }
     for key in ("spec", "data"):
         if key in item:
@@ -301,32 +314,17 @@ def _project_resource(item: dict) -> dict:
     return projected
 
 
-def _wait_for_pods_ready(kubeconfig: str, namespace: str, timeout: int) -> None:
-    """Wait until user pods are all Ready; return early if the workload has no pods."""
-    deadline = time.monotonic() + timeout
-    empty_polls = 0
-    while time.monotonic() < deadline:
-        pods = [p for p in _kubectl_items(kubeconfig, "pods", namespace) if not _is_system_managed(p)]
-        if pods:
-            empty_polls = 0
-            if all(_resource_ready(p) for p in pods):
-                return
-        elif (empty_polls := empty_polls + 1) >= 3:  # ~6s with no user pods -> pod-less workload
-            return
-        time.sleep(2)
-
-
 def probe_k8s(target, namespace: str = "default", timeout: int = 60) -> dict:
     """Capture the reproducible deployment outcome of user resources in the namespace.
 
-    Waits for user pods to reach Ready, then projects each user-declared object to
-    (kind, namespace, accepted spec/data, readiness) — the deterministic "same deployment"
-    signal — rather than the full, churn-heavy cluster dump. System-managed objects and
-    cluster-derived children (Pods owned by a controller) are filtered out; the parent's
-    readiness reflects the children's health. Accepts a `ProvisionedTarget` or kubeconfig path.
+    Projects each user-declared object to (kind, namespace, accepted spec/data) — the
+    deterministic "same deployment" signal — rather than the full, churn-heavy cluster dump.
+    System-managed objects and cluster-derived children (Pods owned by a controller) are
+    filtered out. Runs under skipAwait, so it captures the accepted deployment immediately
+    after `up` without waiting for the workload to run. Accepts a `ProvisionedTarget` or
+    kubeconfig path.
     """
     kubeconfig = _kubeconfig_path(target)
-    _wait_for_pods_ready(kubeconfig, namespace, timeout)
     resources = [
         _project_resource(i)
         for i in _kubectl_items(kubeconfig, _PROBE_KINDS, namespace, timeout)

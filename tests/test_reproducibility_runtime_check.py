@@ -144,9 +144,68 @@ def test_run_pulumi_against_destroys_on_up_failure(tmp_path):
     stack.destroy.assert_called_once()
 
 
-def test_probe_k8s_projects_resources(monkeypatch):
-    # Projects each object to (kind, name, namespace, spec, ready) — not the raw dump.
-    monkeypatch.setattr("act.reproducibility.runtime_check._wait_for_pods_ready", lambda *a, **k: None)
+def test_skip_await_transformation_stamps_annotation():
+    from types import SimpleNamespace
+    from typing import cast
+
+    from act.reproducibility._skip_await import skip_await_transformation
+
+    args = SimpleNamespace(
+        type_="kubernetes:apps/v1:Deployment",
+        props={"metadata": {"name": "nginx"}, "spec": {"replicas": 1}},
+        opts=None,
+    )
+    result = skip_await_transformation(args)  # type: ignore[arg-type]
+    assert result is not None
+    props = cast(dict, result.props)
+    assert props["metadata"]["annotations"]["pulumi.com/skipAwait"] == "true"
+    # Existing metadata and other props survive untouched.
+    assert props["metadata"]["name"] == "nginx"
+    assert props["spec"] == {"replicas": 1}
+
+
+def test_skip_await_transformation_ignores_non_k8s():
+    from types import SimpleNamespace
+
+    from act.reproducibility._skip_await import skip_await_transformation
+
+    args = SimpleNamespace(
+        type_="random:index/randomPassword:RandomPassword",
+        props={"length": 8},
+        opts=None,
+    )
+    assert skip_await_transformation(args) is None  # type: ignore[arg-type]
+
+
+def test_run_pulumi_against_wraps_program_for_skip_await(tmp_path, monkeypatch):
+    # skip_await (default) runs the program behind the transform wrapper so `up` returns on
+    # acceptance. Keep the work_dir around to inspect what was written.
+    work_dir = tmp_path / "work"
+    work_dir.mkdir()
+    monkeypatch.setattr("act.reproducibility.runtime_check.tempfile.mkdtemp", lambda **k: str(work_dir))
+    monkeypatch.setattr("act.reproducibility.runtime_check.shutil.rmtree", lambda *a, **k: None)
+    stack = MagicMock()
+    stack.up.return_value = MagicMock(outputs={})
+
+    with patch(
+        "act.reproducibility.runtime_check.automation.create_or_select_stack",
+        return_value=stack,
+    ):
+        run_pulumi_against(
+            target=_provisioned(),
+            program_path=_stub_program(tmp_path),
+            backend_dir=str(tmp_path),
+        )
+
+    main = (work_dir / "__main__.py").read_text()
+    assert "register_stack_transformation" in main
+    assert "skip_await_transformation" in main
+    assert (work_dir / "_act_program.py").exists()
+
+
+def test_probe_k8s_projects_resources():
+    # Projects each object to (kind, namespace, accepted spec/data) — not the raw dump, and
+    # not runtime status: under skipAwait we compare what the cluster accepted.
     sample = {
         "items": [
             {
@@ -163,15 +222,12 @@ def test_probe_k8s_projects_resources(monkeypatch):
     ):
         out = probe_k8s("/tmp/kube.config")
 
-    assert out == {
-        "resources": [{"kind": "Deployment", "namespace": "default", "ready": True, "spec": {"replicas": 1}}]
-    }
+    assert out == {"resources": [{"kind": "Deployment", "namespace": "default", "spec": {"replicas": 1}}]}
 
 
-def test_probe_k8s_excludes_derived_resources(monkeypatch):
+def test_probe_k8s_excludes_derived_resources():
     # A Deployment's owned Pod carries injected non-determinism (generated name, per-pod SA
-    # token volume); it must be excluded, its health reflected in the Deployment's readiness.
-    monkeypatch.setattr("act.reproducibility.runtime_check._wait_for_pods_ready", lambda *a, **k: None)
+    # token volume); it must be excluded — the parent's accepted spec is what we compare.
     sample = {
         "items": [
             {
@@ -195,10 +251,9 @@ def test_probe_k8s_excludes_derived_resources(monkeypatch):
     assert [r["kind"] for r in out["resources"]] == ["Deployment"]
 
 
-def test_projection_ignores_pod_suffix_and_status(monkeypatch):
+def test_projection_ignores_pod_suffix_and_status():
     # Two deploys of the same workload differ only by generated pod name + assigned IP;
-    # the projection must hash them equal (this is the property Step 0 exposed as broken).
-    monkeypatch.setattr("act.reproducibility.runtime_check._wait_for_pods_ready", lambda *a, **k: None)
+    # the projection must hash them equal.
 
     def probe_with(suffix):
         sample = {
@@ -625,10 +680,7 @@ def test_probe_k8s_with_workload_logs_waits_for_jobs_and_captures_logs():
 
     from act.reproducibility.runtime_check import probe_k8s_with_workload_logs
 
-    with (
-        patch("act.reproducibility.runtime_check.subprocess.run", side_effect=fake_run),
-        patch("act.reproducibility.runtime_check._wait_for_pods_ready", lambda *a, **k: None),
-    ):
+    with patch("act.reproducibility.runtime_check.subprocess.run", side_effect=fake_run):
         state = probe_k8s_with_workload_logs("/tmp/kube.config", namespace="default", timeout=5)
 
     assert "_act_workload_logs" in state
