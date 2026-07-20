@@ -302,6 +302,30 @@ def test_projection_ignores_pod_suffix_and_status():
     assert hash_output(probe_with("11111")) == hash_output(probe_with("22222"))
 
 
+def test_probe_k8s_sort_order_stable_under_volatile_fields():
+    # Two probes of the same two resources; a volatile field (bootID) is reassigned between
+    # runs. Sorting must key on the normalised form so the reassignment can't flip item order
+    # and cause a false mismatch.
+    def items(boot1, boot2):
+        return {
+            "items": [
+                {"kind": "Pod", "metadata": {"name": "x"}, "spec": {"bootID": boot1, "hostname": "h1"}},
+                {"kind": "Pod", "metadata": {"name": "y"}, "spec": {"bootID": boot2, "hostname": "h2"}},
+            ]
+        }
+
+    def probe(payload):
+        with patch(
+            "act.reproducibility.runtime_check.subprocess.run",
+            return_value=MagicMock(stdout=json.dumps(payload).encode(), returncode=0),
+        ):
+            return probe_k8s("/tmp/kube.config")
+
+    run_a = probe(items("AAA", "ZZZ"))
+    run_b = probe(items("ZZZ", "AAA"))  # bootIDs swapped between runs
+    assert hash_output(run_a) == hash_output(run_b)
+
+
 def test_normalise_strips_volatile_keys():
     raw = {
         "items": [

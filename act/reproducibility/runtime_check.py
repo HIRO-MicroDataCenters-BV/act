@@ -356,7 +356,9 @@ def probe_k8s(target, namespace: str = "default", timeout: int = 60) -> dict:
         for i in _kubectl_items(kubeconfig, _PROBE_KINDS, namespace, timeout)
         if not _is_system_managed(i) and not _is_derived(i)
     ]
-    resources.sort(key=lambda r: json.dumps(r, sort_keys=True, default=str))
+    # Sort by the normalised form: a volatile field (e.g. a reassigned bootID) must not be able
+    # to flip item order between runs and cause a false mismatch once it's stripped for hashing.
+    resources.sort(key=lambda r: json.dumps(normalise_output(r), sort_keys=True, default=str))
     return {"resources": resources}
 
 
