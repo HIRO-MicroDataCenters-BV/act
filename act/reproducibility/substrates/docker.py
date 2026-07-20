@@ -34,12 +34,17 @@ class DockerSubstrate(Substrate):
     extra_docker_args: tuple[str, ...] = ()
     command: tuple[str, ...] = ()
 
+    # The runtime check needs all three on PATH: docker (provision the cluster), pulumi
+    # (deploy), kubectl (probe). A missing tool makes this substrate unavailable so the
+    # check skips honestly rather than hard-failing the gate.
+    _REQUIRED_TOOLS: tuple[str, ...] = ("docker", "pulumi", "kubectl")
+
     @property
     def name(self) -> str:  # type: ignore[override]
         return f"docker:{self.platform}"
 
     def is_available(self) -> bool:
-        return shutil.which("docker") is not None
+        return all(shutil.which(tool) is not None for tool in self._REQUIRED_TOOLS)
 
     def matches(self, spec: TargetSpec) -> bool:
         if spec.arch != self.spec_arch:

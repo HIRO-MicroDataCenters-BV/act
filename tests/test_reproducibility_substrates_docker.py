@@ -31,13 +31,20 @@ def test_substrate_name_includes_platform(amd64_substrate, riscv64_substrate):
     assert riscv64_substrate.name == "docker:linux/riscv64"
 
 
-def test_is_available_when_docker_on_path(monkeypatch, amd64_substrate):
-    monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/docker" if name == "docker" else None)
+def test_is_available_when_all_tools_on_path(monkeypatch, amd64_substrate):
+    monkeypatch.setattr(shutil, "which", lambda name: f"/usr/bin/{name}")
     assert amd64_substrate.is_available() is True
 
 
 def test_is_available_false_when_docker_missing(monkeypatch, amd64_substrate):
     monkeypatch.setattr(shutil, "which", lambda name: None)
+    assert amd64_substrate.is_available() is False
+
+
+@pytest.mark.parametrize("missing", ["docker", "pulumi", "kubectl"])
+def test_is_available_false_when_any_tool_missing(monkeypatch, amd64_substrate, missing):
+    # The runtime check needs docker + pulumi + kubectl; any one missing -> skip, not hard-fail.
+    monkeypatch.setattr(shutil, "which", lambda name: None if name == missing else f"/usr/bin/{name}")
     assert amd64_substrate.is_available() is False
 
 

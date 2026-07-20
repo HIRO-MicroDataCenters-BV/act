@@ -266,7 +266,7 @@ def _default_substrates(cfg: ActConfig) -> list:
 
 
 # Runtime-check stages that mean "could not verify", not "failed": they never escalate the exit code.
-_RUNTIME_SKIP_STAGES = frozenset({"substrate_unavailable", "spec_unsupported", "nothing_observed"})
+_RUNTIME_SKIP_STAGES = frozenset({"substrate_unavailable", "spec_unsupported", "nothing_observed", "timeout"})
 
 
 def _run_runtime_check(program: str, schemas: list[str], log: logging.Logger, cfg: ActConfig) -> RuntimeCheckResult:

@@ -774,3 +774,24 @@ def test_runtime_check_reports_provision_failed_when_substrate_returns_none(tmp_
 
     assert result.passed is False
     assert any(f.stage == "provision_failed" and "returned None" in f.detail for f in result.failures)
+
+
+def test_runtime_check_classifies_provision_timeout_as_skip(tmp_path):
+    """A provision TimeoutError (slow emulated arch) is a `timeout` skip, not a red provision_failed."""
+    sub = _FakeSubstrate(matches_fn=lambda s: True)
+
+    def _timeout(spec):
+        raise TimeoutError("k3s did not produce kubeconfig within 180s")
+
+    sub.provision = _timeout  # type: ignore[method-assign]
+
+    with patch("act.reproducibility.runtime_check.MockGenerator", autospec=True) as mg_cls:
+        mg = mg_cls.return_value
+        mg.run_with_mocks.return_value = {"nginx": {}}
+        mg.get_resource_type.return_value = "kubernetes:apps/v1:Deployment"
+
+        result = RuntimeCheck(substrates=[sub]).run("some.py", "schema.json", backend_dir=str(tmp_path))
+
+    assert result.passed is False
+    assert any(f.stage == "timeout" for f in result.failures)
+    assert not any(f.stage == "provision_failed" for f in result.failures)

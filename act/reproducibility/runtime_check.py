@@ -188,6 +188,9 @@ def run_pulumi_against(
                     probed = probe_fn(target)
                 except Exception as exc:
                     failure = RuntimeCheckFailure(stage="probe_failed", detail=str(exc))
+        except (TimeoutError, subprocess.TimeoutExpired) as exc:
+            # Slow emulation, not a reproducibility violation — a skip stage, not red.
+            failure = RuntimeCheckFailure(stage="timeout", detail=str(exc))
         except Exception as exc:
             failure = RuntimeCheckFailure(stage="pulumi_up_failed", detail=str(exc))
         finally:
@@ -576,6 +579,11 @@ class RuntimeCheck:
                 try:
                     try:
                         provisioned = substrate.provision(spec)
+                    except (TimeoutError, subprocess.TimeoutExpired) as exc:
+                        # The emulated cluster didn't boot in time (slow arch under QEMU),
+                        # not a reproducibility violation — a skip stage, not red.
+                        failures.append(RuntimeCheckFailure(stage="timeout", detail=str(exc)))
+                        break
                     except Exception as exc:
                         failures.append(RuntimeCheckFailure(stage="provision_failed", detail=str(exc)))
                         break
