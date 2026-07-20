@@ -567,66 +567,69 @@ class RuntimeCheck:
         hashes: list[str] = []
         last_normalised: list[Any] = []
 
-        provisioned: Optional[ProvisionedTarget] = None
         try:
-            try:
-                provisioned = substrate.provision(spec)
-            except Exception as exc:
-                failures.append(RuntimeCheckFailure(stage="provision_failed", detail=str(exc)))
-
-            if provisioned is not None:
+            # A fresh target per run: run 2 must agree with run 1 independently, not inherit
+            # run 1's cluster residue (which would make a PASS vacuous and misreport leftovers
+            # as pulumi_up_failed). Each iteration provisions, deploys, probes, and tears down.
+            for _ in range(2):
+                provisioned: Optional[ProvisionedTarget] = None
                 try:
-                    for _run_index in range(2):
-                        outcome = run_pulumi_against(
-                            target=provisioned,
-                            program_path=program_path,
-                            backend_dir=backend_root,
-                            probe_fn=self._probe_fn,
-                        )
-                        if outcome.failure is not None:
-                            failures.append(outcome.failure)
-                            break
-
-                        # probe_fn ran inside run_pulumi_against (between up and
-                        # destroy); if it raised we already broke above, so
-                        # outcome.probed is the captured dict here.
-                        probed = outcome.probed or {}
-                        normalised = normalise_output(probed)
-                        last_normalised.append(normalised)
-                        hashes.append(hash_output(probed))
-
-                    if len(hashes) == 2 and hashes[0] != hashes[1]:
+                    try:
+                        provisioned = substrate.provision(spec)
+                    except Exception as exc:
+                        failures.append(RuntimeCheckFailure(stage="provision_failed", detail=str(exc)))
+                        break
+                    if provisioned is None:
+                        # provision() returned None without raising: substrate contract
+                        # violation. Surface it so the run isn't silently empty.
                         failures.append(
                             RuntimeCheckFailure(
-                                stage="output_mismatch",
-                                detail="probe output hashes differ between runs",
+                                stage="provision_failed",
+                                detail="substrate.provision returned None",
                             )
                         )
-                    elif len(last_normalised) == 2 and all(_is_empty_probe(p) for p in last_normalised):
-                        # Matching but empty probes verify nothing; don't report reproducible.
-                        failures.append(
-                            RuntimeCheckFailure(
-                                stage="nothing_observed",
-                                detail="no user resources observed; runtime reproducibility could not be verified",
-                            )
-                        )
-                except Exception as exc:
-                    failures.append(RuntimeCheckFailure(stage="internal_error", detail=str(exc)))
-            elif not failures:
-                # provision() returned None without raising: substrate contract
-                # violation. Surface it so the run isn't silently empty.
+                        break
+
+                    outcome = run_pulumi_against(
+                        target=provisioned,
+                        program_path=program_path,
+                        backend_dir=backend_root,
+                        probe_fn=self._probe_fn,
+                    )
+                    if outcome.failure is not None:
+                        failures.append(outcome.failure)
+                        break
+
+                    # probe_fn ran inside run_pulumi_against (between up and destroy);
+                    # outcome.probed is the captured dict here.
+                    probed = outcome.probed or {}
+                    last_normalised.append(normalise_output(probed))
+                    hashes.append(hash_output(probed))
+                finally:
+                    if provisioned is not None:
+                        try:
+                            provisioned.teardown()
+                        except Exception as exc:
+                            failures.append(RuntimeCheckFailure(stage="teardown_failed", detail=str(exc)))
+
+            if len(hashes) == 2 and hashes[0] != hashes[1]:
                 failures.append(
                     RuntimeCheckFailure(
-                        stage="provision_failed",
-                        detail="substrate.provision returned None",
+                        stage="output_mismatch",
+                        detail="probe output hashes differ between runs",
                     )
                 )
+            elif len(last_normalised) == 2 and all(_is_empty_probe(p) for p in last_normalised):
+                # Matching but empty probes verify nothing; don't report reproducible.
+                failures.append(
+                    RuntimeCheckFailure(
+                        stage="nothing_observed",
+                        detail="no user resources observed; runtime reproducibility could not be verified",
+                    )
+                )
+        except Exception as exc:
+            failures.append(RuntimeCheckFailure(stage="internal_error", detail=str(exc)))
         finally:
-            if provisioned is not None:
-                try:
-                    provisioned.teardown()
-                except Exception as exc:
-                    failures.append(RuntimeCheckFailure(stage="teardown_failed", detail=str(exc)))
             if owns_backend_root:
                 shutil.rmtree(backend_root, ignore_errors=True)
 

@@ -444,6 +444,7 @@ class _FakeSubstrate(Substrate):
     def __init__(self, available=True, matches_fn=None):
         self._available = available
         self._matches_fn = matches_fn or (lambda spec: True)
+        self.provision_calls = 0
         self.teardown_calls = 0
 
     def is_available(self):
@@ -453,6 +454,7 @@ class _FakeSubstrate(Substrate):
         return self._matches_fn(spec)
 
     def provision(self, spec):
+        self.provision_calls += 1
         return ProvisionedTarget(
             endpoint="/tmp/kube.config",
             kind="kubeconfig",
@@ -503,7 +505,9 @@ def test_runtime_check_passes_when_two_probes_match(tmp_path):
     assert result.hash_1 == result.hash_2
     assert result.diff == []
     assert result.capture_duration_ms >= 0
-    assert sub.teardown_calls == 1
+    # Each run gets a fresh target (independent twice-and-compare), so provision + teardown 2x.
+    assert sub.provision_calls == 2
+    assert sub.teardown_calls == 2
 
 
 def test_runtime_check_fails_when_probes_differ(tmp_path):
@@ -586,6 +590,8 @@ def test_runtime_check_teardown_runs_on_pulumi_failure(tmp_path):
 
     assert result.passed is False
     assert any(f.stage == "pulumi_up_failed" for f in result.failures)
+    # Run 1 failed, so run 2 is not attempted; the one provisioned target is still torn down.
+    assert sub.provision_calls == 1
     assert sub.teardown_calls == 1
 
 
