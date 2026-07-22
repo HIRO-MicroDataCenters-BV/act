@@ -124,22 +124,26 @@ class PulumiUpOutcome:
     probed: Optional[dict] = None
 
 
-# Wrapper __main__ that registers the skipAwait transform (stamps `pulumi.com/skipAwait`
-# on every k8s resource so `pulumi up` returns on acceptance), then runs the user program.
-# We compare the accepted deployment, not a running workload, so waiting for readiness only
-# slows the check (and stalls it under QEMU); the annotation is the provider's own opt-out.
-# The transform's source is inlined (not imported) so the Pulumi program subprocess loads no
-# `act` package; `from __future__ import annotations` keeps its type hints string-only.
-_SKIP_AWAIT_WRAPPER = (
-    "from __future__ import annotations\n\n"
-    "import runpy\n"
-    "from pathlib import Path\n\n"
-    "import pulumi\n"
-    "from pulumi.runtime import register_stack_transformation\n\n\n"
-    + inspect.getsource(skip_await_transformation)
-    + "\n\nregister_stack_transformation(skip_await_transformation)\n"
-    + 'runpy.run_path(str(Path(__file__).with_name("_act_program.py")), run_name="__main__")\n'
-)
+@functools.lru_cache(maxsize=1)
+def _skip_await_wrapper() -> str:
+    """Wrapper __main__ that registers the skipAwait transform, then runs the user program under
+    it (so `pulumi up` returns on acceptance). The transform source is inlined so the subprocess
+    loads no `act` package; if source isn't available (bytecode-only install) it imports it as a
+    fallback. Built lazily so `inspect.getsource` can't break `act` at import time."""
+    try:
+        body = inspect.getsource(skip_await_transformation)
+    except (OSError, TypeError):
+        body = "from act.reproducibility._skip_await import skip_await_transformation\n"
+    return (
+        "from __future__ import annotations\n\n"
+        "import runpy\n"
+        "from pathlib import Path\n\n"
+        "import pulumi\n"
+        "from pulumi.runtime import register_stack_transformation\n\n\n"
+        + body
+        + "\n\nregister_stack_transformation(skip_await_transformation)\n"
+        + 'runpy.run_path(str(Path(__file__).with_name("_act_program.py")), run_name="__main__")\n'
+    )
 
 
 def _run_up(stack, up_timeout: Optional[float]):
@@ -202,7 +206,7 @@ def run_pulumi_against(
         )
         if skip_await:
             shutil.copy(program_path, work_dir / "_act_program.py")
-            (work_dir / "__main__.py").write_text(_SKIP_AWAIT_WRAPPER)
+            (work_dir / "__main__.py").write_text(_skip_await_wrapper())
         else:
             shutil.copy(program_path, work_dir / "__main__.py")
 

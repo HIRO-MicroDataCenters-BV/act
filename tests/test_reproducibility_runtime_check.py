@@ -231,6 +231,16 @@ def test_skip_await_transformation_ignores_non_k8s():
     assert skip_await_transformation(args) is None  # type: ignore[arg-type]
 
 
+def test_skip_await_wrapper_compiles_and_is_self_contained():
+    from act.reproducibility.runtime_check import _skip_await_wrapper
+
+    wrapper = _skip_await_wrapper()
+    compile(wrapper, "<wrapper>", "exec")  # valid Python
+    assert "register_stack_transformation" in wrapper
+    # The subprocess must load no `act` package on the normal (inlined-source) path.
+    assert "import act" not in wrapper and "from act" not in wrapper
+
+
 def test_skip_await_transformation_handles_computed_metadata():
     # Output-valued metadata must still be stamped (not bailed on), else pulumi awaits it.
     from types import SimpleNamespace

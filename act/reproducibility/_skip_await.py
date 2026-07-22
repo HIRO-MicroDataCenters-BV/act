@@ -1,7 +1,7 @@
 """Pulumi stack transformation that disables the k8s provider's readiness await.
 
 `runtime_check` inlines this function's source into the wrapper `__main__` it runs for each
-`pulumi up` (see `_SKIP_AWAIT_WRAPPER`), so `up` returns as soon as the API accepts each
+`pulumi up` (see `_skip_await_wrapper`), so `up` returns as soon as the API accepts each
 manifest — the deployment-accepted comparison never waits for the workload to run. The
 function is inlined (not imported) so the Pulumi program subprocess pulls in no `act`
 package; keep it self-contained (only `pulumi` + builtins, annotations string-only).
