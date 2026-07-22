@@ -336,7 +336,7 @@ def test_projection_distinguishes_binarydata_and_labels():
         ):
             return probe_k8s("/tmp/kube.config")
 
-    base = {
+    base: dict = {
         "kind": "ConfigMap",
         "metadata": {"name": "c", "namespace": "default", "labels": {"app": "a"}},
         "data": {"k": "v"},

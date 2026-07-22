@@ -73,7 +73,7 @@ def test_defaults():
         # ints: valid / boundary kept / unparseable / out-of-range -> default
         ({"ACT_K3S_API_HOST_PORT": "7443"}, "k3s_api_host_port", 7443),
         ({"ACT_K3S_API_HOST_PORT": "65535"}, "k3s_api_host_port", 65535),
-        ({"ACT_K3S_API_HOST_PORT": "99999"}, "k3s_api_host_port", 6443),
+        ({"ACT_K3S_API_HOST_PORT": "99999"}, "k3s_api_host_port", 0),  # invalid -> ephemeral default
         ({"ACT_ACV_MAX_ITERATIONS": "6"}, "acv_max_iterations", 6),
         ({"ACT_ACCELERATOR_COUNT": "x"}, "accelerator_count", 1),
         ({"ACT_ACCELERATOR_COUNT": "0"}, "accelerator_count", 1),

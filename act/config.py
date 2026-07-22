@@ -32,7 +32,7 @@ DEFAULT_SCHEMA_FETCH = "allow"
 DEFAULT_K3S_IMAGE = "rancher/k3s:v1.32.1-k3s1"
 DEFAULT_K3S_RISCV64_IMAGE = "ghcr.io/carv-ics-forth/k3s:v1.32.1-k3s1-riscv64"
 DEFAULT_K8S_NAMESPACE = "default"
-DEFAULT_K3S_API_HOST_PORT = 6443
+DEFAULT_K3S_API_HOST_PORT = 0  # 0 = ephemeral host port (avoids collisions / enables concurrency)
 DEFAULT_K3S_STARTUP_TIMEOUT_S = 180
 DEFAULT_IMAGE_BOOT_TIMEOUT_S = 60
 DEFAULT_K8S_API_READY_TIMEOUT_S = 60
@@ -150,7 +150,7 @@ class ActConfig:
                 env.get("ACT_K3S_API_HOST_PORT"),
                 DEFAULT_K3S_API_HOST_PORT,
                 name="ACT_K3S_API_HOST_PORT",
-                minimum=1,
+                minimum=0,  # 0 = ephemeral
                 maximum=65535,
             ),
             runtime_archs=_read_archs(env.get("ACT_RUNTIME_ARCHS"), SUPPORTED_ARCHS),

@@ -103,6 +103,8 @@ def _setup_provision_mocks(monkeypatch, tmp_path):
             )
         if cmd[:3] == ["docker", "run", "-d"]:
             return subprocess.CompletedProcess(cmd, 0, stdout=b"act-container-id\n", stderr=b"")
+        if cmd[:2] == ["docker", "port"]:
+            return subprocess.CompletedProcess(cmd, 0, stdout=b"0.0.0.0:54321\n", stderr=b"")
         return subprocess.CompletedProcess(cmd, 0, stdout=b"", stderr=b"")
 
     monkeypatch.setattr(subprocess, "run", fake_run)
@@ -112,7 +114,7 @@ def _setup_provision_mocks(monkeypatch, tmp_path):
     )
     monkeypatch.setattr(
         "act.reproducibility.substrates.docker.DockerSubstrate._wait_for_api",
-        lambda self, container_id, port: None,
+        lambda self, container_id: None,
     )
     monkeypatch.setattr(
         "act.reproducibility.substrates.docker._wait_for_node",
@@ -201,6 +203,8 @@ def test_provision_cleans_up_work_dir_on_late_failure(monkeypatch, tmp_path, amd
     def fake_run(cmd, *args, **kwargs):
         if cmd[:3] == ["docker", "run", "-d"]:
             return subprocess.CompletedProcess(cmd, 0, stdout=b"", stderr=b"")
+        if cmd[:2] == ["docker", "port"]:
+            return subprocess.CompletedProcess(cmd, 0, stdout=b"0.0.0.0:54321\n", stderr=b"")
         if cmd[:2] == ["docker", "exec"] and cmd[3:] == ["test", "-f", "/etc/rancher/k3s/k3s.yaml"]:
             return subprocess.CompletedProcess(cmd, 0, stdout=b"", stderr=b"")
         if cmd[:2] == ["docker", "exec"] and "cat" in cmd:
@@ -252,6 +256,31 @@ def test_extra_docker_args_default_to_empty():
     )
     assert sub.extra_docker_args == ()
     assert sub.command == ()
+
+
+def test_provision_uses_ephemeral_port_and_resolves_it(monkeypatch, tmp_path, amd64_substrate):
+    # Default api_host_port=0 -> publish "-p 6443" (ephemeral) and rewrite the kubeconfig to the
+    # docker-assigned host port.
+    calls = _setup_provision_mocks(monkeypatch, tmp_path)
+    target = amd64_substrate.provision(TargetSpec(arch="x86_64-linux", orchestrator="k8s"))
+
+    run_call = next(c for c in calls if c[:3] == ["docker", "run", "-d"])
+    assert run_call[run_call.index("-p") + 1] == "6443"
+    assert any(c[:2] == ["docker", "port"] for c in calls)
+    with open(target.endpoint) as f:
+        assert "127.0.0.1:54321" in f.read()
+
+
+def test_provision_fixed_port_skips_resolution(monkeypatch, tmp_path):
+    sub = DockerSubstrate(image="x", platform="linux/amd64", spec_arch="x86_64-linux", api_host_port=6443)
+    calls = _setup_provision_mocks(monkeypatch, tmp_path)
+    target = sub.provision(TargetSpec(arch="x86_64-linux", orchestrator="k8s"))
+
+    run_call = next(c for c in calls if c[:3] == ["docker", "run", "-d"])
+    assert run_call[run_call.index("-p") + 1] == "6443:6443"
+    assert not any(c[:2] == ["docker", "port"] for c in calls)  # fixed port needs no lookup
+    with open(target.endpoint) as f:
+        assert "127.0.0.1:6443" in f.read()
 
 
 def test_provision_labels_container_for_reaping(monkeypatch, tmp_path, amd64_substrate):

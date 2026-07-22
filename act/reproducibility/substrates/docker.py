@@ -59,7 +59,7 @@ class DockerSubstrate(Substrate):
     platform: str
     spec_arch: str
     features: frozenset[str] = field(default_factory=frozenset)
-    api_host_port: int = 6443
+    api_host_port: int = 0  # 0 = ephemeral host port (docker assigns; avoids fixed-6443 collision)
     startup_timeout: int = 180
     api_ready_timeout: int = 60
     extra_docker_args: tuple[str, ...] = ()
@@ -110,7 +110,8 @@ class DockerSubstrate(Substrate):
                     "--label",
                     f"{_CREATED_LABEL}={int(time.time())}",
                     "-p",
-                    f"{self.api_host_port}:6443",
+                    # 0 -> let docker assign an ephemeral host port (no fixed-6443 collision).
+                    f"{self.api_host_port}:6443" if self.api_host_port else "6443",
                     *self.extra_docker_args,
                     self.image,
                     *self.command,
@@ -119,8 +120,9 @@ class DockerSubstrate(Substrate):
                 check=True,
                 timeout=self.startup_timeout,
             )
+            host_port = self.api_host_port or self._resolve_host_port(container_id)
 
-            self._wait_for_api(container_id, self.api_host_port)
+            self._wait_for_api(container_id)
 
             result = subprocess.run(
                 ["docker", "exec", container_id, "cat", "/etc/rancher/k3s/k3s.yaml"],
@@ -131,7 +133,7 @@ class DockerSubstrate(Substrate):
             kubeconfig_text = result.stdout.decode()
             kubeconfig_text = re.sub(
                 r"server:\s*https?://[^\s]+",
-                f"server: https://127.0.0.1:{self.api_host_port}",
+                f"server: https://127.0.0.1:{host_port}",
                 kubeconfig_text,
             )
             kubeconfig.write_text(kubeconfig_text)
@@ -164,7 +166,20 @@ class DockerSubstrate(Substrate):
             teardown=teardown,
         )
 
-    def _wait_for_api(self, container_id: str, port: int) -> None:
+    def _resolve_host_port(self, container_id: str) -> int:
+        """The ephemeral host port docker mapped to the container's 6443 (e.g. '0.0.0.0:54321')."""
+        result = subprocess.run(
+            ["docker", "port", container_id, "6443/tcp"],
+            capture_output=True,
+            check=True,
+            timeout=10,
+        )
+        lines = result.stdout.decode().splitlines()
+        if not lines:
+            raise RuntimeError(f"docker did not publish a host port for {container_id}:6443")
+        return int(lines[0].rsplit(":", 1)[1])
+
+    def _wait_for_api(self, container_id: str) -> None:
         deadline = time.monotonic() + self.startup_timeout
         while time.monotonic() < deadline:
             check = subprocess.run(
