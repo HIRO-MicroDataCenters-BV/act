@@ -208,6 +208,7 @@ Reproducibility target and timeouts (used by `--check-deployment-runtime` / `--c
 | `ACT_IMAGE_BOOT_TIMEOUT_S` | Seconds to wait for each image to smoke-boot under QEMU | `60` |
 | `ACT_K8S_API_READY_TIMEOUT_S` | Seconds to wait for node registration before patching Extended Resources | `60` |
 | `ACT_K8S_PROBE_TIMEOUT_S` | Timeout for the kubectl probe of deployed state | `60` |
+| `ACT_RUNTIME_UP_TIMEOUT_S` | Wall-clock bound on each `pulumi up` (`0` derives it from the substrate startup timeout) | `0` |
 
 Accelerator Extended Resources:
 
