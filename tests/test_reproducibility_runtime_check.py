@@ -171,6 +171,33 @@ def test_run_pulumi_against_destroys_on_up_failure(tmp_path):
     stack.destroy.assert_called_once()
 
 
+def test_run_pulumi_against_bounds_hanging_up(tmp_path):
+    import time as _time
+
+    def slow_up():
+        _time.sleep(1.5)
+        return MagicMock(outputs={})
+
+    stack = MagicMock()
+    stack.up.side_effect = slow_up
+    stack.destroy.return_value = MagicMock()
+
+    with patch(
+        "act.reproducibility.runtime_check.automation.create_or_select_stack",
+        return_value=stack,
+    ):
+        outcome = run_pulumi_against(
+            target=_provisioned(),
+            program_path=_stub_program(tmp_path),
+            backend_dir=str(tmp_path),
+            up_timeout=0.3,
+        )
+
+    assert outcome.failure is not None
+    assert outcome.failure.stage == "timeout"
+    stack.cancel.assert_called_once()  # the hung op is cancelled
+
+
 def test_skip_await_transformation_stamps_annotation():
     from types import SimpleNamespace
     from typing import cast
@@ -202,6 +229,56 @@ def test_skip_await_transformation_ignores_non_k8s():
         opts=None,
     )
     assert skip_await_transformation(args) is None  # type: ignore[arg-type]
+
+
+def test_skip_await_wrapper_compiles_and_is_self_contained():
+    from act.reproducibility.runtime_check import _skip_await_wrapper
+
+    wrapper = _skip_await_wrapper()
+    compile(wrapper, "<wrapper>", "exec")  # valid Python
+    assert "register_stack_transformation" in wrapper
+    # The subprocess must load no `act` package on the normal (inlined-source) path.
+    assert "import act" not in wrapper and "from act" not in wrapper
+
+
+def test_skip_await_transformation_handles_computed_metadata(monkeypatch):
+    # Output-valued metadata must take the apply() branch (not bail), else pulumi awaits it.
+    # Output.from_input is patched so the branch is exercised without a pulumi runtime loop.
+    from types import SimpleNamespace
+    from typing import cast
+
+    from act.reproducibility import _skip_await
+
+    sentinel = object()
+    fake_output = MagicMock()
+    fake_output.apply.return_value = sentinel
+    monkeypatch.setattr(_skip_await.pulumi.Output, "from_input", lambda v: fake_output)
+
+    args = SimpleNamespace(type_="kubernetes:apps/v1:Deployment", props={"metadata": object()}, opts=None)
+    result = _skip_await.skip_await_transformation(args)  # type: ignore[arg-type]
+    assert result is not None
+    assert cast(dict, result.props)["metadata"] is sentinel
+
+
+def test_skip_await_transformation_handles_computed_annotations(monkeypatch):
+    from types import SimpleNamespace
+    from typing import cast
+
+    from act.reproducibility import _skip_await
+
+    sentinel = object()
+    fake_output = MagicMock()
+    fake_output.apply.return_value = sentinel
+    monkeypatch.setattr(_skip_await.pulumi.Output, "from_input", lambda v: fake_output)
+
+    args = SimpleNamespace(
+        type_="kubernetes:core/v1:ConfigMap",
+        props={"metadata": {"name": "x", "annotations": object()}},
+        opts=None,
+    )
+    result = _skip_await.skip_await_transformation(args)  # type: ignore[arg-type]
+    assert result is not None
+    assert cast(dict, result.props)["metadata"]["annotations"] is sentinel
 
 
 def test_run_pulumi_against_wraps_program_for_skip_await(tmp_path, monkeypatch):
@@ -326,6 +403,46 @@ def test_probe_k8s_sort_order_stable_under_volatile_fields():
     assert hash_output(run_a) == hash_output(run_b)
 
 
+def _probe_single(item):
+    with patch(
+        "act.reproducibility.runtime_check.subprocess.run",
+        return_value=MagicMock(stdout=json.dumps({"items": [item]}).encode(), returncode=0),
+    ):
+        return probe_k8s("/tmp/kube.config")
+
+
+def test_reproducible_despite_auto_nodeport():
+    # A NodePort Service without a pinned nodePort gets a different auto-allocated port on each
+    # fresh cluster; the same declared program must still hash equal across the two runs.
+    def svc(node_port):
+        return {
+            "kind": "Service",
+            "metadata": {"name": "web", "namespace": "default"},
+            "spec": {"type": "NodePort", "ports": [{"port": 80, "nodePort": node_port}]},
+        }
+
+    assert hash_output(_probe_single(svc(30001))) == hash_output(_probe_single(svc(31555)))
+
+
+def test_reproducible_despite_job_controller_uid():
+    # The Job controller stamps a random controller-uid into the selector + template labels on
+    # each fresh cluster; identical declared Jobs must still hash equal.
+    def job(uid):
+        return {
+            "kind": "Job",
+            "metadata": {"name": "batch", "namespace": "default"},
+            "spec": {
+                "selector": {"matchLabels": {"batch.kubernetes.io/controller-uid": uid}},
+                "template": {
+                    "metadata": {"labels": {"batch.kubernetes.io/controller-uid": uid, "job-name": "batch"}},
+                    "spec": {"containers": [{"name": "c", "image": "busybox:1.36"}]},
+                },
+            },
+        }
+
+    assert hash_output(_probe_single(job("uid-aaaa"))) == hash_output(_probe_single(job("uid-bbbb")))
+
+
 def test_projection_distinguishes_binarydata_and_labels():
     # Two ConfigMaps differing only in binaryData or only in user labels are different
     # deployments and must not hash equal.
@@ -383,14 +500,16 @@ def test_normalise_strips_system_assigned_network_keys():
     """System-assigned network/identity fields are dropped by key (lossless)."""
     raw = {
         "status": {"podIP": "10.1.2.3", "hostIP": "192.168.0.5"},
-        "spec": {"clusterIP": "10.96.0.1", "ports": [{"nodePort": 30001}]},
+        "spec": {"clusterIP": "10.96.0.1", "ports": [{"port": 80, "nodePort": 30001}]},
     }
     cleaned = normalise_output(raw)
     assert "podIP" not in cleaned["status"]
     assert "hostIP" not in cleaned["status"]
     assert "clusterIP" not in cleaned["spec"]
-    # nodePort is left intact: an explicitly-set port is stable and meaningful.
-    assert cleaned["spec"]["ports"][0]["nodePort"] == 30001
+    # nodePort is dropped: the API server auto-allocates it, so it differs across the fresh
+    # cluster each run gets. The declared port is kept.
+    assert "nodePort" not in cleaned["spec"]["ports"][0]
+    assert cleaned["spec"]["ports"][0]["port"] == 80
 
 
 def test_normalise_keeps_numeric_ids_in_values():

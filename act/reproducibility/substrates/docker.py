@@ -5,6 +5,8 @@ A new arch is one registry row; image contents are the image-build pipeline's jo
 
 from __future__ import annotations
 
+from typing import ClassVar
+
 import re
 import shutil
 import subprocess
@@ -24,6 +26,7 @@ from act.reproducibility.substrates.base import (
 # Every ACT-spawned cluster carries this label so orphans (left by a killed run) can be reaped.
 _ACT_LABEL = "act.reproducibility.substrate=docker"
 _CREATED_LABEL = "act.reproducibility.created"
+_CREATE_TIMEOUT_S = 300  # bound on `docker run -d` (image pull + start), separate from k3s boot
 
 
 def reap_orphan_containers(max_age_s: float = 1800) -> None:
@@ -68,7 +71,7 @@ class DockerSubstrate(Substrate):
     # The runtime check needs all three on PATH: docker (provision the cluster), pulumi
     # (deploy), kubectl (probe). A missing tool makes this substrate unavailable so the
     # check skips honestly rather than hard-failing the gate.
-    _REQUIRED_TOOLS: tuple[str, ...] = ("docker", "pulumi", "kubectl")
+    _REQUIRED_TOOLS: ClassVar[tuple[str, ...]] = ("docker", "pulumi", "kubectl")
 
     @property
     def name(self) -> str:  # type: ignore[override]
@@ -90,9 +93,6 @@ class DockerSubstrate(Substrate):
         work_dir = Path(tempfile.mkdtemp(prefix="act-docker-"))
         container_id = "act-" + uuid.uuid4().hex[:8]
         kubeconfig = work_dir / "kubeconfig.yaml"
-        # Set before the run: `--name` reserves the container, so a `docker run` that times out
-        # or is killed mid-create may still leave it running — always attempt cleanup.
-        container_started = True
 
         try:
             subprocess.run(
@@ -110,15 +110,17 @@ class DockerSubstrate(Substrate):
                     "--label",
                     f"{_CREATED_LABEL}={int(time.time())}",
                     "-p",
-                    # 0 -> let docker assign an ephemeral host port (no fixed-6443 collision).
-                    f"{self.api_host_port}:6443" if self.api_host_port else "6443",
+                    # Loopback-only; 0 -> docker assigns an ephemeral host port (no 6443 collision).
+                    f"127.0.0.1:{self.api_host_port}:6443" if self.api_host_port else "127.0.0.1::6443",
                     *self.extra_docker_args,
                     self.image,
                     *self.command,
                 ],
                 capture_output=True,
                 check=True,
-                timeout=self.startup_timeout,
+                # `docker run -d` returns once the container starts (image pull is the slow part),
+                # so bound it independently of the k3s-boot wait in _wait_for_api.
+                timeout=_CREATE_TIMEOUT_S,
             )
             host_port = self.api_host_port or self._resolve_host_port(container_id)
 
@@ -141,13 +143,13 @@ class DockerSubstrate(Substrate):
             # registered node so `pulumi up` doesn't hit an unready API (matters on slow QEMU archs).
             _wait_for_node(str(kubeconfig), self.api_ready_timeout)
         except Exception:
-            if container_started:
-                subprocess.run(
-                    ["docker", "stop", container_id],
-                    capture_output=True,
-                    check=False,
-                    timeout=30,
-                )
+            # `--name` reserves the container, so a run that timed out mid-create may still be up.
+            subprocess.run(
+                ["docker", "stop", container_id],
+                capture_output=True,
+                check=False,
+                timeout=30,
+            )
             shutil.rmtree(work_dir, ignore_errors=True)
             raise
 

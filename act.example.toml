@@ -49,6 +49,7 @@
 # image_boot_timeout_s = 60
 # k8s_api_ready_timeout_s = 60
 # k8s_probe_timeout_s = 60
+# runtime_up_timeout_s = 0   # 0 = derive the `pulumi up` bound from the substrate startup timeout
 
 # --- Accelerator Extended Resources ---
 # gpu_resource_name = "nvidia.com/gpu"

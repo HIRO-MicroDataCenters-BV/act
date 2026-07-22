@@ -37,6 +37,7 @@ DEFAULT_K3S_STARTUP_TIMEOUT_S = 180
 DEFAULT_IMAGE_BOOT_TIMEOUT_S = 60
 DEFAULT_K8S_API_READY_TIMEOUT_S = 60
 DEFAULT_K8S_PROBE_TIMEOUT_S = 60
+DEFAULT_RUNTIME_UP_TIMEOUT_S = 0  # 0 = derive from the substrate's startup timeout
 DEFAULT_GPU_RESOURCE_NAME = "nvidia.com/gpu"
 DEFAULT_FPGA_RESOURCE_NAME = "cape.eu/fpga"
 DEFAULT_CXL_RESOURCE_NAME = "cape.eu/cxl"
@@ -93,6 +94,7 @@ class ActConfig:
     image_boot_timeout_s: int = DEFAULT_IMAGE_BOOT_TIMEOUT_S
     k8s_api_ready_timeout_s: int = DEFAULT_K8S_API_READY_TIMEOUT_S
     k8s_probe_timeout_s: int = DEFAULT_K8S_PROBE_TIMEOUT_S
+    runtime_up_timeout_s: int = DEFAULT_RUNTIME_UP_TIMEOUT_S
 
     # Accelerator Extended Resources.
     gpu_resource_name: str = DEFAULT_GPU_RESOURCE_NAME
@@ -177,6 +179,12 @@ class ActConfig:
                 DEFAULT_K8S_PROBE_TIMEOUT_S,
                 name="ACT_K8S_PROBE_TIMEOUT_S",
                 minimum=1,
+            ),
+            runtime_up_timeout_s=_read_int(
+                env.get("ACT_RUNTIME_UP_TIMEOUT_S"),
+                DEFAULT_RUNTIME_UP_TIMEOUT_S,
+                name="ACT_RUNTIME_UP_TIMEOUT_S",
+                minimum=0,
             ),
             gpu_resource_name=_read_str(env.get("ACT_K8S_GPU_RESOURCE_NAME"), DEFAULT_GPU_RESOURCE_NAME),
             fpga_resource_name=_read_str(env.get("ACT_K8S_FPGA_RESOURCE_NAME"), DEFAULT_FPGA_RESOURCE_NAME),
@@ -331,6 +339,7 @@ _FILE_TO_ENV: dict[str, str] = {
     "image_boot_timeout_s": "ACT_IMAGE_BOOT_TIMEOUT_S",
     "k8s_api_ready_timeout_s": "ACT_K8S_API_READY_TIMEOUT_S",
     "k8s_probe_timeout_s": "ACT_K8S_PROBE_TIMEOUT_S",
+    "runtime_up_timeout_s": "ACT_RUNTIME_UP_TIMEOUT_S",
     "gpu_resource_name": "ACT_K8S_GPU_RESOURCE_NAME",
     "fpga_resource_name": "ACT_K8S_FPGA_RESOURCE_NAME",
     "cxl_resource_name": "ACT_K8S_CXL_RESOURCE_NAME",

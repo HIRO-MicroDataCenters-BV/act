@@ -17,6 +17,7 @@ import importlib.metadata
 import json
 import logging
 import pkgutil
+import subprocess
 import sys
 import traceback
 from pathlib import Path
@@ -286,19 +287,31 @@ def _default_substrates(cfg: ActConfig) -> list:
 
 # Runtime-check stages that mean "could not verify", not "failed": they never escalate the exit code.
 _RUNTIME_SKIP_STAGES = SKIP_STAGES
+# Arch-check reasons that mean "prerequisite missing" (could-not-verify), not "bad image".
+_ARCH_SKIP_REASONS = frozenset({"docker_missing", "binfmt_missing"})
+
+
+def _is_runtime_skip(result: RuntimeCheckResult) -> bool:
+    """Could-not-verify (no exit escalation) only when every failure is a skip stage — a hard
+    failure alongside a skip must still fail the gate."""
+    return bool(result.failures) and all(f.stage in _RUNTIME_SKIP_STAGES for f in result.failures)
 
 
 def _run_runtime_check(program: str, schemas: list[str], log: logging.Logger, cfg: ActConfig) -> RuntimeCheckResult:
-    # Clean up any clusters a previously killed run leaked before provisioning fresh ones.
-    reap_orphan_containers()
+    substrates = _default_substrates(cfg)
+    # Reap leaked clusters, but only ones older than twice any legitimate provision budget, so a
+    # concurrent run's still-booting (slow-arch) cluster is never stopped.
+    max_provision_s = max((s.startup_timeout + s.api_ready_timeout for s in substrates), default=1800)
+    reap_orphan_containers(max_age_s=2 * max_provision_s)
     check = RuntimeCheck(
-        substrates=_default_substrates(cfg),
+        substrates=substrates,
         namespace=cfg.k8s_namespace,
         probe_timeout=cfg.k8s_probe_timeout_s,
+        up_timeout=cfg.runtime_up_timeout_s or None,
     )
     result = check.run(program, schemas)
 
-    skipped = any(f.stage in _RUNTIME_SKIP_STAGES for f in result.failures)
+    skipped = _is_runtime_skip(result)
 
     if skipped:
         log.warning(
@@ -497,7 +510,9 @@ def _cmd_check(argv=None) -> int:
         arch_result = None
         if args.check_deployment_arch:
             arch_result = _run_deployment_arch_check(args.program, schemas, args.check_deployment_arch, log, cfg)
-            if not arch_result.passed:
+            # A missing prerequisite (docker/binfmt) is a skip, not a gate failure — only a real
+            # boot/arch failure escalates.
+            if any(f.reason not in _ARCH_SKIP_REASONS for f in arch_result.failures):
                 exit_code = max(exit_code, 1)
             if any(f.reason == "docker_missing" for f in arch_result.failures):
                 print("[HINT] deployment-arch check needs docker; run 'act doctor'.", file=sys.stderr)
@@ -511,8 +526,7 @@ def _cmd_check(argv=None) -> int:
         runtime_result = None
         if args.check_deployment_runtime:
             runtime_result = _run_runtime_check(args.program, schemas, log, cfg)
-            is_skip = any(f.stage in _RUNTIME_SKIP_STAGES for f in runtime_result.failures)
-            if not runtime_result.passed and not is_skip:
+            if not runtime_result.passed and not _is_runtime_skip(runtime_result):
                 exit_code = max(exit_code, 1)
             if any(f.stage == "substrate_unavailable" for f in runtime_result.failures):
                 print(
@@ -535,6 +549,9 @@ def _cmd_check(argv=None) -> int:
             print(_summary_line(gate.last_result, plan_result, arch_result, runtime_result))
 
         return exit_code
+    except subprocess.TimeoutExpired:
+        print("[ERROR] timed out running the program (see ACT_EXEC_TIMEOUT_S).", file=sys.stderr)
+        return 2
     except FileNotFoundError as e:
         print(f"[ERROR] {e}", file=sys.stderr)
         return 2

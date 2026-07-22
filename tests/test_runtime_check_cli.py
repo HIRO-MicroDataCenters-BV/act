@@ -49,6 +49,76 @@ def test_default_substrates_scales_slow_arch_timeouts():
     assert amd64_base.api_ready_timeout == cfg.k8s_api_ready_timeout_s
 
 
+def _fake_arch_check(reason):
+    from act.reproducibility import DeploymentArchResult, ImageBootFailure
+
+    failures = [ImageBootFailure(image="img", reason=reason, detail="x")]
+    fake = MagicMock()
+    fake.run.return_value = DeploymentArchResult(
+        passed=False, arch="riscv64", images_checked=["img"], failures=failures
+    )
+    return fake
+
+
+def test_cli_arch_binfmt_missing_is_skip():
+    # A missing prerequisite (QEMU binfmt) must not fail the gate.
+    with patch("act.run.DeploymentArchCheck", return_value=_fake_arch_check("binfmt_missing")):
+        code = main(_argv("--check-deployment-arch", "riscv64", "--log-level", "ERROR"))
+    assert code == 0
+
+
+def test_cli_arch_no_variant_fails():
+    with patch("act.run.DeploymentArchCheck", return_value=_fake_arch_check("no_arch_variant")):
+        code = main(_argv("--check-deployment-arch", "riscv64", "--log-level", "ERROR"))
+    assert code == 1
+
+
+def test_is_runtime_skip_requires_all_skip_stages():
+    from act.run import _is_runtime_skip
+
+    def result(*stages, passed=False):
+        failures = [RuntimeCheckFailure(stage=s, detail="") for s in stages]
+        return RuntimeCheckResult(passed=passed, substrate="x", spec=_spec(), failures=failures)
+
+    assert _is_runtime_skip(result("timeout")) is True
+    assert _is_runtime_skip(result("timeout", "pulumi_up_failed")) is False  # hard failure must show
+    assert _is_runtime_skip(result(passed=True)) is False
+
+
+def test_cli_plan_timeout_exits_2_cleanly(capsys):
+    import subprocess as _sp
+
+    fake = MagicMock()
+    fake.run.side_effect = _sp.TimeoutExpired(cmd="capture", timeout=1)
+    with patch("act.run.PlanCheck", return_value=fake):
+        code = main(_argv("--log-level", "ERROR"))
+    err = capsys.readouterr().err
+    assert code == 2
+    assert "timed out" in err
+    assert "Traceback" not in err
+
+
+def test_reap_threshold_exceeds_slow_provision_budget(monkeypatch):
+    """The reaper's age cutoff must exceed twice a riscv64 provision budget so a concurrent
+    slow-booting run is never stopped."""
+    import logging
+
+    from act import run as run_mod
+    from act.config import ActConfig
+
+    captured: dict = {}
+    monkeypatch.setattr(run_mod, "reap_orphan_containers", lambda max_age_s: captured.update(max_age_s=max_age_s))
+    fake_check = MagicMock()
+    fake_check.run.return_value = RuntimeCheckResult(passed=True, substrate="x", spec=_spec())
+    monkeypatch.setattr(run_mod, "RuntimeCheck", lambda **k: fake_check)
+
+    cfg = ActConfig(runtime_archs=("amd64", "arm64", "riscv64"))
+    run_mod._run_runtime_check("p.py", ["s.json"], logging.getLogger("t"), cfg)
+
+    # riscv64 budget = (180+60)*4 = 960s; margin must be at least twice that.
+    assert captured["max_age_s"] >= 2 * 960
+
+
 def test_cli_does_not_invoke_runtime_check_without_flag():
     with patch("act.run.RuntimeCheck") as RuntimeCheckMock:
         exit_code = main(_argv("--log-level", "ERROR"))
