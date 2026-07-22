@@ -231,6 +231,43 @@ def test_skip_await_transformation_ignores_non_k8s():
     assert skip_await_transformation(args) is None  # type: ignore[arg-type]
 
 
+def test_skip_await_transformation_handles_computed_metadata():
+    # Output-valued metadata must still be stamped (not bailed on), else pulumi awaits it.
+    from types import SimpleNamespace
+
+    import pulumi
+
+    from act.reproducibility._skip_await import skip_await_transformation
+
+    args = SimpleNamespace(
+        type_="kubernetes:apps/v1:Deployment",
+        props={"metadata": pulumi.Output.from_input({"name": "x"})},
+        opts=None,
+    )
+    result = skip_await_transformation(args)  # type: ignore[arg-type]
+    assert result is not None
+    assert isinstance(result.props["metadata"], pulumi.Output)
+
+
+def test_skip_await_transformation_handles_computed_annotations():
+    from types import SimpleNamespace
+    from typing import cast
+
+    import pulumi
+
+    from act.reproducibility._skip_await import skip_await_transformation
+
+    args = SimpleNamespace(
+        type_="kubernetes:core/v1:ConfigMap",
+        props={"metadata": {"name": "x", "annotations": pulumi.Output.from_input({"a": "b"})}},
+        opts=None,
+    )
+    result = skip_await_transformation(args)  # type: ignore[arg-type]
+    assert result is not None
+    metadata = cast(dict, result.props)["metadata"]
+    assert isinstance(metadata["annotations"], pulumi.Output)
+
+
 def test_run_pulumi_against_wraps_program_for_skip_await(tmp_path, monkeypatch):
     # skip_await (default) runs the program behind the transform wrapper so `up` returns on
     # acceptance. Keep the work_dir around to inspect what was written.
