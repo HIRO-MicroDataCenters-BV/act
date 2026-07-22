@@ -14,11 +14,43 @@ import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from act.reproducibility.substrates._extended_resource import _wait_for_node
 from act.reproducibility.substrates.base import (
     ProvisionedTarget,
     Substrate,
     TargetSpec,
 )
+
+# Every ACT-spawned cluster carries this label so orphans (left by a killed run) can be reaped.
+_ACT_LABEL = "act.reproducibility.substrate=docker"
+_CREATED_LABEL = "act.reproducibility.created"
+
+
+def reap_orphan_containers(max_age_s: float = 1800) -> None:
+    """Best-effort: stop ACT-labelled containers older than max_age_s, left behind by a killed
+    run. Age-gated (via the creation-epoch label) so a concurrent run's fresh container is never
+    touched. Silent no-op if docker is absent."""
+    try:
+        listed = subprocess.run(
+            ["docker", "ps", "--filter", f"label={_ACT_LABEL}", "--format", '{{.ID}} {{.Label "%s"}}' % _CREATED_LABEL],
+            capture_output=True,
+            check=False,
+            timeout=10,
+        )
+    except (subprocess.SubprocessError, FileNotFoundError):
+        return
+    now = time.time()
+    for line in listed.stdout.decode().splitlines():
+        parts = line.split()
+        if len(parts) != 2:
+            continue
+        cid, created = parts
+        try:
+            if now - float(created) <= max_age_s:
+                continue
+        except ValueError:
+            continue
+        subprocess.run(["docker", "stop", cid], capture_output=True, check=False, timeout=30)
 
 
 @dataclass
@@ -27,17 +59,23 @@ class DockerSubstrate(Substrate):
     platform: str
     spec_arch: str
     features: frozenset[str] = field(default_factory=frozenset)
-    api_host_port: int = 6443
+    api_host_port: int = 0  # 0 = ephemeral host port (docker assigns; avoids fixed-6443 collision)
     startup_timeout: int = 180
+    api_ready_timeout: int = 60
     extra_docker_args: tuple[str, ...] = ()
     command: tuple[str, ...] = ()
+
+    # The runtime check needs all three on PATH: docker (provision the cluster), pulumi
+    # (deploy), kubectl (probe). A missing tool makes this substrate unavailable so the
+    # check skips honestly rather than hard-failing the gate.
+    _REQUIRED_TOOLS: tuple[str, ...] = ("docker", "pulumi", "kubectl")
 
     @property
     def name(self) -> str:  # type: ignore[override]
         return f"docker:{self.platform}"
 
     def is_available(self) -> bool:
-        return shutil.which("docker") is not None
+        return all(shutil.which(tool) is not None for tool in self._REQUIRED_TOOLS)
 
     def matches(self, spec: TargetSpec) -> bool:
         if spec.arch != self.spec_arch:
@@ -52,7 +90,9 @@ class DockerSubstrate(Substrate):
         work_dir = Path(tempfile.mkdtemp(prefix="act-docker-"))
         container_id = "act-" + uuid.uuid4().hex[:8]
         kubeconfig = work_dir / "kubeconfig.yaml"
-        container_started = False
+        # Set before the run: `--name` reserves the container, so a `docker run` that times out
+        # or is killed mid-create may still leave it running — always attempt cleanup.
+        container_started = True
 
         try:
             subprocess.run(
@@ -65,19 +105,24 @@ class DockerSubstrate(Substrate):
                     self.platform,
                     "--name",
                     container_id,
+                    "--label",
+                    _ACT_LABEL,
+                    "--label",
+                    f"{_CREATED_LABEL}={int(time.time())}",
                     "-p",
-                    f"{self.api_host_port}:6443",
+                    # 0 -> let docker assign an ephemeral host port (no fixed-6443 collision).
+                    f"{self.api_host_port}:6443" if self.api_host_port else "6443",
                     *self.extra_docker_args,
                     self.image,
                     *self.command,
                 ],
                 capture_output=True,
                 check=True,
-                timeout=60,
+                timeout=self.startup_timeout,
             )
-            container_started = True
+            host_port = self.api_host_port or self._resolve_host_port(container_id)
 
-            self._wait_for_api(container_id, self.api_host_port)
+            self._wait_for_api(container_id)
 
             result = subprocess.run(
                 ["docker", "exec", container_id, "cat", "/etc/rancher/k3s/k3s.yaml"],
@@ -88,10 +133,13 @@ class DockerSubstrate(Substrate):
             kubeconfig_text = result.stdout.decode()
             kubeconfig_text = re.sub(
                 r"server:\s*https?://[^\s]+",
-                f"server: https://127.0.0.1:{self.api_host_port}",
+                f"server: https://127.0.0.1:{host_port}",
                 kubeconfig_text,
             )
             kubeconfig.write_text(kubeconfig_text)
+            # The kubeconfig file exists before the API server can serve requests; wait for a
+            # registered node so `pulumi up` doesn't hit an unready API (matters on slow QEMU archs).
+            _wait_for_node(str(kubeconfig), self.api_ready_timeout)
         except Exception:
             if container_started:
                 subprocess.run(
@@ -118,7 +166,20 @@ class DockerSubstrate(Substrate):
             teardown=teardown,
         )
 
-    def _wait_for_api(self, container_id: str, port: int) -> None:
+    def _resolve_host_port(self, container_id: str) -> int:
+        """The ephemeral host port docker mapped to the container's 6443 (e.g. '0.0.0.0:54321')."""
+        result = subprocess.run(
+            ["docker", "port", container_id, "6443/tcp"],
+            capture_output=True,
+            check=True,
+            timeout=10,
+        )
+        lines = result.stdout.decode().splitlines()
+        if not lines:
+            raise RuntimeError(f"docker did not publish a host port for {container_id}:6443")
+        return int(lines[0].rsplit(":", 1)[1])
+
+    def _wait_for_api(self, container_id: str) -> None:
         deadline = time.monotonic() + self.startup_timeout
         while time.monotonic() < deadline:
             check = subprocess.run(

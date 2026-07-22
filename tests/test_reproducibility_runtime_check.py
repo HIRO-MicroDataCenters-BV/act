@@ -45,6 +45,33 @@ def test_spec_arch_from_node_selector(node_selector, expected_arch):
     assert spec.orchestrator == "k8s"
 
 
+def test_spec_arch_from_bare_pod_node_selector():
+    # A bare Pod carries the pod spec directly under spec (no template).
+    plan = {"pod": {"spec": {"nodeSelector": {"kubernetes.io/arch": "riscv64"}}}}
+    mg = _mg_returning_types({"pod": "kubernetes:core/v1:Pod"})
+
+    assert extract_target_spec(plan, mg).arch == "riscv64-linux"
+
+
+def test_spec_arch_from_node_affinity():
+    # nodeAffinity (required) matching kubernetes.io/arch In [..] is honored like nodeSelector.
+    pod_spec = {
+        "affinity": {
+            "nodeAffinity": {
+                "requiredDuringSchedulingIgnoredDuringExecution": {
+                    "nodeSelectorTerms": [
+                        {"matchExpressions": [{"key": "kubernetes.io/arch", "operator": "In", "values": ["riscv64"]}]}
+                    ]
+                }
+            }
+        }
+    }
+    plan = {"dep": {"spec": {"template": {"spec": pod_spec}}}}
+    mg = _mg_returning_types({"dep": "kubernetes:apps/v1:Deployment"})
+
+    assert extract_target_spec(plan, mg).arch == "riscv64-linux"
+
+
 @pytest.mark.parametrize(
     "resource_type, expected_orchestrator",
     [
@@ -63,9 +90,9 @@ def test_spec_orchestrator_from_resource_type(resource_type, expected_orchestrat
 
 def test_runtime_check_result_default_fields():
     spec = TargetSpec(arch="x86_64-linux", orchestrator="k8s")
-    result = RuntimeCheckResult(passed=True, substrate="nixos-compose", spec=spec)
+    result = RuntimeCheckResult(passed=True, substrate="docker:linux/amd64", spec=spec)
     assert result.passed is True
-    assert result.substrate == "nixos-compose"
+    assert result.substrate == "docker:linux/amd64"
     assert result.spec.arch == "x86_64-linux"
     assert result.hash_1 == ""
     assert result.hash_2 == ""
@@ -75,15 +102,15 @@ def test_runtime_check_result_default_fields():
 
 
 def test_runtime_check_failure_classifies_stage():
-    failure = RuntimeCheckFailure(stage="provision_failed", detail="nxc build exit 1")
+    failure = RuntimeCheckFailure(stage="provision_failed", detail="k3s boot exit 1")
     assert failure.stage == "provision_failed"
-    assert "nxc" in failure.detail
+    assert "k3s" in failure.detail
 
 
 def test_runtime_check_result_holds_failures():
     spec = TargetSpec(arch="riscv64-linux", orchestrator="k8s")
-    failures = [RuntimeCheckFailure(stage="substrate_unavailable", detail="nxc not found")]
-    result = RuntimeCheckResult(passed=False, substrate="nixos-compose", spec=spec, failures=failures)
+    failures = [RuntimeCheckFailure(stage="substrate_unavailable", detail="docker not found")]
+    result = RuntimeCheckResult(passed=False, substrate="docker:linux/amd64", spec=spec, failures=failures)
     assert len(result.failures) == 1
     assert result.failures[0].stage == "substrate_unavailable"
 
@@ -144,12 +171,75 @@ def test_run_pulumi_against_destroys_on_up_failure(tmp_path):
     stack.destroy.assert_called_once()
 
 
-def test_probe_k8s_returns_parsed_pod_list():
+def test_skip_await_transformation_stamps_annotation():
+    from types import SimpleNamespace
+    from typing import cast
+
+    from act.reproducibility._skip_await import skip_await_transformation
+
+    args = SimpleNamespace(
+        type_="kubernetes:apps/v1:Deployment",
+        props={"metadata": {"name": "nginx"}, "spec": {"replicas": 1}},
+        opts=None,
+    )
+    result = skip_await_transformation(args)  # type: ignore[arg-type]
+    assert result is not None
+    props = cast(dict, result.props)
+    assert props["metadata"]["annotations"]["pulumi.com/skipAwait"] == "true"
+    # Existing metadata and other props survive untouched.
+    assert props["metadata"]["name"] == "nginx"
+    assert props["spec"] == {"replicas": 1}
+
+
+def test_skip_await_transformation_ignores_non_k8s():
+    from types import SimpleNamespace
+
+    from act.reproducibility._skip_await import skip_await_transformation
+
+    args = SimpleNamespace(
+        type_="random:index/randomPassword:RandomPassword",
+        props={"length": 8},
+        opts=None,
+    )
+    assert skip_await_transformation(args) is None  # type: ignore[arg-type]
+
+
+def test_run_pulumi_against_wraps_program_for_skip_await(tmp_path, monkeypatch):
+    # skip_await (default) runs the program behind the transform wrapper so `up` returns on
+    # acceptance. Keep the work_dir around to inspect what was written.
+    work_dir = tmp_path / "work"
+    work_dir.mkdir()
+    monkeypatch.setattr("act.reproducibility.runtime_check.tempfile.mkdtemp", lambda **k: str(work_dir))
+    monkeypatch.setattr("act.reproducibility.runtime_check.shutil.rmtree", lambda *a, **k: None)
+    stack = MagicMock()
+    stack.up.return_value = MagicMock(outputs={})
+
+    with patch(
+        "act.reproducibility.runtime_check.automation.create_or_select_stack",
+        return_value=stack,
+    ):
+        run_pulumi_against(
+            target=_provisioned(),
+            program_path=_stub_program(tmp_path),
+            backend_dir=str(tmp_path),
+        )
+
+    main = (work_dir / "__main__.py").read_text()
+    assert "register_stack_transformation" in main
+    assert "skip_await_transformation" in main
+    assert (work_dir / "_act_program.py").exists()
+
+
+def test_probe_k8s_projects_resources():
+    # Projects each object to (kind, namespace, accepted spec/data) — not the raw dump, and
+    # not runtime status: under skipAwait we compare what the cluster accepted.
     sample = {
         "items": [
             {
-                "metadata": {"name": "nginx-1", "namespace": "default"},
-                "spec": {"containers": [{"image": "nginx:1.25"}]},
+                "kind": "Deployment",
+                "metadata": {"name": "nginx", "namespace": "default"},
+                "spec": {"replicas": 1},
+                "status": {"readyReplicas": 1},
             }
         ]
     }
@@ -159,7 +249,104 @@ def test_probe_k8s_returns_parsed_pod_list():
     ):
         out = probe_k8s("/tmp/kube.config")
 
-    assert out == sample
+    assert out == {"resources": [{"kind": "Deployment", "namespace": "default", "spec": {"replicas": 1}}]}
+
+
+def test_probe_k8s_excludes_derived_resources():
+    # A Deployment's owned Pod carries injected non-determinism (generated name, per-pod SA
+    # token volume); it must be excluded — the parent's accepted spec is what we compare.
+    sample = {
+        "items": [
+            {
+                "kind": "Deployment",
+                "metadata": {"name": "pause"},
+                "spec": {"replicas": 1},
+                "status": {"readyReplicas": 1},
+            },
+            {
+                "kind": "Pod",
+                "metadata": {"name": "pause-abc-x1", "ownerReferences": [{"kind": "ReplicaSet"}]},
+                "spec": {"volumes": [{"name": "kube-api-access-rnd1"}]},
+            },
+        ]
+    }
+    with patch(
+        "act.reproducibility.runtime_check.subprocess.run",
+        return_value=MagicMock(stdout=json.dumps(sample).encode(), returncode=0),
+    ):
+        out = probe_k8s("/tmp/kube.config")
+    assert [r["kind"] for r in out["resources"]] == ["Deployment"]
+
+
+def test_projection_ignores_pod_suffix_and_status():
+    # Two deploys of the same workload differ only by generated pod name + assigned IP;
+    # the projection must hash them equal.
+
+    def probe_with(suffix):
+        sample = {
+            "items": [
+                {
+                    "kind": "Pod",
+                    "metadata": {"name": f"pause-abc12-{suffix}", "namespace": "default", "uid": suffix},
+                    "spec": {"containers": [{"name": "pause", "image": "pause:3.9"}]},
+                    "status": {"podIP": f"10.0.0.{suffix}", "conditions": [{"type": "Ready", "status": "True"}]},
+                }
+            ]
+        }
+        with patch(
+            "act.reproducibility.runtime_check.subprocess.run",
+            return_value=MagicMock(stdout=json.dumps(sample).encode(), returncode=0),
+        ):
+            return probe_k8s("/tmp/kube.config")
+
+    assert hash_output(probe_with("11111")) == hash_output(probe_with("22222"))
+
+
+def test_probe_k8s_sort_order_stable_under_volatile_fields():
+    # Two probes of the same two resources; a volatile field (bootID) is reassigned between
+    # runs. Sorting must key on the normalised form so the reassignment can't flip item order
+    # and cause a false mismatch.
+    def items(boot1, boot2):
+        return {
+            "items": [
+                {"kind": "Pod", "metadata": {"name": "x"}, "spec": {"bootID": boot1, "hostname": "h1"}},
+                {"kind": "Pod", "metadata": {"name": "y"}, "spec": {"bootID": boot2, "hostname": "h2"}},
+            ]
+        }
+
+    def probe(payload):
+        with patch(
+            "act.reproducibility.runtime_check.subprocess.run",
+            return_value=MagicMock(stdout=json.dumps(payload).encode(), returncode=0),
+        ):
+            return probe_k8s("/tmp/kube.config")
+
+    run_a = probe(items("AAA", "ZZZ"))
+    run_b = probe(items("ZZZ", "AAA"))  # bootIDs swapped between runs
+    assert hash_output(run_a) == hash_output(run_b)
+
+
+def test_projection_distinguishes_binarydata_and_labels():
+    # Two ConfigMaps differing only in binaryData or only in user labels are different
+    # deployments and must not hash equal.
+    def probe(cm):
+        with patch(
+            "act.reproducibility.runtime_check.subprocess.run",
+            return_value=MagicMock(stdout=json.dumps({"items": [cm]}).encode(), returncode=0),
+        ):
+            return probe_k8s("/tmp/kube.config")
+
+    base: dict = {
+        "kind": "ConfigMap",
+        "metadata": {"name": "c", "namespace": "default", "labels": {"app": "a"}},
+        "data": {"k": "v"},
+        "binaryData": {"b": "QUFB"},
+    }
+    diff_binary = {**base, "binaryData": {"b": "WlpaWg=="}}
+    diff_label = {**base, "metadata": {**base["metadata"], "labels": {"app": "b"}}}
+
+    assert hash_output(probe(base)) != hash_output(probe(diff_binary))
+    assert hash_output(probe(base)) != hash_output(probe(diff_label))
 
 
 def test_normalise_strips_volatile_keys():
@@ -262,6 +449,45 @@ def test_spec_features_cxl_detection(plan, types, expect_cxl):
 
 
 @pytest.mark.parametrize(
+    "resource_request, feature",
+    [("nvidia.com/gpu", "gpu"), ("cape.eu/fpga", "fpga"), ("cape.eu/cxl", "cxl")],
+)
+def test_spec_features_accelerator_detection(resource_request, feature):
+    # GPU/FPGA are now reachable (not dead registry entries), detected like CXL.
+    plan = {
+        "w": {"spec": {"template": {"spec": {"containers": [{"resources": {"requests": {resource_request: "1"}}}]}}}}
+    }
+    spec = extract_target_spec(plan, _mg_returning_types({"w": "kubernetes:apps/v1:Deployment"}))
+    assert feature in spec.features
+
+
+def test_spec_features_ignores_marker_as_value():
+    # A marker appearing only as a value (e.g. inside an image name) is not a feature request.
+    plan = {"w": {"spec": {"template": {"spec": {"containers": [{"image": "registry/nvidia.com/gpu-tools:1"}]}}}}}
+    spec = extract_target_spec(plan, _mg_returning_types({"w": "kubernetes:apps/v1:Deployment"}))
+    assert "gpu" not in spec.features
+
+
+def test_spec_mode_classification():
+    from act.reproducibility.runtime_check import _spec_mode
+
+    assert _spec_mode(TargetSpec(arch="riscv64-linux", orchestrator="k8s")) == ("emulation", False)
+    assert _spec_mode(TargetSpec(arch="x86_64-linux", orchestrator="k8s", features=["cxl"])) == ("emulation", True)
+    assert _spec_mode(TargetSpec(arch="x86_64-linux", orchestrator="k8s", features=["gpu"])) == ("simulation", True)
+    assert _spec_mode(TargetSpec(arch="x86_64-linux", orchestrator="k8s", features=["fpga"])) == ("simulation", True)
+
+
+def test_verified_label():
+    from act.reproducibility.runtime_check import _verified_label
+
+    skip = [RuntimeCheckFailure(stage="substrate_unavailable", detail="")]
+    assert _verified_label(False, skip, False) == "skipped"
+    assert _verified_label(False, [], False) == "failed"
+    assert _verified_label(True, [], False) == "verified"
+    assert _verified_label(True, [], True) == "experimental"
+
+
+@pytest.mark.parametrize(
     "a, b, should_equal",
     [
         ({"items": [{"name": "x"}]}, {"items": [{"name": "x"}]}, True),  # stable for equal input
@@ -318,6 +544,7 @@ class _FakeSubstrate(Substrate):
     def __init__(self, available=True, matches_fn=None):
         self._available = available
         self._matches_fn = matches_fn or (lambda spec: True)
+        self.provision_calls = 0
         self.teardown_calls = 0
 
     def is_available(self):
@@ -327,6 +554,7 @@ class _FakeSubstrate(Substrate):
         return self._matches_fn(spec)
 
     def provision(self, spec):
+        self.provision_calls += 1
         return ProvisionedTarget(
             endpoint="/tmp/kube.config",
             kind="kubeconfig",
@@ -361,7 +589,7 @@ def _patched_check_dependencies(probe_responses):
 
 def test_runtime_check_passes_when_two_probes_match(tmp_path):
     sub = _FakeSubstrate(matches_fn=lambda s: s.orchestrator == "k8s")
-    probes = [{"items": [{"metadata": {"name": "a"}}]}, {"items": [{"metadata": {"name": "a"}}]}]
+    probes = [{"resources": [{"kind": "Pod", "name": "a"}]}, {"resources": [{"kind": "Pod", "name": "a"}]}]
 
     mg_patch, pulumi_patch = _patched_check_dependencies(probes)
     with mg_patch as mg_cls, pulumi_patch:
@@ -377,14 +605,18 @@ def test_runtime_check_passes_when_two_probes_match(tmp_path):
     assert result.hash_1 == result.hash_2
     assert result.diff == []
     assert result.capture_duration_ms >= 0
-    assert sub.teardown_calls == 1
+    # Each run gets a fresh target (independent twice-and-compare), so provision + teardown 2x.
+    assert sub.provision_calls == 2
+    assert sub.teardown_calls == 2
+    # Honest labelling: a real CPU-arch green is "verified" via emulation at deployment-accepted depth.
+    assert (result.mode, result.depth, result.verified) == ("emulation", "deployment-accepted", "verified")
 
 
 def test_runtime_check_fails_when_probes_differ(tmp_path):
     sub = _FakeSubstrate(matches_fn=lambda s: s.orchestrator == "k8s")
     probes = [
-        {"items": [{"metadata": {"name": "a"}}]},
-        {"items": [{"metadata": {"name": "b"}}]},
+        {"resources": [{"kind": "Pod", "name": "a"}]},
+        {"resources": [{"kind": "Pod", "name": "b"}]},
     ]
 
     mg_patch, pulumi_patch = _patched_check_dependencies(probes)
@@ -428,6 +660,7 @@ def test_runtime_check_records_substrate_unavailable(tmp_path):
 
     assert result.passed is False
     assert any(f.stage == "substrate_unavailable" for f in result.failures)
+    assert result.verified == "skipped"
 
 
 def test_runtime_check_records_spec_unsupported(tmp_path):
@@ -460,6 +693,8 @@ def test_runtime_check_teardown_runs_on_pulumi_failure(tmp_path):
 
     assert result.passed is False
     assert any(f.stage == "pulumi_up_failed" for f in result.failures)
+    # Run 1 failed, so run 2 is not attempted; the one provisioned target is still torn down.
+    assert sub.provision_calls == 1
     assert sub.teardown_calls == 1
 
 
@@ -642,3 +877,24 @@ def test_runtime_check_reports_provision_failed_when_substrate_returns_none(tmp_
 
     assert result.passed is False
     assert any(f.stage == "provision_failed" and "returned None" in f.detail for f in result.failures)
+
+
+def test_runtime_check_classifies_provision_timeout_as_skip(tmp_path):
+    """A provision TimeoutError (slow emulated arch) is a `timeout` skip, not a red provision_failed."""
+    sub = _FakeSubstrate(matches_fn=lambda s: True)
+
+    def _timeout(spec):
+        raise TimeoutError("k3s did not produce kubeconfig within 180s")
+
+    sub.provision = _timeout  # type: ignore[method-assign]
+
+    with patch("act.reproducibility.runtime_check.MockGenerator", autospec=True) as mg_cls:
+        mg = mg_cls.return_value
+        mg.run_with_mocks.return_value = {"nginx": {}}
+        mg.get_resource_type.return_value = "kubernetes:apps/v1:Deployment"
+
+        result = RuntimeCheck(substrates=[sub]).run("some.py", "schema.json", backend_dir=str(tmp_path))
+
+    assert result.passed is False
+    assert any(f.stage == "timeout" for f in result.failures)
+    assert not any(f.stage == "provision_failed" for f in result.failures)

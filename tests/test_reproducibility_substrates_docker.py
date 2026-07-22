@@ -3,8 +3,9 @@ import subprocess
 
 import pytest
 
+from act.reproducibility.substrates._extended_resource import _wait_for_node
 from act.reproducibility.substrates.base import TargetSpec
-from act.reproducibility.substrates.docker import DockerSubstrate
+from act.reproducibility.substrates.docker import _ACT_LABEL, DockerSubstrate, reap_orphan_containers
 
 
 @pytest.fixture
@@ -31,13 +32,20 @@ def test_substrate_name_includes_platform(amd64_substrate, riscv64_substrate):
     assert riscv64_substrate.name == "docker:linux/riscv64"
 
 
-def test_is_available_when_docker_on_path(monkeypatch, amd64_substrate):
-    monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/docker" if name == "docker" else None)
+def test_is_available_when_all_tools_on_path(monkeypatch, amd64_substrate):
+    monkeypatch.setattr(shutil, "which", lambda name: f"/usr/bin/{name}")
     assert amd64_substrate.is_available() is True
 
 
 def test_is_available_false_when_docker_missing(monkeypatch, amd64_substrate):
     monkeypatch.setattr(shutil, "which", lambda name: None)
+    assert amd64_substrate.is_available() is False
+
+
+@pytest.mark.parametrize("missing", ["docker", "pulumi", "kubectl"])
+def test_is_available_false_when_any_tool_missing(monkeypatch, amd64_substrate, missing):
+    # The runtime check needs docker + pulumi + kubectl; any one missing -> skip, not hard-fail.
+    monkeypatch.setattr(shutil, "which", lambda name: None if name == missing else f"/usr/bin/{name}")
     assert amd64_substrate.is_available() is False
 
 
@@ -96,6 +104,8 @@ def _setup_provision_mocks(monkeypatch, tmp_path):
             )
         if cmd[:3] == ["docker", "run", "-d"]:
             return subprocess.CompletedProcess(cmd, 0, stdout=b"act-container-id\n", stderr=b"")
+        if cmd[:2] == ["docker", "port"]:
+            return subprocess.CompletedProcess(cmd, 0, stdout=b"0.0.0.0:54321\n", stderr=b"")
         return subprocess.CompletedProcess(cmd, 0, stdout=b"", stderr=b"")
 
     monkeypatch.setattr(subprocess, "run", fake_run)
@@ -105,7 +115,11 @@ def _setup_provision_mocks(monkeypatch, tmp_path):
     )
     monkeypatch.setattr(
         "act.reproducibility.substrates.docker.DockerSubstrate._wait_for_api",
-        lambda self, container_id, port: None,
+        lambda self, container_id: None,
+    )
+    monkeypatch.setattr(
+        "act.reproducibility.substrates.docker._wait_for_node",
+        lambda kubeconfig, timeout: "node-1",
     )
     return calls
 
@@ -190,6 +204,8 @@ def test_provision_cleans_up_work_dir_on_late_failure(monkeypatch, tmp_path, amd
     def fake_run(cmd, *args, **kwargs):
         if cmd[:3] == ["docker", "run", "-d"]:
             return subprocess.CompletedProcess(cmd, 0, stdout=b"", stderr=b"")
+        if cmd[:2] == ["docker", "port"]:
+            return subprocess.CompletedProcess(cmd, 0, stdout=b"0.0.0.0:54321\n", stderr=b"")
         if cmd[:2] == ["docker", "exec"] and cmd[3:] == ["test", "-f", "/etc/rancher/k3s/k3s.yaml"]:
             return subprocess.CompletedProcess(cmd, 0, stdout=b"", stderr=b"")
         if cmd[:2] == ["docker", "exec"] and "cat" in cmd:
@@ -241,3 +257,102 @@ def test_extra_docker_args_default_to_empty():
     )
     assert sub.extra_docker_args == ()
     assert sub.command == ()
+
+
+def test_provision_uses_ephemeral_port_and_resolves_it(monkeypatch, tmp_path, amd64_substrate):
+    # Default api_host_port=0 -> publish "-p 6443" (ephemeral) and rewrite the kubeconfig to the
+    # docker-assigned host port.
+    calls = _setup_provision_mocks(monkeypatch, tmp_path)
+    target = amd64_substrate.provision(TargetSpec(arch="x86_64-linux", orchestrator="k8s"))
+
+    run_call = next(c for c in calls if c[:3] == ["docker", "run", "-d"])
+    assert run_call[run_call.index("-p") + 1] == "6443"
+    assert any(c[:2] == ["docker", "port"] for c in calls)
+    with open(target.endpoint) as f:
+        assert "127.0.0.1:54321" in f.read()
+
+
+def test_provision_fixed_port_skips_resolution(monkeypatch, tmp_path):
+    sub = DockerSubstrate(image="x", platform="linux/amd64", spec_arch="x86_64-linux", api_host_port=6443)
+    calls = _setup_provision_mocks(monkeypatch, tmp_path)
+    target = sub.provision(TargetSpec(arch="x86_64-linux", orchestrator="k8s"))
+
+    run_call = next(c for c in calls if c[:3] == ["docker", "run", "-d"])
+    assert run_call[run_call.index("-p") + 1] == "6443:6443"
+    assert not any(c[:2] == ["docker", "port"] for c in calls)  # fixed port needs no lookup
+    with open(target.endpoint) as f:
+        assert "127.0.0.1:6443" in f.read()
+
+
+def test_provision_labels_container_for_reaping(monkeypatch, tmp_path, amd64_substrate):
+    calls = _setup_provision_mocks(monkeypatch, tmp_path)
+    amd64_substrate.provision(TargetSpec(arch="x86_64-linux", orchestrator="k8s"))
+    run_call = next(c for c in calls if c[:3] == ["docker", "run", "-d"])
+    assert "--label" in run_call
+    assert _ACT_LABEL in run_call
+
+
+def test_reap_orphan_containers_stops_old_skips_young(monkeypatch):
+    now = 1_000_000.0
+    monkeypatch.setattr("act.reproducibility.substrates.docker.time.time", lambda: now)
+    stopped: list[str] = []
+
+    def fake_run(cmd, *a, **k):
+        if cmd[:2] == ["docker", "ps"]:
+            out = f"old {now - 2000}\nyoung {now - 10}\n".encode()
+            return subprocess.CompletedProcess(cmd, 0, stdout=out, stderr=b"")
+        if cmd[:2] == ["docker", "stop"]:
+            stopped.append(cmd[2])
+        return subprocess.CompletedProcess(cmd, 0, stdout=b"", stderr=b"")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    reap_orphan_containers(max_age_s=1800)
+    # Only the container older than max_age is stopped; the fresh one (a live run) is left alone.
+    assert stopped == ["old"]
+
+
+def test_reap_orphan_containers_silent_when_docker_missing(monkeypatch):
+    def boom(*a, **k):
+        raise FileNotFoundError("docker")
+
+    monkeypatch.setattr(subprocess, "run", boom)
+    reap_orphan_containers()  # must not raise
+
+
+# ----- provision-readiness waits (previously only monkeypatched, never exercised) -----
+
+
+def test_wait_for_api_returns_when_kubeconfig_present(monkeypatch, amd64_substrate):
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: subprocess.CompletedProcess([], 0))
+    amd64_substrate._wait_for_api("cid")  # returns without raising
+
+
+def test_wait_for_api_times_out_when_never_ready():
+    sub = DockerSubstrate(image="x", platform="linux/amd64", spec_arch="x86_64-linux", startup_timeout=0)
+    with pytest.raises(TimeoutError):
+        sub._wait_for_api("cid")
+
+
+def test_resolve_host_port_parses_first_mapping(monkeypatch, amd64_substrate):
+    monkeypatch.setattr(
+        subprocess, "run", lambda *a, **k: subprocess.CompletedProcess([], 0, stdout=b"0.0.0.0:32770\n[::]:32770\n")
+    )
+    assert amd64_substrate._resolve_host_port("cid") == 32770
+
+
+def test_resolve_host_port_raises_when_no_mapping(monkeypatch, amd64_substrate):
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: subprocess.CompletedProcess([], 0, stdout=b""))
+    with pytest.raises(RuntimeError):
+        amd64_substrate._resolve_host_port("cid")
+
+
+def test_wait_for_node_returns_registered_node(monkeypatch):
+    monkeypatch.setattr(
+        subprocess, "run", lambda *a, **k: subprocess.CompletedProcess([], 0, stdout=b"node-1", stderr=b"")
+    )
+    assert _wait_for_node("/kube.config", timeout=5) == "node-1"
+
+
+def test_wait_for_node_times_out():
+    with pytest.raises(TimeoutError):
+        _wait_for_node("/kube.config", timeout=0)

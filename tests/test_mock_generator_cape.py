@@ -35,6 +35,18 @@ def test_warns_on_class_name_collision(tmp_path, caplog):
     assert "class_name_collision" in caplog.text
 
 
+def test_no_collision_warning_same_provider_versions(tmp_path, caplog):
+    import json
+    import logging
+
+    # Same class across a provider's own API versions is expected, not a collision.
+    schema: dict = {"resources": {"k8s:apps/v1:Deployment": {}, "k8s:apps/v1beta1:Deployment": {}}}
+    (tmp_path / "s.json").write_text(json.dumps(schema))
+    with caplog.at_level(logging.WARNING, logger="act"):
+        MockGenerator(str(tmp_path / "s.json"))
+    assert "class_name_collision" not in caplog.text
+
+
 def test_run_with_mocks_valid(cape_schema_path, cape_fixtures):
     mg = MockGenerator(cape_schema_path)
     result = mg.run_with_mocks(str(cape_fixtures / "path_a_valid.py"))

@@ -41,7 +41,7 @@
 
 # --- Reproducibility: target ---
 # k8s_namespace = "default"
-# k3s_api_host_port = 6443
+# k3s_api_host_port = 0   # 0 = ephemeral host port (docker assigns; avoids collisions)
 # runtime_archs = ["amd64", "arm64", "riscv64"]
 
 # --- Reproducibility: timeouts (seconds) ---

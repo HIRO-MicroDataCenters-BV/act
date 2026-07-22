@@ -43,8 +43,10 @@ from act.reproducibility import (
     ReproducibilityArtefact,
     RuntimeCheck,
     RuntimeCheckResult,
+    reap_orphan_containers,
     write_artefact,
 )
+from act.reproducibility.runtime_check import SKIP_STAGES
 from act.rules import auto_load
 from act.schema_resolver import SchemaResolveError, resolve_schemas
 
@@ -226,25 +228,41 @@ _BASE_ROWS: tuple[tuple[str, str, str, str, tuple[str, ...]], ...] = (
 )
 
 
+# Emulated non-native arches (riscv64 under QEMU) boot the cluster far slower than a native
+# arch; scale their provision timeouts off the configurable base so a slow-but-working boot
+# isn't a false timeout. Raising the base (ACT_K3S_STARTUP_TIMEOUT_S) scales these too.
+_SLOW_ARCHS: frozenset[str] = frozenset({"riscv64"})
+_SLOW_ARCH_TIMEOUT_SCALE = 4
+
+
 def _default_substrates(cfg: ActConfig) -> list:
     """Substrate registry, restricted to cfg.runtime_archs.
 
     One base k3s row per arch, plus the amd64 GPU/FPGA/CXL accelerators, which
     declare their Extended Resource so feature-flagged specs schedule without real
-    hardware. Images, timeouts, host port, resource names, and count come from ActConfig.
+    hardware. Images, timeouts, host port, resource names, and count come from ActConfig;
+    slow emulated arches get scaled provision timeouts.
     """
     common: dict = {
         "extra_docker_args": _K3S_DOCKER_ARGS,
         "api_host_port": cfg.k3s_api_host_port,
-        "startup_timeout": cfg.k3s_startup_timeout_s,
     }
-    substrates: list = [
-        DockerSubstrate(
-            image=getattr(cfg, image_attr), platform=platform, spec_arch=spec_arch, command=command, **common
+    substrates: list = []
+    for arch, platform, spec_arch, image_attr, command in _BASE_ROWS:
+        if arch not in cfg.runtime_archs:
+            continue
+        scale = _SLOW_ARCH_TIMEOUT_SCALE if arch in _SLOW_ARCHS else 1
+        substrates.append(
+            DockerSubstrate(
+                image=getattr(cfg, image_attr),
+                platform=platform,
+                spec_arch=spec_arch,
+                command=command,
+                startup_timeout=cfg.k3s_startup_timeout_s * scale,
+                api_ready_timeout=cfg.k8s_api_ready_timeout_s * scale,
+                **common,
+            )
         )
-        for arch, platform, spec_arch, image_attr, command in _BASE_ROWS
-        if arch in cfg.runtime_archs
-    ]
 
     if "amd64" in cfg.runtime_archs:
         accel: dict = dict(
@@ -253,6 +271,7 @@ def _default_substrates(cfg: ActConfig) -> list:
             spec_arch="x86_64-linux",
             command=_K3S_COMMAND,
             count=cfg.accelerator_count,
+            startup_timeout=cfg.k3s_startup_timeout_s,
             api_ready_timeout=cfg.k8s_api_ready_timeout_s,
             **common,
         )
@@ -266,10 +285,12 @@ def _default_substrates(cfg: ActConfig) -> list:
 
 
 # Runtime-check stages that mean "could not verify", not "failed": they never escalate the exit code.
-_RUNTIME_SKIP_STAGES = frozenset({"substrate_unavailable", "spec_unsupported", "nothing_observed"})
+_RUNTIME_SKIP_STAGES = SKIP_STAGES
 
 
 def _run_runtime_check(program: str, schemas: list[str], log: logging.Logger, cfg: ActConfig) -> RuntimeCheckResult:
+    # Clean up any clusters a previously killed run leaked before provisioning fresh ones.
+    reap_orphan_containers()
     check = RuntimeCheck(
         substrates=_default_substrates(cfg),
         namespace=cfg.k8s_namespace,
@@ -314,8 +335,8 @@ def _run_runtime_check(program: str, schemas: list[str], log: logging.Logger, cf
     return result
 
 
-def _run_plan_check(program: str, schemas: list[str], log: logging.Logger) -> PlanCheckResult:
-    result = PlanCheck().run(program, schemas)
+def _run_plan_check(program: str, schemas: list[str], log: logging.Logger, cfg: ActConfig) -> PlanCheckResult:
+    result = PlanCheck(capture_timeout_s=cfg.exec_timeout_s).run(program, schemas)
     if not result.deterministic:
         log.warning(
             "plan_drift",
@@ -469,7 +490,7 @@ def _cmd_check(argv=None) -> int:
         if exit_code == 2:
             return exit_code
 
-        plan_result = _run_plan_check(args.program, schemas, log)
+        plan_result = _run_plan_check(args.program, schemas, log, cfg)
         if not plan_result.deterministic:
             exit_code = max(exit_code, 1)
 
@@ -480,6 +501,12 @@ def _cmd_check(argv=None) -> int:
                 exit_code = max(exit_code, 1)
             if any(f.reason == "docker_missing" for f in arch_result.failures):
                 print("[HINT] deployment-arch check needs docker; run 'act doctor'.", file=sys.stderr)
+            if any(f.reason == "binfmt_missing" for f in arch_result.failures):
+                print(
+                    "[HINT] QEMU emulation not registered; run "
+                    "`docker run --privileged --rm tonistiigi/binfmt --install all`.",
+                    file=sys.stderr,
+                )
 
         runtime_result = None
         if args.check_deployment_runtime:

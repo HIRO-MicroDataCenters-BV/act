@@ -96,8 +96,8 @@ def test_does_not_match_other_accelerator_feature(cls, feature, resource_name):
 
 
 @pytest.mark.parametrize("cls, feature, resource_name", ACCELERATORS)
-def test_is_available_true_when_docker_present(monkeypatch, cls, feature, resource_name):
-    monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/docker" if name == "docker" else None)
+def test_is_available_true_when_all_tools_present(monkeypatch, cls, feature, resource_name):
+    monkeypatch.setattr(shutil, "which", lambda name: f"/usr/bin/{name}")
     assert _make(cls, feature).is_available() is True
 
 
