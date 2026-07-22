@@ -51,6 +51,13 @@ VOLATILE_KEYS: frozenset[str] = frozenset(
         "imageID",
         "startedAt",
         "observedGeneration",
+        # Server/controller-assigned at creation, so they differ per fresh cluster: drop as noise.
+        "nodePort",
+        "healthCheckNodePort",
+        "controller-uid",
+        "batch.kubernetes.io/controller-uid",
+        "job-name",
+        "batch.kubernetes.io/job-name",
     }
 )
 

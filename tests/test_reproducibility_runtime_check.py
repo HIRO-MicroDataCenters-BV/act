@@ -326,6 +326,46 @@ def test_probe_k8s_sort_order_stable_under_volatile_fields():
     assert hash_output(run_a) == hash_output(run_b)
 
 
+def _probe_single(item):
+    with patch(
+        "act.reproducibility.runtime_check.subprocess.run",
+        return_value=MagicMock(stdout=json.dumps({"items": [item]}).encode(), returncode=0),
+    ):
+        return probe_k8s("/tmp/kube.config")
+
+
+def test_reproducible_despite_auto_nodeport():
+    # A NodePort Service without a pinned nodePort gets a different auto-allocated port on each
+    # fresh cluster; the same declared program must still hash equal across the two runs.
+    def svc(node_port):
+        return {
+            "kind": "Service",
+            "metadata": {"name": "web", "namespace": "default"},
+            "spec": {"type": "NodePort", "ports": [{"port": 80, "nodePort": node_port}]},
+        }
+
+    assert hash_output(_probe_single(svc(30001))) == hash_output(_probe_single(svc(31555)))
+
+
+def test_reproducible_despite_job_controller_uid():
+    # The Job controller stamps a random controller-uid into the selector + template labels on
+    # each fresh cluster; identical declared Jobs must still hash equal.
+    def job(uid):
+        return {
+            "kind": "Job",
+            "metadata": {"name": "batch", "namespace": "default"},
+            "spec": {
+                "selector": {"matchLabels": {"batch.kubernetes.io/controller-uid": uid}},
+                "template": {
+                    "metadata": {"labels": {"batch.kubernetes.io/controller-uid": uid, "job-name": "batch"}},
+                    "spec": {"containers": [{"name": "c", "image": "busybox:1.36"}]},
+                },
+            },
+        }
+
+    assert hash_output(_probe_single(job("uid-aaaa"))) == hash_output(_probe_single(job("uid-bbbb")))
+
+
 def test_projection_distinguishes_binarydata_and_labels():
     # Two ConfigMaps differing only in binaryData or only in user labels are different
     # deployments and must not hash equal.
@@ -383,14 +423,16 @@ def test_normalise_strips_system_assigned_network_keys():
     """System-assigned network/identity fields are dropped by key (lossless)."""
     raw = {
         "status": {"podIP": "10.1.2.3", "hostIP": "192.168.0.5"},
-        "spec": {"clusterIP": "10.96.0.1", "ports": [{"nodePort": 30001}]},
+        "spec": {"clusterIP": "10.96.0.1", "ports": [{"port": 80, "nodePort": 30001}]},
     }
     cleaned = normalise_output(raw)
     assert "podIP" not in cleaned["status"]
     assert "hostIP" not in cleaned["status"]
     assert "clusterIP" not in cleaned["spec"]
-    # nodePort is left intact: an explicitly-set port is stable and meaningful.
-    assert cleaned["spec"]["ports"][0]["nodePort"] == 30001
+    # nodePort is dropped: the API server auto-allocates it, so it differs across the fresh
+    # cluster each run gets. The declared port is kept.
+    assert "nodePort" not in cleaned["spec"]["ports"][0]
+    assert cleaned["spec"]["ports"][0]["port"] == 80
 
 
 def test_normalise_keeps_numeric_ids_in_values():
