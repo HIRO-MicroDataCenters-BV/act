@@ -91,6 +91,13 @@ def test_non_k8s_program_reports_unhandled_tokens(monkeypatch):
         (1, b"exec /bin/true: exec format error", False, "binfmt_missing"),  # QEMU not registered
         (127, b'exec: "/bin/true": stat /bin/true: no such file or directory', False, None),  # distroless -> pass
         (1, b"container failed to start: OOM", False, "boot_failed"),
+        # /bin/true present but the ENOENT is unrelated + far away -> not a distroless pass.
+        (
+            1,
+            b"/bin/true ran; then failed opening /etc/very/long/unrelated/config/path/file: no such file or directory",
+            False,
+            "boot_failed",
+        ),
         (0, b"", True, "timeout"),
         (0, b"", False, None),  # zero exit -> boots fine
     ],

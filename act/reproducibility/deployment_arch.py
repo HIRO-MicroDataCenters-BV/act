@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Callable, Literal
 
+import re
 import shutil
 import subprocess
 import time
@@ -29,11 +30,9 @@ _BINFMT_MISSING_FRAGMENTS: tuple[str, ...] = (
 )
 
 # The image pulled for this arch but has no /bin/true (distroless/scratch). Reaching the exec
-# stage proves the arch variant exists and it boots under QEMU — arch-compatible, not a failure.
-_ENTRYPOINT_MISSING_FRAGMENTS: tuple[str, ...] = (
-    "no such file or directory",
-    "executable file not found",
-)
+# stage proves the arch variant exists. Anchor the ENOENT to /bin/true so an unrelated
+# "no such file or directory" elsewhere in stderr can't be mistaken for a distroless pass.
+_DISTROLESS_ENOENT = re.compile(r"/bin/true.{0,40}(no such file or directory|executable file not found)")
 
 
 @dataclass
@@ -164,8 +163,9 @@ class DeploymentArchCheck:
             reason: ImageBootReason = "no_arch_variant"
         elif any(frag in stderr_lower for frag in _BINFMT_MISSING_FRAGMENTS):
             reason = "binfmt_missing"
-        elif "/bin/true" in stderr_lower and any(frag in stderr_lower for frag in _ENTRYPOINT_MISSING_FRAGMENTS):
-            # Distroless/scratch image: pulled for this arch and booted to the exec stage. Pass.
+        elif _DISTROLESS_ENOENT.search(stderr_lower):
+            # Distroless/scratch: pulled for this arch and reached exec (no /bin/true) -> pass.
+            # A broken ELF interpreter looks the same and isn't distinguished (an image bug).
             return None
         else:
             reason = "boot_failed"
