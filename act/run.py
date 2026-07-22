@@ -286,6 +286,8 @@ def _default_substrates(cfg: ActConfig) -> list:
 
 # Runtime-check stages that mean "could not verify", not "failed": they never escalate the exit code.
 _RUNTIME_SKIP_STAGES = SKIP_STAGES
+# Arch-check reasons that mean "prerequisite missing" (could-not-verify), not "bad image".
+_ARCH_SKIP_REASONS = frozenset({"docker_missing", "binfmt_missing"})
 
 
 def _run_runtime_check(program: str, schemas: list[str], log: logging.Logger, cfg: ActConfig) -> RuntimeCheckResult:
@@ -500,7 +502,9 @@ def _cmd_check(argv=None) -> int:
         arch_result = None
         if args.check_deployment_arch:
             arch_result = _run_deployment_arch_check(args.program, schemas, args.check_deployment_arch, log, cfg)
-            if not arch_result.passed:
+            # A missing prerequisite (docker/binfmt) is a skip, not a gate failure — only a real
+            # boot/arch failure escalates.
+            if any(f.reason not in _ARCH_SKIP_REASONS for f in arch_result.failures):
                 exit_code = max(exit_code, 1)
             if any(f.reason == "docker_missing" for f in arch_result.failures):
                 print("[HINT] deployment-arch check needs docker; run 'act doctor'.", file=sys.stderr)

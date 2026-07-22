@@ -49,6 +49,30 @@ def test_default_substrates_scales_slow_arch_timeouts():
     assert amd64_base.api_ready_timeout == cfg.k8s_api_ready_timeout_s
 
 
+def _fake_arch_check(reason):
+    from act.reproducibility import DeploymentArchResult, ImageBootFailure
+
+    failures = [ImageBootFailure(image="img", reason=reason, detail="x")]
+    fake = MagicMock()
+    fake.run.return_value = DeploymentArchResult(
+        passed=False, arch="riscv64", images_checked=["img"], failures=failures
+    )
+    return fake
+
+
+def test_cli_arch_binfmt_missing_is_skip():
+    # A missing prerequisite (QEMU binfmt) must not fail the gate.
+    with patch("act.run.DeploymentArchCheck", return_value=_fake_arch_check("binfmt_missing")):
+        code = main(_argv("--check-deployment-arch", "riscv64", "--log-level", "ERROR"))
+    assert code == 0
+
+
+def test_cli_arch_no_variant_fails():
+    with patch("act.run.DeploymentArchCheck", return_value=_fake_arch_check("no_arch_variant")):
+        code = main(_argv("--check-deployment-arch", "riscv64", "--log-level", "ERROR"))
+    assert code == 1
+
+
 def test_reap_threshold_exceeds_slow_provision_budget(monkeypatch):
     """The reaper's age cutoff must exceed twice a riscv64 provision budget so a concurrent
     slow-booting run is never stopped."""
