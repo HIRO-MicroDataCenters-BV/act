@@ -110,8 +110,8 @@ class DockerSubstrate(Substrate):
                     "--label",
                     f"{_CREATED_LABEL}={int(time.time())}",
                     "-p",
-                    # 0 -> let docker assign an ephemeral host port (no fixed-6443 collision).
-                    f"{self.api_host_port}:6443" if self.api_host_port else "6443",
+                    # Loopback-only; 0 -> docker assigns an ephemeral host port (no 6443 collision).
+                    f"127.0.0.1:{self.api_host_port}:6443" if self.api_host_port else "127.0.0.1::6443",
                     *self.extra_docker_args,
                     self.image,
                     *self.command,
