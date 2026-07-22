@@ -13,6 +13,8 @@ import sys
 import tempfile
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FuturesTimeout
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -140,6 +142,25 @@ _SKIP_AWAIT_WRAPPER = (
 )
 
 
+def _run_up(stack, up_timeout: Optional[float]):
+    """Run `stack.up()` bounded by up_timeout; on expiry cancel the op and raise TimeoutError.
+    The background thread ends once `pulumi cancel` takes effect, so we don't wait on it."""
+    if not up_timeout:
+        return stack.up()
+    executor = ThreadPoolExecutor(max_workers=1)
+    future = executor.submit(stack.up)
+    try:
+        return future.result(timeout=up_timeout)
+    except FuturesTimeout:
+        try:
+            stack.cancel()
+        except Exception:
+            pass
+        raise TimeoutError(f"pulumi up exceeded {up_timeout}s")
+    finally:
+        executor.shutdown(wait=False)
+
+
 def run_pulumi_against(
     target: ProvisionedTarget,
     program_path: str,
@@ -147,6 +168,7 @@ def run_pulumi_against(
     project_name: str = "act-runtime-check",
     probe_fn: Optional[Callable[..., dict]] = None,
     skip_await: bool = True,
+    up_timeout: Optional[float] = None,
 ) -> PulumiUpOutcome:
     """Run `pulumi up` against the provisioned target, then `destroy`.
 
@@ -203,7 +225,7 @@ def run_pulumi_against(
         outputs: dict = {}
         probed: Optional[dict] = None
         try:
-            up_result = stack.up()
+            up_result = _run_up(stack, up_timeout)
             outputs = {k: getattr(v, "value", v) for k, v in (up_result.outputs or {}).items()}
             if probe_fn is not None:
                 try:
@@ -585,8 +607,11 @@ class RuntimeCheck:
         probe_fn: Optional[Callable[..., dict]] = None,
         namespace: str = "default",
         probe_timeout: int = 60,
+        up_timeout: Optional[float] = None,
     ):
         self._substrates = substrates
+        # Wall-clock bound on each `pulumi up`; None means derive from the picked substrate.
+        self._up_timeout = up_timeout
         # Bind namespace/timeout onto the default probe (run_pulumi_against invokes the
         # probe with only `target`). A caller-supplied probe_fn is passed through
         # unchanged so a custom (target)-only probe keeps working.
@@ -649,6 +674,9 @@ class RuntimeCheck:
                 verified=_verified_label(False, pick_failures, experimental),
             )
 
+        # Bound each `up`; default to the substrate's (already arch-scaled) startup budget.
+        up_timeout = self._up_timeout or getattr(substrate, "startup_timeout", None)
+
         if backend_dir is None:
             backend_root = tempfile.mkdtemp(prefix="act-pulumi-state-")
             owns_backend_root = True
@@ -692,6 +720,7 @@ class RuntimeCheck:
                         program_path=program_path,
                         backend_dir=backend_root,
                         probe_fn=self._probe_fn,
+                        up_timeout=up_timeout,
                     )
                     if outcome.failure is not None:
                         failures.append(outcome.failure)

@@ -300,6 +300,7 @@ def _run_runtime_check(program: str, schemas: list[str], log: logging.Logger, cf
         substrates=substrates,
         namespace=cfg.k8s_namespace,
         probe_timeout=cfg.k8s_probe_timeout_s,
+        up_timeout=cfg.runtime_up_timeout_s or None,
     )
     result = check.run(program, schemas)
 

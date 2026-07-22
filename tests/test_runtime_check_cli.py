@@ -81,7 +81,7 @@ def test_reap_threshold_exceeds_slow_provision_budget(monkeypatch):
     from act import run as run_mod
     from act.config import ActConfig
 
-    captured = {}
+    captured: dict = {}
     monkeypatch.setattr(run_mod, "reap_orphan_containers", lambda max_age_s: captured.update(max_age_s=max_age_s))
     fake_check = MagicMock()
     fake_check.run.return_value = RuntimeCheckResult(passed=True, substrate="x", spec=_spec())

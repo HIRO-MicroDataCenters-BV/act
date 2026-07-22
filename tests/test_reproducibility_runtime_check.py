@@ -171,6 +171,33 @@ def test_run_pulumi_against_destroys_on_up_failure(tmp_path):
     stack.destroy.assert_called_once()
 
 
+def test_run_pulumi_against_bounds_hanging_up(tmp_path):
+    import time as _time
+
+    def slow_up():
+        _time.sleep(1.5)
+        return MagicMock(outputs={})
+
+    stack = MagicMock()
+    stack.up.side_effect = slow_up
+    stack.destroy.return_value = MagicMock()
+
+    with patch(
+        "act.reproducibility.runtime_check.automation.create_or_select_stack",
+        return_value=stack,
+    ):
+        outcome = run_pulumi_against(
+            target=_provisioned(),
+            program_path=_stub_program(tmp_path),
+            backend_dir=str(tmp_path),
+            up_timeout=0.3,
+        )
+
+    assert outcome.failure is not None
+    assert outcome.failure.stage == "timeout"
+    stack.cancel.assert_called_once()  # the hung op is cancelled
+
+
 def test_skip_await_transformation_stamps_annotation():
     from types import SimpleNamespace
     from typing import cast
