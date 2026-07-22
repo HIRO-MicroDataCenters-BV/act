@@ -289,10 +289,13 @@ _RUNTIME_SKIP_STAGES = SKIP_STAGES
 
 
 def _run_runtime_check(program: str, schemas: list[str], log: logging.Logger, cfg: ActConfig) -> RuntimeCheckResult:
-    # Clean up any clusters a previously killed run leaked before provisioning fresh ones.
-    reap_orphan_containers()
+    substrates = _default_substrates(cfg)
+    # Reap leaked clusters, but only ones older than twice any legitimate provision budget, so a
+    # concurrent run's still-booting (slow-arch) cluster is never stopped.
+    max_provision_s = max((s.startup_timeout + s.api_ready_timeout for s in substrates), default=1800)
+    reap_orphan_containers(max_age_s=2 * max_provision_s)
     check = RuntimeCheck(
-        substrates=_default_substrates(cfg),
+        substrates=substrates,
         namespace=cfg.k8s_namespace,
         probe_timeout=cfg.k8s_probe_timeout_s,
     )

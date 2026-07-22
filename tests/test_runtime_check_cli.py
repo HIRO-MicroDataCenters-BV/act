@@ -49,6 +49,27 @@ def test_default_substrates_scales_slow_arch_timeouts():
     assert amd64_base.api_ready_timeout == cfg.k8s_api_ready_timeout_s
 
 
+def test_reap_threshold_exceeds_slow_provision_budget(monkeypatch):
+    """The reaper's age cutoff must exceed twice a riscv64 provision budget so a concurrent
+    slow-booting run is never stopped."""
+    import logging
+
+    from act import run as run_mod
+    from act.config import ActConfig
+
+    captured = {}
+    monkeypatch.setattr(run_mod, "reap_orphan_containers", lambda max_age_s: captured.update(max_age_s=max_age_s))
+    fake_check = MagicMock()
+    fake_check.run.return_value = RuntimeCheckResult(passed=True, substrate="x", spec=_spec())
+    monkeypatch.setattr(run_mod, "RuntimeCheck", lambda **k: fake_check)
+
+    cfg = ActConfig(runtime_archs=("amd64", "arm64", "riscv64"))
+    run_mod._run_runtime_check("p.py", ["s.json"], logging.getLogger("t"), cfg)
+
+    # riscv64 budget = (180+60)*4 = 960s; margin must be at least twice that.
+    assert captured["max_age_s"] >= 2 * 960
+
+
 def test_cli_does_not_invoke_runtime_check_without_flag():
     with patch("act.run.RuntimeCheck") as RuntimeCheckMock:
         exit_code = main(_argv("--log-level", "ERROR"))
