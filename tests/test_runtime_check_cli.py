@@ -73,6 +73,31 @@ def test_cli_arch_no_variant_fails():
     assert code == 1
 
 
+def test_is_runtime_skip_requires_all_skip_stages():
+    from act.run import _is_runtime_skip
+
+    def result(*stages, passed=False):
+        failures = [RuntimeCheckFailure(stage=s, detail="") for s in stages]
+        return RuntimeCheckResult(passed=passed, substrate="x", spec=_spec(), failures=failures)
+
+    assert _is_runtime_skip(result("timeout")) is True
+    assert _is_runtime_skip(result("timeout", "pulumi_up_failed")) is False  # hard failure must show
+    assert _is_runtime_skip(result(passed=True)) is False
+
+
+def test_cli_plan_timeout_exits_2_cleanly(capsys):
+    import subprocess as _sp
+
+    fake = MagicMock()
+    fake.run.side_effect = _sp.TimeoutExpired(cmd="capture", timeout=1)
+    with patch("act.run.PlanCheck", return_value=fake):
+        code = main(_argv("--log-level", "ERROR"))
+    err = capsys.readouterr().err
+    assert code == 2
+    assert "timed out" in err
+    assert "Traceback" not in err
+
+
 def test_reap_threshold_exceeds_slow_provision_budget(monkeypatch):
     """The reaper's age cutoff must exceed twice a riscv64 provision budget so a concurrent
     slow-booting run is never stopped."""

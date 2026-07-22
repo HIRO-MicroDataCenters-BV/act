@@ -5,6 +5,8 @@ A new arch is one registry row; image contents are the image-build pipeline's jo
 
 from __future__ import annotations
 
+from typing import ClassVar
+
 import re
 import shutil
 import subprocess
@@ -13,7 +15,6 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import ClassVar
 
 from act.reproducibility.substrates._extended_resource import _wait_for_node
 from act.reproducibility.substrates.base import (

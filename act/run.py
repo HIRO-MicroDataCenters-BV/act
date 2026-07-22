@@ -17,6 +17,7 @@ import importlib.metadata
 import json
 import logging
 import pkgutil
+import subprocess
 import sys
 import traceback
 from pathlib import Path
@@ -290,6 +291,12 @@ _RUNTIME_SKIP_STAGES = SKIP_STAGES
 _ARCH_SKIP_REASONS = frozenset({"docker_missing", "binfmt_missing"})
 
 
+def _is_runtime_skip(result: RuntimeCheckResult) -> bool:
+    """Could-not-verify (no exit escalation) only when every failure is a skip stage — a hard
+    failure alongside a skip must still fail the gate."""
+    return bool(result.failures) and all(f.stage in _RUNTIME_SKIP_STAGES for f in result.failures)
+
+
 def _run_runtime_check(program: str, schemas: list[str], log: logging.Logger, cfg: ActConfig) -> RuntimeCheckResult:
     substrates = _default_substrates(cfg)
     # Reap leaked clusters, but only ones older than twice any legitimate provision budget, so a
@@ -304,7 +311,7 @@ def _run_runtime_check(program: str, schemas: list[str], log: logging.Logger, cf
     )
     result = check.run(program, schemas)
 
-    skipped = any(f.stage in _RUNTIME_SKIP_STAGES for f in result.failures)
+    skipped = _is_runtime_skip(result)
 
     if skipped:
         log.warning(
@@ -519,8 +526,7 @@ def _cmd_check(argv=None) -> int:
         runtime_result = None
         if args.check_deployment_runtime:
             runtime_result = _run_runtime_check(args.program, schemas, log, cfg)
-            is_skip = any(f.stage in _RUNTIME_SKIP_STAGES for f in runtime_result.failures)
-            if not runtime_result.passed and not is_skip:
+            if not runtime_result.passed and not _is_runtime_skip(runtime_result):
                 exit_code = max(exit_code, 1)
             if any(f.stage == "substrate_unavailable" for f in runtime_result.failures):
                 print(
@@ -543,6 +549,9 @@ def _cmd_check(argv=None) -> int:
             print(_summary_line(gate.last_result, plan_result, arch_result, runtime_result))
 
         return exit_code
+    except subprocess.TimeoutExpired:
+        print("[ERROR] timed out running the program (see ACT_EXEC_TIMEOUT_S).", file=sys.stderr)
+        return 2
     except FileNotFoundError as e:
         print(f"[ERROR] {e}", file=sys.stderr)
         return 2
