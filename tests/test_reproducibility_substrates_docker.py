@@ -3,6 +3,7 @@ import subprocess
 
 import pytest
 
+from act.reproducibility.substrates._extended_resource import _wait_for_node
 from act.reproducibility.substrates.base import TargetSpec
 from act.reproducibility.substrates.docker import _ACT_LABEL, DockerSubstrate, reap_orphan_containers
 
@@ -316,3 +317,42 @@ def test_reap_orphan_containers_silent_when_docker_missing(monkeypatch):
 
     monkeypatch.setattr(subprocess, "run", boom)
     reap_orphan_containers()  # must not raise
+
+
+# ----- provision-readiness waits (previously only monkeypatched, never exercised) -----
+
+
+def test_wait_for_api_returns_when_kubeconfig_present(monkeypatch, amd64_substrate):
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: subprocess.CompletedProcess([], 0))
+    amd64_substrate._wait_for_api("cid")  # returns without raising
+
+
+def test_wait_for_api_times_out_when_never_ready():
+    sub = DockerSubstrate(image="x", platform="linux/amd64", spec_arch="x86_64-linux", startup_timeout=0)
+    with pytest.raises(TimeoutError):
+        sub._wait_for_api("cid")
+
+
+def test_resolve_host_port_parses_first_mapping(monkeypatch, amd64_substrate):
+    monkeypatch.setattr(
+        subprocess, "run", lambda *a, **k: subprocess.CompletedProcess([], 0, stdout=b"0.0.0.0:32770\n[::]:32770\n")
+    )
+    assert amd64_substrate._resolve_host_port("cid") == 32770
+
+
+def test_resolve_host_port_raises_when_no_mapping(monkeypatch, amd64_substrate):
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: subprocess.CompletedProcess([], 0, stdout=b""))
+    with pytest.raises(RuntimeError):
+        amd64_substrate._resolve_host_port("cid")
+
+
+def test_wait_for_node_returns_registered_node(monkeypatch):
+    monkeypatch.setattr(
+        subprocess, "run", lambda *a, **k: subprocess.CompletedProcess([], 0, stdout=b"node-1", stderr=b"")
+    )
+    assert _wait_for_node("/kube.config", timeout=5) == "node-1"
+
+
+def test_wait_for_node_times_out():
+    with pytest.raises(TimeoutError):
+        _wait_for_node("/kube.config", timeout=0)

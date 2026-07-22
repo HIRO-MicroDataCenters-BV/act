@@ -40,6 +40,12 @@ jobs:
     - name: Register QEMU binfmt for cross-arch image checks
       run: docker run --privileged --rm tonistiigi/binfmt --install all
 
+    - name: Install kubectl (runtime-check probe + amd64 deployment e2e)
+      run: |
+        curl -sSLo kubectl "https://dl.k8s.io/release/v1.32.1/bin/linux/amd64/kubectl"
+        sudo install -m 0755 kubectl /usr/local/bin/kubectl
+        kubectl version --client
+
     - name: isort
       run: uv run isort act/ tests/ --check --diff
 
