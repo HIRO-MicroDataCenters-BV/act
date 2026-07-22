@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 
 from act.core.mock_generator import MockGenerator
 
-ImageBootReason = Literal["no_arch_variant", "boot_failed", "timeout", "docker_missing"]
+ImageBootReason = Literal["no_arch_variant", "boot_failed", "binfmt_missing", "timeout", "docker_missing"]
 
 # Docker stderr fragments meaning "no image variant for this platform"
 # (dockerd/buildkit emit different strings by version); matched lowercase.
@@ -20,6 +20,19 @@ _NO_ARCH_VARIANT_FRAGMENTS: tuple[str, ...] = (
     "manifest unknown",
     "image platform",
     "no matching entries in manifest list",
+)
+
+# Foreign-arch binary with no QEMU interpreter registered: a prerequisite gap, not a bad image.
+_BINFMT_MISSING_FRAGMENTS: tuple[str, ...] = (
+    "exec format error",
+    "exec user process caused",
+)
+
+# The image pulled for this arch but has no /bin/true (distroless/scratch). Reaching the exec
+# stage proves the arch variant exists and it boots under QEMU — arch-compatible, not a failure.
+_ENTRYPOINT_MISSING_FRAGMENTS: tuple[str, ...] = (
+    "no such file or directory",
+    "executable file not found",
 )
 
 
@@ -147,7 +160,13 @@ class DeploymentArchCheck:
             return None
         stderr = result.stderr.decode(errors="replace").strip()
         stderr_lower = stderr.lower()
-        reason: ImageBootReason = (
-            "no_arch_variant" if any(frag in stderr_lower for frag in _NO_ARCH_VARIANT_FRAGMENTS) else "boot_failed"
-        )
+        if any(frag in stderr_lower for frag in _NO_ARCH_VARIANT_FRAGMENTS):
+            reason: ImageBootReason = "no_arch_variant"
+        elif any(frag in stderr_lower for frag in _BINFMT_MISSING_FRAGMENTS):
+            reason = "binfmt_missing"
+        elif "/bin/true" in stderr_lower and any(frag in stderr_lower for frag in _ENTRYPOINT_MISSING_FRAGMENTS):
+            # Distroless/scratch image: pulled for this arch and booted to the exec stage. Pass.
+            return None
+        else:
+            reason = "boot_failed"
         return ImageBootFailure(image=image, reason=reason, detail=stderr)

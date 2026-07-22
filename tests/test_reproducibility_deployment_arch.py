@@ -88,7 +88,9 @@ def test_non_k8s_program_reports_unhandled_tokens(monkeypatch):
         (125, b"docker: manifest unknown for linux/riscv64", False, "no_arch_variant"),
         (125, b"image platform (linux/riscv64) does not match the detected host platform", False, "no_arch_variant"),
         (125, b"no matching entries in manifest list", False, "no_arch_variant"),
-        (1, b"exec /bin/true: exec format error", False, "boot_failed"),
+        (1, b"exec /bin/true: exec format error", False, "binfmt_missing"),  # QEMU not registered
+        (127, b'exec: "/bin/true": stat /bin/true: no such file or directory', False, None),  # distroless -> pass
+        (1, b"container failed to start: OOM", False, "boot_failed"),
         (0, b"", True, "timeout"),
         (0, b"", False, None),  # zero exit -> boots fine
     ],

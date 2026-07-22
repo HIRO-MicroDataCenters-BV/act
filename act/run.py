@@ -501,6 +501,12 @@ def _cmd_check(argv=None) -> int:
                 exit_code = max(exit_code, 1)
             if any(f.reason == "docker_missing" for f in arch_result.failures):
                 print("[HINT] deployment-arch check needs docker; run 'act doctor'.", file=sys.stderr)
+            if any(f.reason == "binfmt_missing" for f in arch_result.failures):
+                print(
+                    "[HINT] QEMU emulation not registered; run "
+                    "`docker run --privileged --rm tonistiigi/binfmt --install all`.",
+                    file=sys.stderr,
+                )
 
         runtime_result = None
         if args.check_deployment_runtime:
