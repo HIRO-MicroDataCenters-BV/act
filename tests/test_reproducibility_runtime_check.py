@@ -468,6 +468,25 @@ def test_spec_features_ignores_marker_as_value():
     assert "gpu" not in spec.features
 
 
+def test_spec_mode_classification():
+    from act.reproducibility.runtime_check import _spec_mode
+
+    assert _spec_mode(TargetSpec(arch="riscv64-linux", orchestrator="k8s")) == ("emulation", False)
+    assert _spec_mode(TargetSpec(arch="x86_64-linux", orchestrator="k8s", features=["cxl"])) == ("emulation", True)
+    assert _spec_mode(TargetSpec(arch="x86_64-linux", orchestrator="k8s", features=["gpu"])) == ("simulation", True)
+    assert _spec_mode(TargetSpec(arch="x86_64-linux", orchestrator="k8s", features=["fpga"])) == ("simulation", True)
+
+
+def test_verified_label():
+    from act.reproducibility.runtime_check import _verified_label
+
+    skip = [RuntimeCheckFailure(stage="substrate_unavailable", detail="")]
+    assert _verified_label(False, skip, False) == "skipped"
+    assert _verified_label(False, [], False) == "failed"
+    assert _verified_label(True, [], False) == "verified"
+    assert _verified_label(True, [], True) == "experimental"
+
+
 @pytest.mark.parametrize(
     "a, b, should_equal",
     [
@@ -589,6 +608,8 @@ def test_runtime_check_passes_when_two_probes_match(tmp_path):
     # Each run gets a fresh target (independent twice-and-compare), so provision + teardown 2x.
     assert sub.provision_calls == 2
     assert sub.teardown_calls == 2
+    # Honest labelling: a real CPU-arch green is "verified" via emulation at deployment-accepted depth.
+    assert (result.mode, result.depth, result.verified) == ("emulation", "deployment-accepted", "verified")
 
 
 def test_runtime_check_fails_when_probes_differ(tmp_path):
@@ -639,6 +660,7 @@ def test_runtime_check_records_substrate_unavailable(tmp_path):
 
     assert result.passed is False
     assert any(f.stage == "substrate_unavailable" for f in result.failures)
+    assert result.verified == "skipped"
 
 
 def test_runtime_check_records_spec_unsupported(tmp_path):

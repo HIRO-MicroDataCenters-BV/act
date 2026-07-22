@@ -74,6 +74,18 @@ RuntimeCheckStage = Literal[
     "timeout",
 ]
 
+# Stages that mean "could not verify" (missing tooling, unsupported spec, nothing deployed, slow
+# emulation) rather than "not reproducible" — they must not escalate the gate's exit code.
+SKIP_STAGES: frozenset[str] = frozenset({"substrate_unavailable", "spec_unsupported", "nothing_observed", "timeout"})
+
+# Compare depth: we hash what the cluster ACCEPTED, not a running workload. See the module note.
+COMPARE_DEPTH = "deployment-accepted"
+
+# Features whose target can't be truly emulated: verified via a proxy (gpu = scheduling contract,
+# fpga = logic sim), and cxl is emulated but experimental. Drives the honest `mode`/`verified`.
+_SIMULATED_FEATURES: frozenset[str] = frozenset({"gpu", "fpga"})
+_EXPERIMENTAL_FEATURES: frozenset[str] = frozenset({"cxl"})
+
 
 @dataclass
 class RuntimeCheckFailure:
@@ -91,6 +103,9 @@ class RuntimeCheckResult:
     diff: list[str] = field(default_factory=list)
     failures: list[RuntimeCheckFailure] = field(default_factory=list)
     capture_duration_ms: int = 0
+    mode: str = "emulation"
+    depth: str = COMPARE_DEPTH
+    verified: str = "unknown"
 
 
 @dataclass
@@ -503,6 +518,25 @@ def _is_empty_probe(probe: Any) -> bool:
     return not probe.get("resources") and not probe.get("_act_workload_logs")
 
 
+def _spec_mode(spec: TargetSpec) -> tuple[str, bool]:
+    """(mode, experimental) for a spec: gpu/fpga are simulated proxies; cxl is emulated but
+    experimental; everything else is real emulation."""
+    if any(f in _SIMULATED_FEATURES for f in spec.features):
+        return "simulation", True
+    if any(f in _EXPERIMENTAL_FEATURES for f in spec.features):
+        return "emulation", True
+    return "emulation", False
+
+
+def _verified_label(passed: bool, failures: list, experimental: bool) -> str:
+    """Honest per-target status: a skip/experimental/proxy run can never read as a real green."""
+    if any(f.stage in SKIP_STAGES for f in failures):
+        return "skipped"
+    if not passed:
+        return "failed"
+    return "experimental" if experimental else "verified"
+
+
 def extract_target_spec(plan: dict, mg: MockGenerator) -> TargetSpec:
     arch = "x86_64-linux"
     orchestrator: str | None = None
@@ -593,14 +627,19 @@ class RuntimeCheck:
                 features=spec.features,
             )
 
+        mode, experimental = _spec_mode(spec)
+
         substrate, pick_failure = self._pick_substrate(spec)
         if substrate is None or pick_failure is not None:
+            pick_failures = [pick_failure] if pick_failure else []
             return RuntimeCheckResult(
                 passed=False,
                 substrate=substrate.name if substrate else "none",
                 spec=spec,
-                failures=[pick_failure] if pick_failure else [],
+                failures=pick_failures,
                 capture_duration_ms=int((time.monotonic_ns() - start) // 1_000_000),
+                mode=mode,
+                verified=_verified_label(False, pick_failures, experimental),
             )
 
         if backend_dir is None:
@@ -698,4 +737,6 @@ class RuntimeCheck:
             diff=diff,
             failures=failures,
             capture_duration_ms=int((time.monotonic_ns() - start) // 1_000_000),
+            mode=mode,
+            verified=_verified_label(passed, failures, experimental),
         )

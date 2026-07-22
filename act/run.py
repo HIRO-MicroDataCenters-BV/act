@@ -46,6 +46,7 @@ from act.reproducibility import (
     reap_orphan_containers,
     write_artefact,
 )
+from act.reproducibility.runtime_check import SKIP_STAGES
 from act.rules import auto_load
 from act.schema_resolver import SchemaResolveError, resolve_schemas
 
@@ -284,7 +285,7 @@ def _default_substrates(cfg: ActConfig) -> list:
 
 
 # Runtime-check stages that mean "could not verify", not "failed": they never escalate the exit code.
-_RUNTIME_SKIP_STAGES = frozenset({"substrate_unavailable", "spec_unsupported", "nothing_observed", "timeout"})
+_RUNTIME_SKIP_STAGES = SKIP_STAGES
 
 
 def _run_runtime_check(program: str, schemas: list[str], log: logging.Logger, cfg: ActConfig) -> RuntimeCheckResult:
