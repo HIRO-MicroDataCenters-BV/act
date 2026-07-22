@@ -4,7 +4,7 @@ import subprocess
 import pytest
 
 from act.reproducibility.substrates.base import TargetSpec
-from act.reproducibility.substrates.docker import DockerSubstrate
+from act.reproducibility.substrates.docker import _ACT_LABEL, DockerSubstrate, reap_orphan_containers
 
 
 @pytest.fixture
@@ -252,3 +252,38 @@ def test_extra_docker_args_default_to_empty():
     )
     assert sub.extra_docker_args == ()
     assert sub.command == ()
+
+
+def test_provision_labels_container_for_reaping(monkeypatch, tmp_path, amd64_substrate):
+    calls = _setup_provision_mocks(monkeypatch, tmp_path)
+    amd64_substrate.provision(TargetSpec(arch="x86_64-linux", orchestrator="k8s"))
+    run_call = next(c for c in calls if c[:3] == ["docker", "run", "-d"])
+    assert "--label" in run_call
+    assert _ACT_LABEL in run_call
+
+
+def test_reap_orphan_containers_stops_old_skips_young(monkeypatch):
+    now = 1_000_000.0
+    monkeypatch.setattr("act.reproducibility.substrates.docker.time.time", lambda: now)
+    stopped: list[str] = []
+
+    def fake_run(cmd, *a, **k):
+        if cmd[:2] == ["docker", "ps"]:
+            out = f"old {now - 2000}\nyoung {now - 10}\n".encode()
+            return subprocess.CompletedProcess(cmd, 0, stdout=out, stderr=b"")
+        if cmd[:2] == ["docker", "stop"]:
+            stopped.append(cmd[2])
+        return subprocess.CompletedProcess(cmd, 0, stdout=b"", stderr=b"")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    reap_orphan_containers(max_age_s=1800)
+    # Only the container older than max_age is stopped; the fresh one (a live run) is left alone.
+    assert stopped == ["old"]
+
+
+def test_reap_orphan_containers_silent_when_docker_missing(monkeypatch):
+    def boom(*a, **k):
+        raise FileNotFoundError("docker")
+
+    monkeypatch.setattr(subprocess, "run", boom)
+    reap_orphan_containers()  # must not raise

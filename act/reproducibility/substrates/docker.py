@@ -21,6 +21,37 @@ from act.reproducibility.substrates.base import (
     TargetSpec,
 )
 
+# Every ACT-spawned cluster carries this label so orphans (left by a killed run) can be reaped.
+_ACT_LABEL = "act.reproducibility.substrate=docker"
+_CREATED_LABEL = "act.reproducibility.created"
+
+
+def reap_orphan_containers(max_age_s: float = 1800) -> None:
+    """Best-effort: stop ACT-labelled containers older than max_age_s, left behind by a killed
+    run. Age-gated (via the creation-epoch label) so a concurrent run's fresh container is never
+    touched. Silent no-op if docker is absent."""
+    try:
+        listed = subprocess.run(
+            ["docker", "ps", "--filter", f"label={_ACT_LABEL}", "--format", '{{.ID}} {{.Label "%s"}}' % _CREATED_LABEL],
+            capture_output=True,
+            check=False,
+            timeout=10,
+        )
+    except (subprocess.SubprocessError, FileNotFoundError):
+        return
+    now = time.time()
+    for line in listed.stdout.decode().splitlines():
+        parts = line.split()
+        if len(parts) != 2:
+            continue
+        cid, created = parts
+        try:
+            if now - float(created) <= max_age_s:
+                continue
+        except ValueError:
+            continue
+        subprocess.run(["docker", "stop", cid], capture_output=True, check=False, timeout=30)
+
 
 @dataclass
 class DockerSubstrate(Substrate):
@@ -59,7 +90,9 @@ class DockerSubstrate(Substrate):
         work_dir = Path(tempfile.mkdtemp(prefix="act-docker-"))
         container_id = "act-" + uuid.uuid4().hex[:8]
         kubeconfig = work_dir / "kubeconfig.yaml"
-        container_started = False
+        # Set before the run: `--name` reserves the container, so a `docker run` that times out
+        # or is killed mid-create may still leave it running — always attempt cleanup.
+        container_started = True
 
         try:
             subprocess.run(
@@ -72,6 +105,10 @@ class DockerSubstrate(Substrate):
                     self.platform,
                     "--name",
                     container_id,
+                    "--label",
+                    _ACT_LABEL,
+                    "--label",
+                    f"{_CREATED_LABEL}={int(time.time())}",
                     "-p",
                     f"{self.api_host_port}:6443",
                     *self.extra_docker_args,
@@ -80,9 +117,8 @@ class DockerSubstrate(Substrate):
                 ],
                 capture_output=True,
                 check=True,
-                timeout=60,
+                timeout=self.startup_timeout,
             )
-            container_started = True
 
             self._wait_for_api(container_id, self.api_host_port)
 

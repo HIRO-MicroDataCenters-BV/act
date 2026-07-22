@@ -20,7 +20,7 @@ from act.reproducibility.substrates.base import (
     TargetSpec,
 )
 from act.reproducibility.substrates.cxl import CxlSubstrate
-from act.reproducibility.substrates.docker import DockerSubstrate
+from act.reproducibility.substrates.docker import DockerSubstrate, reap_orphan_containers
 from act.reproducibility.substrates.fpga import FpgaSubstrate
 from act.reproducibility.substrates.gpu import GpuSubstrate
 
@@ -44,5 +44,6 @@ __all__ = [
     "TargetSpec",
     "probe_k8s",
     "probe_k8s_with_workload_logs",
+    "reap_orphan_containers",
     "write_artefact",
 ]

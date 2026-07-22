@@ -43,6 +43,7 @@ from act.reproducibility import (
     ReproducibilityArtefact,
     RuntimeCheck,
     RuntimeCheckResult,
+    reap_orphan_containers,
     write_artefact,
 )
 from act.rules import auto_load
@@ -287,6 +288,8 @@ _RUNTIME_SKIP_STAGES = frozenset({"substrate_unavailable", "spec_unsupported", "
 
 
 def _run_runtime_check(program: str, schemas: list[str], log: logging.Logger, cfg: ActConfig) -> RuntimeCheckResult:
+    # Clean up any clusters a previously killed run leaked before provisioning fresh ones.
+    reap_orphan_containers()
     check = RuntimeCheck(
         substrates=_default_substrates(cfg),
         namespace=cfg.k8s_namespace,
