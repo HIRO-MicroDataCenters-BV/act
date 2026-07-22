@@ -241,41 +241,44 @@ def test_skip_await_wrapper_compiles_and_is_self_contained():
     assert "import act" not in wrapper and "from act" not in wrapper
 
 
-def test_skip_await_transformation_handles_computed_metadata():
-    # Output-valued metadata must still be stamped (not bailed on), else pulumi awaits it.
-    from types import SimpleNamespace
-
-    import pulumi
-
-    from act.reproducibility._skip_await import skip_await_transformation
-
-    args = SimpleNamespace(
-        type_="kubernetes:apps/v1:Deployment",
-        props={"metadata": pulumi.Output.from_input({"name": "x"})},
-        opts=None,
-    )
-    result = skip_await_transformation(args)  # type: ignore[arg-type]
-    assert result is not None
-    assert isinstance(result.props["metadata"], pulumi.Output)
-
-
-def test_skip_await_transformation_handles_computed_annotations():
+def test_skip_await_transformation_handles_computed_metadata(monkeypatch):
+    # Output-valued metadata must take the apply() branch (not bail), else pulumi awaits it.
+    # Output.from_input is patched so the branch is exercised without a pulumi runtime loop.
     from types import SimpleNamespace
     from typing import cast
 
-    import pulumi
+    from act.reproducibility import _skip_await
 
-    from act.reproducibility._skip_await import skip_await_transformation
+    sentinel = object()
+    fake_output = MagicMock()
+    fake_output.apply.return_value = sentinel
+    monkeypatch.setattr(_skip_await.pulumi.Output, "from_input", lambda v: fake_output)
+
+    args = SimpleNamespace(type_="kubernetes:apps/v1:Deployment", props={"metadata": object()}, opts=None)
+    result = _skip_await.skip_await_transformation(args)  # type: ignore[arg-type]
+    assert result is not None
+    assert cast(dict, result.props)["metadata"] is sentinel
+
+
+def test_skip_await_transformation_handles_computed_annotations(monkeypatch):
+    from types import SimpleNamespace
+    from typing import cast
+
+    from act.reproducibility import _skip_await
+
+    sentinel = object()
+    fake_output = MagicMock()
+    fake_output.apply.return_value = sentinel
+    monkeypatch.setattr(_skip_await.pulumi.Output, "from_input", lambda v: fake_output)
 
     args = SimpleNamespace(
         type_="kubernetes:core/v1:ConfigMap",
-        props={"metadata": {"name": "x", "annotations": pulumi.Output.from_input({"a": "b"})}},
+        props={"metadata": {"name": "x", "annotations": object()}},
         opts=None,
     )
-    result = skip_await_transformation(args)  # type: ignore[arg-type]
+    result = _skip_await.skip_await_transformation(args)  # type: ignore[arg-type]
     assert result is not None
-    metadata = cast(dict, result.props)["metadata"]
-    assert isinstance(metadata["annotations"], pulumi.Output)
+    assert cast(dict, result.props)["metadata"]["annotations"] is sentinel
 
 
 def test_run_pulumi_against_wraps_program_for_skip_await(tmp_path, monkeypatch):
