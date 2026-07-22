@@ -13,6 +13,7 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import ClassVar
 
 from act.reproducibility.substrates._extended_resource import _wait_for_node
 from act.reproducibility.substrates.base import (
@@ -69,7 +70,7 @@ class DockerSubstrate(Substrate):
     # The runtime check needs all three on PATH: docker (provision the cluster), pulumi
     # (deploy), kubectl (probe). A missing tool makes this substrate unavailable so the
     # check skips honestly rather than hard-failing the gate.
-    _REQUIRED_TOOLS: tuple[str, ...] = ("docker", "pulumi", "kubectl")
+    _REQUIRED_TOOLS: ClassVar[tuple[str, ...]] = ("docker", "pulumi", "kubectl")
 
     @property
     def name(self) -> str:  # type: ignore[override]
@@ -91,9 +92,6 @@ class DockerSubstrate(Substrate):
         work_dir = Path(tempfile.mkdtemp(prefix="act-docker-"))
         container_id = "act-" + uuid.uuid4().hex[:8]
         kubeconfig = work_dir / "kubeconfig.yaml"
-        # Set before the run: `--name` reserves the container, so a `docker run` that times out
-        # or is killed mid-create may still leave it running — always attempt cleanup.
-        container_started = True
 
         try:
             subprocess.run(
@@ -144,13 +142,13 @@ class DockerSubstrate(Substrate):
             # registered node so `pulumi up` doesn't hit an unready API (matters on slow QEMU archs).
             _wait_for_node(str(kubeconfig), self.api_ready_timeout)
         except Exception:
-            if container_started:
-                subprocess.run(
-                    ["docker", "stop", container_id],
-                    capture_output=True,
-                    check=False,
-                    timeout=30,
-                )
+            # `--name` reserves the container, so a run that timed out mid-create may still be up.
+            subprocess.run(
+                ["docker", "stop", container_id],
+                capture_output=True,
+                check=False,
+                timeout=30,
+            )
             shutil.rmtree(work_dir, ignore_errors=True)
             raise
 

@@ -346,6 +346,13 @@ def test_resolve_host_port_raises_when_no_mapping(monkeypatch, amd64_substrate):
         amd64_substrate._resolve_host_port("cid")
 
 
+def test_resolve_host_port_parses_ipv6_first_line(monkeypatch, amd64_substrate):
+    monkeypatch.setattr(
+        subprocess, "run", lambda *a, **k: subprocess.CompletedProcess([], 0, stdout=b"[::]:32770\n0.0.0.0:32770\n")
+    )
+    assert amd64_substrate._resolve_host_port("cid") == 32770
+
+
 def test_wait_for_node_returns_registered_node(monkeypatch):
     monkeypatch.setattr(
         subprocess, "run", lambda *a, **k: subprocess.CompletedProcess([], 0, stdout=b"node-1", stderr=b"")
