@@ -60,4 +60,3 @@ jobs:
 
     - name: pytest
       run: uv run pytest -v
-

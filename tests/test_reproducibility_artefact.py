@@ -85,7 +85,7 @@ def test_artefact_round_trips_runtime_check(tmp_path):
     spec = TargetSpec(arch="x86_64-linux", orchestrator="k8s")
     runtime = RuntimeCheckResult(
         passed=True,
-        substrate="nixos-compose",
+        substrate="docker:linux/amd64",
         spec=spec,
         hash_1="aaa",
         hash_2="aaa",
@@ -101,7 +101,7 @@ def test_artefact_round_trips_runtime_check(tmp_path):
 
     parsed = _read_artefact(str(tmp_path))
     assert parsed["runtime_check"]["passed"] is True
-    assert parsed["runtime_check"]["substrate"] == "nixos-compose"
+    assert parsed["runtime_check"]["substrate"] == "docker:linux/amd64"
     assert parsed["runtime_check"]["spec"]["arch"] == "x86_64-linux"
     assert parsed["runtime_check"]["hash_1"] == "aaa"
     assert parsed["runtime_check"]["capture_duration_ms"] == 12345

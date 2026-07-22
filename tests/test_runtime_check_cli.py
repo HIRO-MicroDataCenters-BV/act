@@ -90,7 +90,7 @@ def test_cli_substrate_unavailable_does_not_fail_pipeline():
         passed=False,
         substrate="docker:linux/amd64",
         spec=_spec(),
-        failures=[RuntimeCheckFailure(stage="substrate_unavailable", detail="nxc missing")],
+        failures=[RuntimeCheckFailure(stage="substrate_unavailable", detail="docker not available")],
     )
     rc = MagicMock()
     rc.run.return_value = fake_result
