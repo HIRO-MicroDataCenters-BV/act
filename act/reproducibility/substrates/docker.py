@@ -24,6 +24,7 @@ from act.reproducibility.substrates.base import (
 # Every ACT-spawned cluster carries this label so orphans (left by a killed run) can be reaped.
 _ACT_LABEL = "act.reproducibility.substrate=docker"
 _CREATED_LABEL = "act.reproducibility.created"
+_CREATE_TIMEOUT_S = 300  # bound on `docker run -d` (image pull + start), separate from k3s boot
 
 
 def reap_orphan_containers(max_age_s: float = 1800) -> None:
@@ -118,7 +119,9 @@ class DockerSubstrate(Substrate):
                 ],
                 capture_output=True,
                 check=True,
-                timeout=self.startup_timeout,
+                # `docker run -d` returns once the container starts (image pull is the slow part),
+                # so bound it independently of the k3s-boot wait in _wait_for_api.
+                timeout=_CREATE_TIMEOUT_S,
             )
             host_port = self.api_host_port or self._resolve_host_port(container_id)
 
