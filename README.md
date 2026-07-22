@@ -64,7 +64,7 @@ For every Pulumi program you run through it, ACT does up to five things:
 1. **Captures the plan without provisioning.** It hooks the Pulumi SDK and records what resources *would* be created and what inputs they carry. Never calls a real cloud API.
 2. **Checks structural rules.** The oracle flags missing required fields (for example a missing security group), wrong types, and out-of-range or invalid enum values, plus provider rules such as CAPE network exposure. Each surfaces as a `Violation` with severity and a recommendation. Content checks (embedded secrets) are the cognitive validator's job.
 3. **Fuzzes parameterised programs.** When the program takes inputs, ACT mutates them (atheris fuzz + hypothesis property tests) to find configurations that pass the type checker but break the policy.
-4. **Verifies reproducibility.** Optional: re-runs the program against an ephemeral cluster (k3s in Docker) twice and confirms the deployed state hashes identically. Covers amd64, arm64, riscv64, GPU, FPGA, and CXL targets.
+4. **Verifies reproducibility.** Optional: provisions a fresh ephemeral cluster (k3s in Docker) for each of two runs and confirms the cluster accepts an identical deployment each time, hashing the accepted resource specs rather than waiting for the workload to finish running. This keeps the check fast and uniform across amd64, arm64, riscv64, GPU, FPGA, and CXL targets.
 5. **Offers AI advice.** Optional: with the cognitive validator enabled, ACT sends the program to an LLM for extra security advice. The findings are advisory by default and don't change the pass/fail result unless you opt into `--acv-mode blocking`.
 
 ### Architecture and flow
@@ -159,7 +159,7 @@ Flags for `act check`:
 | `--log-level LEVEL` | no | `WARNING` | One of `DEBUG`, `INFO`, `WARNING`, `ERROR`. Env: `ACT_LOG_LEVEL` |
 | `--rules ENGINE [ENGINE ...]` | no | none | Load an additional rule engine. Currently: `checkov` (100+ Kubernetes checks) |
 | `--check-deployment-arch ARCH` | no | off | Smoke-boot every container image referenced by the program under `linux/<ARCH>` via QEMU. Example: `--check-deployment-arch riscv64` |
-| `--check-deployment-runtime` | no | off | Provision an ephemeral k3s cluster matching the program's target, run `pulumi up` twice, and verify the deployed state hashes identically. Requires `docker`, `kubectl`, and `pulumi` CLI |
+| `--check-deployment-runtime` | no | off | Provision a fresh ephemeral k3s cluster matching the program's target for each of two runs, run `pulumi up`, and verify the cluster accepts an identical deployment each time. Requires `docker`, `kubectl`, and `pulumi` CLI |
 | `--acv-mode {advisory,blocking}` | no | `advisory` | Whether the cognitive validator's verdict gates the exit code. `advisory` (default) never blocks; `blocking` fails the gate on an ACV FAIL. Env: `ACT_ACV_MODE` |
 
 The optional cognitive validator has no flag of its own; it is enabled through environment variables:
@@ -203,7 +203,7 @@ Reproducibility target and timeouts (used by `--check-deployment-runtime` / `--c
 |----------|---------|---------|
 | `ACT_K8S_NAMESPACE` | Namespace the runtime probe reads the deployed workload from | `default` |
 | `ACT_RUNTIME_ARCHS` | Comma-separated subset of `amd64,arm64,riscv64` to include in the substrate registry | all three |
-| `ACT_K3S_API_HOST_PORT` | Host port mapped to the k3s API server | `6443` |
+| `ACT_K3S_API_HOST_PORT` | Host port mapped to the k3s API server (`0` lets docker pick an ephemeral port, avoiding collisions) | `0` |
 | `ACT_K3S_STARTUP_TIMEOUT_S` | Seconds to wait for k3s to come up (raise for QEMU/slow CI) | `180` |
 | `ACT_IMAGE_BOOT_TIMEOUT_S` | Seconds to wait for each image to smoke-boot under QEMU | `60` |
 | `ACT_K8S_API_READY_TIMEOUT_S` | Seconds to wait for node registration before patching Extended Resources | `60` |
