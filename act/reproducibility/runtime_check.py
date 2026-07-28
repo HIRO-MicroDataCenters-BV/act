@@ -654,11 +654,11 @@ class RuntimeCheck:
         mode, experimental = _spec_mode(spec)
 
         substrate, pick_failure = self._pick_substrate(spec)
-        if substrate is None or pick_failure is not None:
+        if substrate is None:
             pick_failures = [pick_failure] if pick_failure else []
             return RuntimeCheckResult(
                 passed=False,
-                substrate=substrate.name if substrate else "none",
+                substrate="none",
                 spec=spec,
                 failures=pick_failures,
                 capture_duration_ms=int((time.monotonic_ns() - start) // 1_000_000),
