@@ -1,8 +1,8 @@
 from typing import Callable, List, Optional, Tuple
 
-import json
 import logging
 
+from act.core.schema import load_merged_resources
 from act.core.violations import Violation
 from act.plugins.base import OraclePlugin
 
@@ -33,12 +33,7 @@ class CorrectnessOracle(OraclePlugin):
     """
 
     def __init__(self, schema_path: str | list[str]):
-        paths = [schema_path] if isinstance(schema_path, str) else schema_path
-        merged_resources: dict = {}
-        for p in paths:
-            with open(p) as f:
-                merged_resources.update(json.load(f).get("resources", {}))
-        self._schema = {"resources": merged_resources}
+        self._schema = load_merged_resources(schema_path)
         self._rules: List[Tuple[Optional[str], Callable[[dict], List[Violation]]]] = []
 
     def add_rule(

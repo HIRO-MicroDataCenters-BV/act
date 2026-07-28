@@ -5,7 +5,6 @@ import asyncio
 import contextlib
 import importlib.util
 import io
-import json
 import logging
 import os
 import signal
@@ -15,6 +14,8 @@ from pathlib import Path
 
 import pulumi
 import pulumi.runtime
+
+from act.core.schema import load_merged_resources
 
 log = logging.getLogger(__name__)
 
@@ -83,13 +84,8 @@ class MockGenerator:
     """
 
     def __init__(self, schema_path: str | list[str], exec_timeout_s: float = DEFAULT_EXEC_TIMEOUT_S):
-        paths = [schema_path] if isinstance(schema_path, str) else schema_path
-        merged_resources: dict = {}
-        for p in paths:
-            with open(p) as f:
-                merged_resources.update(json.load(f).get("resources", {}))
-        self._schema = {"resources": merged_resources}
-        self._schema_path = paths
+        self._schema_path = [schema_path] if isinstance(schema_path, str) else list(schema_path)
+        self._schema = load_merged_resources(self._schema_path)
         self._exec_timeout_s = exec_timeout_s
         self._type_map = self._build_type_map()
 
