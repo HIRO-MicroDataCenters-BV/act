@@ -22,6 +22,13 @@ def skip_await_transformation(
     if not args.type_.startswith("kubernetes:"):
         return None
 
+    def _resolve(value, fn):
+        # Plain/absent -> transform inline; a computed Output -> transform inside apply
+        # so nothing is silently left awaiting.
+        if isinstance(value, dict) or value is None:
+            return fn(value)
+        return pulumi.Output.from_input(value).apply(fn)
+
     def _stamp_annotations(annotations):
         annotations = dict(annotations or {})
         annotations["pulumi.com/skipAwait"] = "true"
@@ -29,17 +36,9 @@ def skip_await_transformation(
 
     def _stamp_metadata(metadata):
         metadata = dict(metadata or {})
-        annotations = metadata.get("annotations")
-        if isinstance(annotations, dict) or annotations is None:
-            metadata["annotations"] = _stamp_annotations(annotations)
-        else:
-            metadata["annotations"] = pulumi.Output.from_input(annotations).apply(_stamp_annotations)
+        metadata["annotations"] = _resolve(metadata.get("annotations"), _stamp_annotations)
         return metadata
 
-    metadata = args.props.get("metadata")
     props = dict(args.props)
-    if isinstance(metadata, dict) or metadata is None:
-        props["metadata"] = _stamp_metadata(metadata)
-    else:
-        props["metadata"] = pulumi.Output.from_input(metadata).apply(_stamp_metadata)
+    props["metadata"] = _resolve(args.props.get("metadata"), _stamp_metadata)
     return pulumi.ResourceTransformationResult(props=props, opts=args.opts)
