@@ -429,7 +429,7 @@ def _summary_line(pipeline_result, plan_result, arch_result, runtime_result) -> 
     if arch_result is not None:
         parts.append(f"arch {'ok' if arch_result.passed else 'fail'}")
     if runtime_result is not None:
-        skip = any(f.stage in _RUNTIME_SKIP_STAGES for f in runtime_result.failures)
+        skip = _is_runtime_skip(runtime_result)
         parts.append("runtime " + ("skipped" if skip else "ok" if runtime_result.passed else "fail"))
     return "Summary: " + ", ".join(parts)
 
