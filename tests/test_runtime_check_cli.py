@@ -212,6 +212,29 @@ def test_cli_substrate_unavailable_does_not_fail_pipeline():
     assert exit_code == 0
 
 
+def test_cli_missing_pip_prints_install_hint(capsys):
+    """A pip-less venv is reported as a skip with the fix on stderr, not the generic doctor hint."""
+    from act.reproducibility.runtime_check import PIP_MISSING_DETAIL
+
+    fake_result = RuntimeCheckResult(
+        passed=False,
+        substrate="none",
+        spec=_spec(),
+        failures=[RuntimeCheckFailure(stage="substrate_unavailable", detail=PIP_MISSING_DETAIL)],
+        verified="skipped",
+    )
+    rc = MagicMock()
+    rc.run.return_value = fake_result
+
+    with patch("act.run.RuntimeCheck", return_value=rc):
+        exit_code = main(_argv("--check-deployment-runtime", "--log-level", "ERROR"))
+
+    assert exit_code == 0
+    err = capsys.readouterr().err
+    assert "uv pip install pip" in err
+    assert "act doctor" not in err
+
+
 def test_cli_writes_runtime_check_to_artefact(tmp_path):
     fake_result = RuntimeCheckResult(
         passed=True,

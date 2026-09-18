@@ -47,7 +47,7 @@ from act.reproducibility import (
     reap_orphan_containers,
     write_artefact,
 )
-from act.reproducibility.runtime_check import SKIP_STAGES
+from act.reproducibility.runtime_check import PIP_MISSING_DETAIL, SKIP_STAGES
 from act.rules import auto_load
 from act.schema_resolver import SchemaResolveError, resolve_schemas
 
@@ -545,7 +545,12 @@ def _cmd_check(argv=None) -> int:
             )
             if not runtime_result.passed and not _is_runtime_skip(runtime_result):
                 exit_code = max(exit_code, 1)
-            if any(f.stage == "substrate_unavailable" for f in runtime_result.failures):
+            if any(f.detail == PIP_MISSING_DETAIL for f in runtime_result.failures):
+                print(
+                    "[HINT] pulumi needs pip in the active venv for provider discovery; run `uv pip install pip`.",
+                    file=sys.stderr,
+                )
+            elif any(f.stage == "substrate_unavailable" for f in runtime_result.failures):
                 print(
                     "[HINT] deployment-runtime check skipped; run 'act doctor' to check prerequisites.",
                     file=sys.stderr,

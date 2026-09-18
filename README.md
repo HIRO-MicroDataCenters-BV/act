@@ -624,9 +624,9 @@ The substrate is selected automatically from the program's target architecture a
 | `FileNotFoundError: schema.json` | Either the path is wrong, or you haven't fetched the schema. Run `pulumi package get-schema <provider> > schemas/<provider>.json` |
 | `--check-deployment-arch riscv64` exits with `docker_missing` | Docker isn't on PATH. Install Docker Desktop or `docker.io` |
 | Image arch check fails with `no_arch_variant` | The image's manifest list doesn't include the target arch. Either rebuild the image multi-arch (`docker buildx build --platform linux/amd64,linux/arm64,linux/riscv64`), or remove the target arch from your validation matrix |
-| `--check-deployment-runtime` exits with `substrate_unavailable` | One of `docker`, `kubectl`, or `pulumi` CLI isn't on PATH. Install all three |
+| `--check-deployment-runtime` exits with `substrate_unavailable` | One of `docker`, `kubectl`, or `pulumi` CLI isn't on PATH, or `pip` is missing from the venv. Run `act doctor` to see which |
 | `--check-deployment-runtime` for the FPGA/CXL targets is skipped | The workload image (`act-fpga:iverilog`, `act-cxl:qemu`) isn't built locally. Run `bash tests/integration/fpga/build.sh` or `bash tests/integration/cxl/build.sh` to build it |
-| Pulumi `pip list` fails inside the runtime check | The Python venv ACT is running in needs `pip` installed. Run `uv pip install pip` once |
+| `--check-deployment-runtime` is skipped with a hint about `pip` | Pulumi runs `pip list` to discover providers, and uv-managed venvs don't include pip. Run `uv pip install pip` once |
 | Exit code 2 with `Pipeline failed: ...` | Programmatic error in the Pulumi program itself, or a schema parse failure. Re-run with `--log-level DEBUG` to see the full traceback |
 
 ---
