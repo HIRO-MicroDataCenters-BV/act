@@ -796,6 +796,27 @@ def test_runtime_check_records_spec_unsupported(tmp_path):
     assert any(f.stage == "spec_unsupported" for f in result.failures)
 
 
+def test_runtime_check_skips_before_provisioning_when_pip_missing(tmp_path, monkeypatch):
+    """A pip-less venv is reported before any cluster boots, as a skip stage naming the fix."""
+    from act.reproducibility import runtime_check as rc_mod
+
+    sub = _FakeSubstrate(available=True, matches_fn=lambda s: True)
+    monkeypatch.setattr(rc_mod, "pip_available", lambda: False)
+
+    with patch("act.reproducibility.runtime_check.MockGenerator", autospec=True) as mg_cls:
+        mg = mg_cls.return_value
+        mg.run_with_mocks.return_value = {"nginx": {}}
+        mg.get_resource_type.return_value = "kubernetes:apps/v1:Deployment"
+
+        result = RuntimeCheck(substrates=[sub]).run("some.py", "schema.json", backend_dir=str(tmp_path))
+
+    assert result.passed is False
+    assert result.verified == "skipped"
+    assert [f.stage for f in result.failures] == ["substrate_unavailable"]
+    assert result.failures[0].detail == rc_mod.PIP_MISSING_DETAIL
+    assert sub.provision_calls == 0
+
+
 def test_runtime_check_teardown_runs_on_pulumi_failure(tmp_path):
     sub = _FakeSubstrate(matches_fn=lambda s: True)
     failing_outcome = MagicMock(outputs={}, failure=RuntimeCheckFailure(stage="pulumi_up_failed", detail="boom"))

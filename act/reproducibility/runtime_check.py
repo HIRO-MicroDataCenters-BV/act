@@ -16,6 +16,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FuturesTimeout
 from dataclasses import dataclass, field
+from importlib.util import find_spec
 from pathlib import Path
 
 from pulumi import automation
@@ -89,6 +90,14 @@ SKIP_STAGES: frozenset[str] = frozenset({"substrate_unavailable", "spec_unsuppor
 
 # Compare depth: we hash what the cluster ACCEPTED, not a running workload. See the module note.
 COMPARE_DEPTH = "deployment-accepted"
+
+# `pulumi up` discovers Python providers with `python -m pip list`; uv-managed venvs omit pip.
+PIP_MISSING_DETAIL = "pip is not installed in the active venv; pulumi needs it for provider discovery"
+
+
+def pip_available() -> bool:
+    return find_spec("pip") is not None
+
 
 # Features whose target can't be truly emulated: verified via a proxy (gpu = scheduling contract,
 # fpga = logic sim), and cxl is emulated but experimental. Drives the honest `mode`/`verified`.
@@ -652,6 +661,19 @@ class RuntimeCheck:
             )
 
         mode, experimental = _spec_mode(spec)
+
+        if not pip_available():
+            # Caught here, before any cluster boots, rather than as an opaque pulumi_up_failed.
+            pip_failures = [RuntimeCheckFailure(stage="substrate_unavailable", detail=PIP_MISSING_DETAIL)]
+            return RuntimeCheckResult(
+                passed=False,
+                substrate="none",
+                spec=spec,
+                failures=pip_failures,
+                capture_duration_ms=int((time.monotonic_ns() - start) // 1_000_000),
+                mode=mode,
+                verified=_verified_label(False, pip_failures, experimental),
+            )
 
         substrate, pick_failure = self._pick_substrate(spec)
         if substrate is None:

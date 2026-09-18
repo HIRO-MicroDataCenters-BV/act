@@ -10,6 +10,7 @@ from importlib.util import find_spec
 from pathlib import Path
 
 from act.config import ActConfig
+from act.reproducibility.runtime_check import pip_available
 
 
 def _which(name: str) -> bool:
@@ -57,6 +58,7 @@ def run(cfg: Optional[ActConfig] = None) -> int:
     docker = _which("docker")
     kubectl = _which("kubectl")
     pulumi = _which("pulumi")
+    pip = pip_available()
     qemu = _qemu_binfmt()
     acv_extra = _acv_extra_installed()
     acv_model = bool(cfg.acv_model)
@@ -65,7 +67,9 @@ def run(cfg: Optional[ActConfig] = None) -> int:
 
     # qemu counts as missing only when explicitly absent on Linux; unknown does not block.
     arch_missing = [n for n, ok in (("docker", docker), ("qemu binfmt", qemu is not False)) if not ok]
-    runtime_missing = [n for n, ok in (("docker", docker), ("kubectl", kubectl), ("pulumi", pulumi)) if not ok]
+    runtime_missing = [
+        n for n, ok in (("docker", docker), ("kubectl", kubectl), ("pulumi", pulumi), ("pip", pip)) if not ok
+    ]
     acv_missing = [
         n for n, ok in (("acv extra", acv_extra), ("ACT_ACV_MODEL", acv_model), ("ACT_ACV_BASE_URL", acv_url)) if not ok
     ]
@@ -77,6 +81,7 @@ def run(cfg: Optional[ActConfig] = None) -> int:
         f"  docker       {_tool_status(docker)}",
         f"  kubectl      {_tool_status(kubectl)}",
         f"  pulumi       {_tool_status(pulumi)}",
+        f"  pip (venv)   {_tool_status(pip)}",
         f"  qemu binfmt  {_tool_status(qemu)}",
         "",
         "cognitive validator (acv)",
@@ -85,10 +90,10 @@ def run(cfg: Optional[ActConfig] = None) -> int:
         f"  ACT_ACV_BASE_URL set  {_yesno(acv_url)}",
         "",
         "optional flags and their prerequisites",
-        f"  --check-deployment-arch     docker + qemu binfmt         -> {_readiness(arch_missing)}",
-        f"  --check-deployment-runtime  docker + kubectl + pulumi    -> {_readiness(runtime_missing)}",
-        f"  --acv-mode blocking         acv extra + ACV env vars     -> {_readiness(acv_missing)}",
-        f"  --rules checkov             checkov package              -> {_readiness(checkov_missing)}",
+        f"  --check-deployment-arch     docker + qemu binfmt            -> {_readiness(arch_missing)}",
+        f"  --check-deployment-runtime  docker + kubectl + pulumi + pip -> {_readiness(runtime_missing)}",
+        f"  --acv-mode blocking         acv extra + ACV env vars        -> {_readiness(acv_missing)}",
+        f"  --rules checkov             checkov package                 -> {_readiness(checkov_missing)}",
         "",
         "Run 'act check --help' for all options.",
     ]

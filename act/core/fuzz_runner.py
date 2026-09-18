@@ -40,7 +40,7 @@ class FuzzRunner(TestGeneratorPlugin):
         try:
             import atheris
         except ImportError:
-            log.debug("fuzz_runner.skipped", extra={"reason": "atheris_unavailable"})
+            log.warning("fuzz_runner.skipped", extra={"reason": "atheris_unavailable"})
             return []
 
         env_vars = discover_env_vars(program_path)

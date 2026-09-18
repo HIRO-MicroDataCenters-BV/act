@@ -1,3 +1,4 @@
+import logging
 import sys
 
 import pytest
@@ -16,9 +17,14 @@ def _runner(schema_path, iterations=20):
     return FuzzRunner(mg, oracle, iterations=iterations)
 
 
-def test_fuzz_runner_skips_without_atheris(cape_schema_path, path_b_fixture, monkeypatch):
+def test_fuzz_runner_skips_without_atheris(cape_schema_path, path_b_fixture, monkeypatch, caplog):
+    """The skip is a WARNING: at the default log level a user must see that fuzzing did not run."""
     monkeypatch.setitem(sys.modules, "atheris", None)
-    assert _runner(cape_schema_path).run(str(path_b_fixture)) == []
+    with caplog.at_level(logging.WARNING, logger="act.core.fuzz_runner"):
+        assert _runner(cape_schema_path).run(str(path_b_fixture)) == []
+    skipped = [r for r in caplog.records if r.getMessage() == "fuzz_runner.skipped"]
+    assert skipped and skipped[0].levelno == logging.WARNING
+    assert getattr(skipped[0], "reason", None) == "atheris_unavailable"
 
 
 def test_fuzz_runner_skips_static_program(cape_schema_path, cape_fixtures):

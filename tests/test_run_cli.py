@@ -167,6 +167,16 @@ def test_doctor_flags_missing_checkov(capsys, monkeypatch):
     assert "--rules checkov" in out and "needs checkov" in out
 
 
+def test_doctor_flags_missing_pip(capsys, monkeypatch):
+    import act.doctor as doctor
+    from act.config import ActConfig
+
+    monkeypatch.setattr(doctor, "pip_available", lambda: False)
+    assert doctor.run(ActConfig.from_env({})) == 0
+    out = capsys.readouterr().out
+    assert "--check-deployment-runtime" in out and "needs pip" in out
+
+
 def test_doctor_reflects_acv_env(capsys):
     import re
 
