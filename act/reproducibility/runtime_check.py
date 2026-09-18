@@ -454,13 +454,7 @@ def _wait_for_jobs(kubeconfig: str, namespace: str, timeout: int) -> None:
     """Wait until every Job in the namespace has succeeded or failed (no-op if none)."""
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        result = subprocess.run(
-            ["kubectl", "--kubeconfig", kubeconfig, "get", "jobs", "-n", namespace, "-o", "json"],
-            capture_output=True,
-            check=True,
-            timeout=15,
-        )
-        items = json.loads(result.stdout).get("items", [])
+        items = _kubectl_items(kubeconfig, "jobs", namespace)
         if not items:
             return
         all_done = True
@@ -479,13 +473,7 @@ def _wait_for_jobs(kubeconfig: str, namespace: str, timeout: int) -> None:
 
 def _capture_workload_logs(kubeconfig: str, namespace: str, timeout: int) -> dict:
     """Collect logs from non-system pods in the namespace, keyed by stable prefix."""
-    pod_list = subprocess.run(
-        ["kubectl", "--kubeconfig", kubeconfig, "get", "pods", "-n", namespace, "-o", "json"],
-        capture_output=True,
-        check=True,
-        timeout=15,
-    )
-    pods = json.loads(pod_list.stdout).get("items", [])
+    pods = _kubectl_items(kubeconfig, "pods", namespace)
     logs: dict[str, str] = {}
     for pod in pods:
         name = pod.get("metadata", {}).get("name", "")
@@ -666,11 +654,11 @@ class RuntimeCheck:
         mode, experimental = _spec_mode(spec)
 
         substrate, pick_failure = self._pick_substrate(spec)
-        if substrate is None or pick_failure is not None:
+        if substrate is None:
             pick_failures = [pick_failure] if pick_failure else []
             return RuntimeCheckResult(
                 passed=False,
-                substrate=substrate.name if substrate else "none",
+                substrate="none",
                 spec=spec,
                 failures=pick_failures,
                 capture_duration_ms=int((time.monotonic_ns() - start) // 1_000_000),
