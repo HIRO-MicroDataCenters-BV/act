@@ -8,6 +8,8 @@ a real substrate or Pulumi.
 import json
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from act.reproducibility import (
     RuntimeCheckFailure,
     RuntimeCheckResult,
@@ -136,7 +138,46 @@ def test_cli_invokes_runtime_check_with_flag():
 
     RuntimeCheckMock.assert_called_once()
     rc.run.assert_called_once()
+    assert rc.run.call_args.kwargs["arch_override"] is None
     assert exit_code == 0
+
+
+def test_cli_passes_arch_override_to_runtime_check():
+    """--check-deployment-runtime-arch reaches RuntimeCheck.run, which normalises the short name."""
+    rc = MagicMock()
+    rc.run.return_value = RuntimeCheckResult(passed=True, substrate="docker:linux/arm64", spec=_spec())
+
+    with patch("act.run.RuntimeCheck", return_value=rc):
+        exit_code = main(
+            _argv("--check-deployment-runtime", "--check-deployment-runtime-arch", "arm64", "--log-level", "ERROR")
+        )
+
+    assert rc.run.call_args.kwargs["arch_override"] == "arm64"
+    assert exit_code == 0
+
+
+def test_arch_override_alone_runs_the_runtime_check():
+    """The arch flag implies --check-deployment-runtime; it has no other meaning."""
+    rc = MagicMock()
+    rc.run.return_value = RuntimeCheckResult(passed=True, substrate="docker:linux/arm64", spec=_spec())
+
+    with patch("act.run.RuntimeCheck", return_value=rc) as RuntimeCheckMock:
+        exit_code = main(_argv("--check-deployment-runtime-arch", "arm64", "--log-level", "ERROR"))
+
+    RuntimeCheckMock.assert_called_once()
+    assert rc.run.call_args.kwargs["arch_override"] == "arm64"
+    assert exit_code == 0
+
+
+def test_unsupported_arch_is_rejected_before_provisioning():
+    """An unknown arch would otherwise normalise to '<junk>-linux', match no substrate, and
+    report a clean spec_unsupported skip — so argparse rejects it up front instead."""
+    with patch("act.run.RuntimeCheck") as RuntimeCheckMock:
+        with pytest.raises(SystemExit) as exc:
+            main(_argv("--check-deployment-runtime-arch", "bogus", "--log-level", "ERROR"))
+
+    assert exc.value.code == 2
+    RuntimeCheckMock.assert_not_called()
 
 
 def test_cli_failure_escalates_exit_code():
