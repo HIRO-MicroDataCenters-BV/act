@@ -160,6 +160,7 @@ Flags for `act check`:
 | `--rules ENGINE [ENGINE ...]` | no | none | Load an additional rule engine. Currently: `checkov` (100+ Kubernetes checks) |
 | `--check-deployment-arch ARCH` | no | off | Smoke-boot every container image referenced by the program under `linux/<ARCH>` via QEMU. Example: `--check-deployment-arch riscv64` |
 | `--check-deployment-runtime` | no | off | Provision a fresh ephemeral k3s cluster matching the program's target for each of two runs, run `pulumi up`, and verify the cluster accepts an identical deployment each time. Requires `docker`, `kubectl`, and `pulumi` CLI |
+| `--check-deployment-runtime-arch ARCH` | no | detected | Run the runtime check against `ARCH` (`amd64`, `arm64`, or `riscv64`) instead of the architecture detected from the program. Implies `--check-deployment-runtime`. A program with no architecture label resolves to `amd64`, so on an arm64 host pass `--check-deployment-runtime-arch arm64` to use a native cluster instead of an emulated one |
 | `--acv-mode {advisory,blocking}` | no | `advisory` | Whether the cognitive validator's verdict gates the exit code. `advisory` (default) never blocks; `blocking` fails the gate on an ACV FAIL. Env: `ACT_ACV_MODE` |
 
 The optional cognitive validator has no flag of its own; it is enabled through environment variables:
@@ -611,7 +612,7 @@ The substrate registry covers six target classes:
 | **FPGA** | k3s + `cape.eu/fpga` Extended Resource + iverilog workload image. Boot-flow simulator's `$display` output is captured and hashed for byte-equal comparison across runs |
 | **CXL** | k3s + `cape.eu/cxl` Extended Resource + QEMU-in-Pod workload image. Boots a Linux 6.8 guest with a `cxl-type3` memory device; the `cxl list -v` topology JSON is captured and hashed |
 
-The substrate is selected automatically from the program's target architecture and declared resource needs (`nvidia.com/gpu`, `cape.eu/fpga`, `cape.eu/cxl`). To force a specific substrate from the CLI, pass `--check-deployment-runtime` and ACT picks the matching row.
+The substrate is selected automatically from the program's target architecture and declared resource needs (`nvidia.com/gpu`, `cape.eu/fpga`, `cape.eu/cxl`). A program that declares no architecture resolves to `amd64`, which on an arm64 host means an emulated cluster; `--check-deployment-runtime-arch arm64` overrides the detected architecture and selects the native row instead.
 
 ---
 

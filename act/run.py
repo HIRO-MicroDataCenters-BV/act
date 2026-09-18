@@ -24,7 +24,7 @@ from pathlib import Path
 
 from act import rules as _rules_pkg
 from act.acv.agent import ACTCognitiveValidator
-from act.config import ACV_MODES, LOG_LEVELS, ActConfig
+from act.config import ACV_MODES, LOG_LEVELS, SUPPORTED_ARCHS, ActConfig
 from act.core.fuzz_runner import FuzzRunner
 from act.core.mock_generator import MockGenerator
 from act.core.oracle import CorrectnessOracle
@@ -194,6 +194,15 @@ def _build_check_parser(cfg: ActConfig) -> argparse.ArgumentParser:
         "kubectl, and the pulumi CLI.",
     )
     parser.add_argument(
+        "--check-deployment-runtime-arch",
+        choices=list(SUPPORTED_ARCHS),
+        default=None,
+        metavar="ARCH",
+        help="Run the runtime check against ARCH instead of the architecture detected from the "
+        "program. Implies --check-deployment-runtime. Use it to pick the host's native arch when "
+        "the program carries no arch label, which would otherwise select an emulated substrate.",
+    )
+    parser.add_argument(
         "--acv-mode",
         choices=list(ACV_MODES),
         default=cfg.acv_mode,
@@ -297,7 +306,13 @@ def _is_runtime_skip(result: RuntimeCheckResult) -> bool:
     return bool(result.failures) and all(f.stage in _RUNTIME_SKIP_STAGES for f in result.failures)
 
 
-def _run_runtime_check(program: str, schemas: list[str], log: logging.Logger, cfg: ActConfig) -> RuntimeCheckResult:
+def _run_runtime_check(
+    program: str,
+    schemas: list[str],
+    log: logging.Logger,
+    cfg: ActConfig,
+    arch_override: str | None = None,
+) -> RuntimeCheckResult:
     substrates = _default_substrates(cfg)
     # Reap leaked clusters, but only ones older than twice any legitimate provision budget, so a
     # concurrent run's still-booting (slow-arch) cluster is never stopped.
@@ -309,7 +324,7 @@ def _run_runtime_check(program: str, schemas: list[str], log: logging.Logger, cf
         probe_timeout=cfg.k8s_probe_timeout_s,
         up_timeout=cfg.runtime_up_timeout_s or None,
     )
-    result = check.run(program, schemas)
+    result = check.run(program, schemas, arch_override=arch_override)
 
     skipped = _is_runtime_skip(result)
 
@@ -524,8 +539,10 @@ def _cmd_check(argv=None) -> int:
                 )
 
         runtime_result = None
-        if args.check_deployment_runtime:
-            runtime_result = _run_runtime_check(args.program, schemas, log, cfg)
+        if args.check_deployment_runtime or args.check_deployment_runtime_arch:
+            runtime_result = _run_runtime_check(
+                args.program, schemas, log, cfg, arch_override=args.check_deployment_runtime_arch
+            )
             if not runtime_result.passed and not _is_runtime_skip(runtime_result):
                 exit_code = max(exit_code, 1)
             if any(f.stage == "substrate_unavailable" for f in runtime_result.failures):
