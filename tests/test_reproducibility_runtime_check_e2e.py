@@ -22,10 +22,12 @@ Skipped when any of docker, kubectl, or the pulumi CLI is missing.
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import tempfile
 import time
+import uuid
 from pathlib import Path
 
 import pytest
@@ -37,7 +39,7 @@ from act.reproducibility.runtime_check import (
 )
 from act.reproducibility.substrates.base import TargetSpec
 from act.reproducibility.substrates.cxl import CxlSubstrate
-from act.reproducibility.substrates.docker import DockerSubstrate
+from act.reproducibility.substrates.docker import DockerSubstrate, orphan_reap_labels
 from act.reproducibility.substrates.fpga import FpgaSubstrate
 from act.reproducibility.substrates.gpu import GpuSubstrate
 
@@ -151,6 +153,27 @@ def _assert_twice_and_hash_passes(substrate: DockerSubstrate, expected_arch: str
     assert result.hash_1 == result.hash_2
 
 
+def _k3s_container_id(target) -> str:
+    """The k3s container behind a provisioned target, found through the ephemeral API port its
+    kubeconfig points at. No fixed port means a stale cluster from an earlier run cannot collide.
+
+    Matched against the live port map rather than `--filter publish=`: that filter reads the
+    requested binding, and an ephemeral binding requests no host port.
+    """
+    server = re.search(r"server:\s*https://127\.0\.0\.1:(\d+)", Path(target.endpoint).read_text())
+    assert server, f"no loopback server in kubeconfig {target.endpoint}"
+    listed = subprocess.run(
+        ["docker", "ps", "--format", "{{.ID}} {{.Ports}}"],
+        capture_output=True,
+        check=True,
+        timeout=10,
+    )
+    needle = f"127.0.0.1:{server.group(1)}->6443"
+    ids = [line.split()[0] for line in listed.stdout.decode().splitlines() if needle in line]
+    assert ids, f"no running container maps host port {server.group(1)} to 6443"
+    return ids[0]
+
+
 def test_pulumi_up_against_real_amd64_k3s_substrate():
     """Real `pulumi up` succeeds against a kubeconfig produced by DockerSubstrate.
 
@@ -163,7 +186,6 @@ def test_pulumi_up_against_real_amd64_k3s_substrate():
         image=K3S_IMAGE,
         platform="linux/amd64",
         spec_arch="x86_64-linux",
-        api_host_port=16448,
         startup_timeout=240,
         extra_docker_args=K3S_DOCKER_ARGS,
         command=K3S_COMMAND,
@@ -223,7 +245,6 @@ def test_runtime_check_twice_and_hash_against_real_amd64_k3s_cluster():
         image=K3S_IMAGE,
         platform="linux/amd64",
         spec_arch="x86_64-linux",
-        api_host_port=16449,
         startup_timeout=240,
         extra_docker_args=K3S_DOCKER_ARGS,
         command=K3S_COMMAND,
@@ -241,7 +262,6 @@ def test_runtime_check_twice_and_hash_against_real_arm64_k3s_cluster():
         image=K3S_IMAGE,
         platform="linux/arm64",
         spec_arch="aarch64-linux",
-        api_host_port=16450,
         startup_timeout=240,
         extra_docker_args=K3S_DOCKER_ARGS,
         command=K3S_COMMAND,
@@ -265,7 +285,6 @@ def test_runtime_check_twice_and_hash_against_real_riscv64_k3s_cluster():
         image=K3S_RISCV64_IMAGE,
         platform="linux/riscv64",
         spec_arch="riscv64-linux",
-        api_host_port=16451,
         startup_timeout=600,
         extra_docker_args=K3S_DOCKER_ARGS,
         command=K3S_RISCV64_COMMAND,
@@ -292,7 +311,6 @@ def test_gpu_substrate_provisions_cluster_with_nvidia_gpu_extended_resource():
         spec_arch="x86_64-linux",
         features=frozenset({"gpu"}),
         count=1,
-        api_host_port=16453,
         startup_timeout=240,
         extra_docker_args=K3S_DOCKER_ARGS,
         command=K3S_COMMAND,
@@ -380,7 +398,6 @@ def test_runtime_check_twice_and_hash_against_real_fpga_cluster(monkeypatch):
         spec_arch=spec_arch,
         features=frozenset({"fpga"}),
         count=1,
-        api_host_port=16454,
         startup_timeout=240,
         extra_docker_args=K3S_DOCKER_ARGS,
         command=K3S_COMMAND,
@@ -393,28 +410,8 @@ def test_runtime_check_twice_and_hash_against_real_fpga_cluster(monkeypatch):
     target = substrate.provision(spec)
 
     try:
-        # Get the k3s container ID from the kubeconfig path's parent dir naming convention,
-        # then import the local image into containerd.
-        ps = (
-            subprocess.run(
-                [
-                    "docker",
-                    "ps",
-                    "--filter",
-                    "ancestor=" + K3S_IMAGE,
-                    "--filter",
-                    "publish=16454",
-                    "--format",
-                    "{{.ID}}",
-                ],
-                capture_output=True,
-                check=True,
-                timeout=10,
-            )
-            .stdout.decode()
-            .strip()
-            .split("\n")[0]
-        )
+        # Import the local image into the k3s containerd.
+        ps = _k3s_container_id(target)
         save = subprocess.run(
             ["docker", "save", FPGA_IVERILOG_IMAGE],
             capture_output=True,
@@ -459,10 +456,25 @@ def test_runtime_check_twice_and_hash_against_real_fpga_cluster(monkeypatch):
         target.teardown()
 
 
-def _capture_cxl_guest_output(container_name: str, deadline_s: int = 120) -> str:
-    """Run the CXL guest once and capture the `cxl list -v` block."""
+def _capture_cxl_guest_output(deadline_s: int = 120) -> str:
+    """Run the CXL guest once and capture the `cxl list -v` block.
+
+    A unique name per run plus the reaper labels: a container left by a killed run can neither
+    block the next `docker run --name` nor escape `reap_orphan_containers`.
+    """
+    container_name = "act-cxl-" + uuid.uuid4().hex[:8]
     subprocess.run(
-        ["docker", "run", "--platform", "linux/amd64", "-d", "--name", container_name, CXL_QEMU_IMAGE],
+        [
+            "docker",
+            "run",
+            "--platform",
+            "linux/amd64",
+            "-d",
+            "--name",
+            container_name,
+            *orphan_reap_labels(),
+            CXL_QEMU_IMAGE,
+        ],
         capture_output=True,
         check=True,
         timeout=30,
@@ -519,8 +531,8 @@ def test_cxl_substrate_twice_and_hash_against_real_qemu_emulation():
     works on native x86_64 hosts and is exercised in CI runners where
     the host arch matches.
     """
-    cxl_1 = _capture_cxl_guest_output("act-cxl-r1", deadline_s=120)
-    cxl_2 = _capture_cxl_guest_output("act-cxl-r2", deadline_s=120)
+    cxl_1 = _capture_cxl_guest_output(deadline_s=120)
+    cxl_2 = _capture_cxl_guest_output(deadline_s=120)
 
     assert cxl_1 == cxl_2, "CXL guest output diverged across runs:\n" f"run1:\n{cxl_1}\n" f"run2:\n{cxl_2}\n"
     assert "decoder0.0" in cxl_1, f"expected CXL decoder0.0 in guest output, got:\n{cxl_1}"
@@ -557,7 +569,6 @@ def test_runtime_check_twice_and_hash_against_real_cxl_cluster(monkeypatch):
         spec_arch=spec_arch,
         features=frozenset({"cxl"}),
         count=1,
-        api_host_port=16455,
         startup_timeout=300,
         extra_docker_args=K3S_DOCKER_ARGS,
         command=K3S_COMMAND,
@@ -571,26 +582,7 @@ def test_runtime_check_twice_and_hash_against_real_cxl_cluster(monkeypatch):
         # Pod can pull it. (The k3s container may be linux/arm64 on Apple
         # Silicon; containerd accepts amd64 images and runs them via
         # Rosetta translation inside Docker Desktop.)
-        ps = (
-            subprocess.run(
-                [
-                    "docker",
-                    "ps",
-                    "--filter",
-                    "ancestor=" + K3S_IMAGE,
-                    "--filter",
-                    "publish=16455",
-                    "--format",
-                    "{{.ID}}",
-                ],
-                capture_output=True,
-                check=True,
-                timeout=10,
-            )
-            .stdout.decode()
-            .strip()
-            .split("\n")[0]
-        )
+        ps = _k3s_container_id(target)
         save = subprocess.run(
             ["docker", "save", CXL_QEMU_IMAGE],
             capture_output=True,
