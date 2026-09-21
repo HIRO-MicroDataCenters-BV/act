@@ -11,6 +11,7 @@ from pathlib import Path
 
 from act.config import ActConfig
 from act.reproducibility.runtime_check import pip_available
+from act.schema_resolver import SchemaResolveError, provider_modules, sdk_package
 
 
 def _which(name: str) -> bool:
@@ -52,7 +53,32 @@ def _readiness(missing: list[str]) -> str:
     return "ready" if not missing else "needs " + ", ".join(missing)
 
 
-def run(cfg: Optional[ActConfig] = None) -> int:
+def _importable(module: str) -> bool:
+    try:
+        return find_spec(module) is not None
+    except (ImportError, ValueError):
+        return False
+
+
+def _provider_sdk_lines(program: str) -> list[str]:
+    """Whether each provider SDK the program imports can be imported here. ACT executes
+    the program, so a missing one fails the run."""
+    lines = ["", f"provider SDKs for {program}"]
+    try:
+        modules = provider_modules(program)
+    except (SchemaResolveError, OSError) as exc:
+        return lines + [f"  cannot read the program: {exc}"]
+    if not modules:
+        return lines + ["  no provider SDKs imported"]
+    width = max(len(m) for m in modules)
+    for module in modules:
+        present = _importable(module)
+        fix = "" if present else f" (pip install {sdk_package(module)})"
+        lines.append(f"  {module.ljust(width)}  {_tool_status(present)}{fix}")
+    return lines
+
+
+def run(cfg: Optional[ActConfig] = None, program: Optional[str] = None) -> int:
     cfg = ActConfig.from_env() if cfg is None else cfg
 
     docker = _which("docker")
@@ -94,8 +120,9 @@ def run(cfg: Optional[ActConfig] = None) -> int:
         f"  --check-deployment-runtime  docker + kubectl + pulumi + pip -> {_readiness(runtime_missing)}",
         f"  --acv-mode blocking         acv extra + ACV env vars        -> {_readiness(acv_missing)}",
         f"  --rules checkov             checkov package                 -> {_readiness(checkov_missing)}",
-        "",
-        "Run 'act check --help' for all options.",
     ]
+    if program:
+        lines += _provider_sdk_lines(program)
+    lines += ["", "Run 'act check --help' for all options."]
     print("\n".join(lines))
     return 0
