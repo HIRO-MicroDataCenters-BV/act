@@ -46,7 +46,9 @@ dev = [
 ]
 
 [tool.uv.sources]
-pulumi-cape = { path = "cape-sdks/python", editable = true }
+# Source archive, not a git URL: a git install recurses into submodules, and the CAPE
+# SDK tree carries a submodule pointer without a .gitmodules entry, aborting the clone.
+pulumi-cape = { url = "https://github.com/cape-project-eu/cape-sdks/archive/055fe4996d6d0d704766b2cd494d23648a3cbdee.tar.gz", subdirectory = "python" }
 
 [tool.hatch.build.targets.wheel]
 packages = ["act"]

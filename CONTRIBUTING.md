@@ -7,12 +7,13 @@ Thanks for your interest in contributing.
 ACT uses [`uv`](https://docs.astral.sh/uv/) for Python dependency management.
 
 ```bash
-git clone --recurse-submodules https://github.com/HIRO-MicroDataCenters-BV/act.git
+git clone https://github.com/HIRO-MicroDataCenters-BV/act.git
 cd act
 uv sync
 ```
 
-The `cape-sdks` submodule is required for the CAPE provider tests.
+`uv sync` installs the CAPE provider SDK (`pulumi_cape`) from a pinned source archive,
+so the CAPE provider tests need no extra setup.
 
 ## Branch workflow
 

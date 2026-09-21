@@ -28,7 +28,6 @@ ACT is designed to run as a CI/CD gate: every commit is validated; bad programs 
 # 1. Clone + install
 git clone https://github.com/HIRO-MicroDataCenters-BV/act.git
 cd act
-git submodule update --init --recursive
 uv sync
 
 # 2. Validate a sample program (the schema is auto-resolved from its imports)
@@ -338,8 +337,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
 
       - uses: astral-sh/setup-uv@v3
       - run: uv sync --frozen
@@ -368,8 +365,6 @@ jobs:
 # .gitlab-ci.yml
 act:
   image: ghcr.io/astral-sh/uv:python3.11
-  variables:
-    GIT_SUBMODULE_STRATEGY: recursive
   script:
     - uv sync --frozen
     - uv run act check --program infra/main.py --schema schemas/cape.json
@@ -620,7 +615,7 @@ The substrate is selected automatically from the program's target architecture a
 
 | Symptom | Likely cause + fix |
 |---------|--------------------|
-| `ModuleNotFoundError: No module named 'pulumi_cape'` | The `cape-sdks/` submodule isn't initialised. Run `git submodule update --init --recursive` |
+| `ModuleNotFoundError: No module named 'pulumi_cape'` | The CAPE SDK isn't installed. It ships as a dev dependency, so run `uv sync` (not `uv sync --no-dev`) |
 | `FileNotFoundError: schema.json` | Either the path is wrong, or you haven't fetched the schema. Run `pulumi package get-schema <provider> > schemas/<provider>.json` |
 | `--check-deployment-arch riscv64` exits with `docker_missing` | Docker isn't on PATH. Install Docker Desktop or `docker.io` |
 | Image arch check fails with `no_arch_variant` | The image's manifest list doesn't include the target arch. Either rebuild the image multi-arch (`docker buildx build --platform linux/amd64,linux/arm64,linux/riscv64`), or remove the target arch from your validation matrix |

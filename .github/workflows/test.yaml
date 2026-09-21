@@ -18,9 +18,6 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    - name: Init cape-sdks submodule
-      run: git submodule update --init cape-sdks
-
     - name: Install uv
       uses: astral-sh/setup-uv@v5
       with:

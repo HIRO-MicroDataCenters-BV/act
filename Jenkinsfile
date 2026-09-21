@@ -17,9 +17,6 @@ pipeline {
     stages {
         stage('Setup') {
             steps {
-                // git is needed for the cape-sdks submodule (provides pulumi_cape).
-                sh 'command -v git >/dev/null || (apt-get update && apt-get install -y --no-install-recommends git)'
-                sh 'git submodule update --init cape-sdks'
                 sh 'uv sync --frozen --dev --extra fuzzing --extra acv'
                 sh 'uv pip install pip'
             }
