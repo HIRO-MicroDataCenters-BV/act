@@ -29,6 +29,11 @@ _CREATED_LABEL = "act.reproducibility.created"
 _CREATE_TIMEOUT_S = 300  # bound on `docker run -d` (image pull + start), separate from k3s boot
 
 
+def orphan_reap_labels() -> list[str]:
+    """`docker run` label args that make a container reapable by `reap_orphan_containers`."""
+    return ["--label", _ACT_LABEL, "--label", f"{_CREATED_LABEL}={int(time.time())}"]
+
+
 def reap_orphan_containers(max_age_s: float = 1800) -> None:
     """Best-effort: stop ACT-labelled containers older than max_age_s, left behind by a killed
     run. Age-gated (via the creation-epoch label) so a concurrent run's fresh container is never
@@ -105,10 +110,7 @@ class DockerSubstrate(Substrate):
                     self.platform,
                     "--name",
                     container_id,
-                    "--label",
-                    _ACT_LABEL,
-                    "--label",
-                    f"{_CREATED_LABEL}={int(time.time())}",
+                    *orphan_reap_labels(),
                     "-p",
                     # Loopback-only; 0 -> docker assigns an ephemeral host port (no 6443 collision).
                     f"127.0.0.1:{self.api_host_port}:6443" if self.api_host_port else "127.0.0.1::6443",

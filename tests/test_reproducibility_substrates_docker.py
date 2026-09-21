@@ -5,7 +5,12 @@ import pytest
 
 from act.reproducibility.substrates._extended_resource import _wait_for_node
 from act.reproducibility.substrates.base import TargetSpec
-from act.reproducibility.substrates.docker import _ACT_LABEL, DockerSubstrate, reap_orphan_containers
+from act.reproducibility.substrates.docker import (
+    _ACT_LABEL,
+    DockerSubstrate,
+    orphan_reap_labels,
+    reap_orphan_containers,
+)
 
 
 @pytest.fixture
@@ -290,6 +295,12 @@ def test_provision_labels_container_for_reaping(monkeypatch, tmp_path, amd64_sub
     run_call = next(c for c in calls if c[:3] == ["docker", "run", "-d"])
     assert "--label" in run_call
     assert _ACT_LABEL in run_call
+
+
+def test_orphan_reap_labels_carry_marker_and_creation_epoch(monkeypatch):
+    """Anything started with these labels is visible to the reaper, with its age."""
+    monkeypatch.setattr("act.reproducibility.substrates.docker.time.time", lambda: 1_000_000.0)
+    assert orphan_reap_labels() == ["--label", _ACT_LABEL, "--label", "act.reproducibility.created=1000000"]
 
 
 def test_reap_orphan_containers_stops_old_skips_young(monkeypatch):

@@ -72,12 +72,11 @@ def _wait_for_ready_node(kubeconfig: str, deadline_seconds: int = 180) -> str:
     raise TimeoutError(f"no Ready node within {deadline_seconds}s:\n{last_output}")
 
 
-def _e2e_run(platform: str, spec_arch: str, host_port: int) -> None:
+def _e2e_run(platform: str, spec_arch: str) -> None:
     sub = DockerSubstrate(
         image=K3S_IMAGE,
         platform=platform,
         spec_arch=spec_arch,
-        api_host_port=host_port,
         startup_timeout=240,
         extra_docker_args=K3S_DOCKER_ARGS,
         command=K3S_COMMAND,
@@ -93,7 +92,7 @@ def _e2e_run(platform: str, spec_arch: str, host_port: int) -> None:
 
 
 def test_e2e_amd64_k3s_cluster_provisions_and_serves_kubeconfig():
-    _e2e_run("linux/amd64", "x86_64-linux", host_port=16443)
+    _e2e_run("linux/amd64", "x86_64-linux")
 
 
 @pytest.mark.skipif(
@@ -102,7 +101,7 @@ def test_e2e_amd64_k3s_cluster_provisions_and_serves_kubeconfig():
     reason="arm64 e2e runs only on arm64 hosts (otherwise binfmt + privileged k3s is too slow / unstable)",
 )
 def test_e2e_arm64_k3s_cluster_provisions_and_serves_kubeconfig():
-    _e2e_run("linux/arm64", "aarch64-linux", host_port=16444)
+    _e2e_run("linux/arm64", "aarch64-linux")
 
 
 def _riscv64_image_present() -> bool:
@@ -151,7 +150,6 @@ def test_e2e_riscv64_k3s_cluster_provisions_and_serves_kubeconfig():
         image=image,
         platform="linux/riscv64",
         spec_arch="riscv64-linux",
-        api_host_port=16445,
         startup_timeout=600,
         extra_docker_args=K3S_DOCKER_ARGS,
         command=_K3S_RISCV64_COMMAND,
