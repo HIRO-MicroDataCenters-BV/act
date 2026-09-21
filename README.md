@@ -402,6 +402,17 @@ docker run --rm \
   --program /work/main.py --schema /work/schemas/cape.json
 ```
 
+The image contains `pulumi` core only. If your program imports a provider SDK, layer it on
+top and run the derived image instead:
+
+```dockerfile
+FROM ghcr.io/hiro-microdatacenters-bv/act:latest
+RUN uv pip install --python /app/.venv/bin/python pulumi-kubernetes==4.28.0
+```
+
+Without that step the run exits 2 with `[ERROR] Pipeline failed: No module named
+'pulumi_kubernetes'`. See [Provider SDKs at run time](#provider-sdks-at-run-time).
+
 ### Kubernetes
 
 A Helm chart ships in `charts/act/`. It runs ACT as a one-shot `Job`:
@@ -411,6 +422,8 @@ helm install act ./charts/act \
   --set program=/workspace/program.py \
   --set schema=/workspace/schema.json
 ```
+
+The Job runs the same image, so a program that imports a provider SDK needs the derived image described under Docker above, set through `image.repository` / `image.tag`.
 
 `program` and `schema` are the in-container paths ACT reads. Mount the actual files at those paths via the chart's `volumes` / `volumeMounts` values (or a configMap / init container), as noted in `charts/act/values.yaml`.
 
@@ -464,7 +477,7 @@ Instance("web",
 
 ### Rules
 
-- Use provider SDK classes normally (`from pulumi_cape.compute import Instance`).
+- Use provider SDK classes normally (`from pulumi_cape.compute import Instance`). Whatever the program imports must be installed where ACT runs, because ACT executes it: see [Provider SDKs at run time](#provider-sdks-at-run-time).
 - Use `pulumi.export(...)` to expose outputs; ACT captures them too.
 - Do NOT call external APIs or read live cloud state inside the program. ACT runs the program in a sandboxed mock environment; live calls will be intercepted or fail.
 
@@ -485,6 +498,26 @@ For any other Pulumi provider:
 ```bash
 pulumi package get-schema <provider-name> > schemas/<provider>.json
 uv run act check --program my_program.py --schema schemas/<provider>.json
+```
+
+### Provider SDKs at run time
+
+ACT reads your provider's **schema**. It never imports the provider's SDK itself. Your
+**program** is a different matter: ACT executes the program to capture its plan, so every
+import the program makes has to resolve in the environment where ACT runs.
+
+| Where ACT runs | What you need |
+|----------------|---------------|
+| Locally (`uv run act check`) | Nothing extra. The SDK is already in your environment, otherwise the program could not run under `pulumi up` either |
+| Published image or Helm Job | The image ships `pulumi` core only, with no provider SDKs. Layer on the ones your program imports (see the Docker section above) |
+
+A program that declares resources through raw type tokens needs no provider SDK at all,
+because the schema alone describes the resource:
+
+```python
+import pulumi
+
+pulumi.CustomResource("cape:compute:Instance", "vm", {"spec": my_spec, "workspace": "ws"})
 ```
 
 ---
@@ -615,7 +648,7 @@ The substrate is selected automatically from the program's target architecture a
 
 | Symptom | Likely cause + fix |
 |---------|--------------------|
-| `ModuleNotFoundError: No module named 'pulumi_cape'` | The CAPE SDK isn't installed. It ships as a dev dependency, so run `uv sync` (not `uv sync --no-dev`) |
+| `[ERROR] Pipeline failed: No module named 'pulumi_cape'` (exit 2) | The program's provider SDK isn't importable where ACT runs. Working in this repo: run `uv sync`, not `uv sync --no-dev`. Running the published image or the Helm Job: layer the SDK onto the image, see [Provider SDKs at run time](#provider-sdks-at-run-time) |
 | `FileNotFoundError: schema.json` | Either the path is wrong, or you haven't fetched the schema. Run `pulumi package get-schema <provider> > schemas/<provider>.json` |
 | `--check-deployment-arch riscv64` exits with `docker_missing` | Docker isn't on PATH. Install Docker Desktop or `docker.io` |
 | Image arch check fails with `no_arch_variant` | The image's manifest list doesn't include the target arch. Either rebuild the image multi-arch (`docker buildx build --platform linux/amd64,linux/arm64,linux/riscv64`), or remove the target arch from your validation matrix |
