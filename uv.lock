@@ -17,7 +17,6 @@ dependencies = [
     { name = "hypothesis" },
     { name = "packaging" },
     { name = "pulumi" },
-    { name = "pulumi-policy" },
 ]
 
 [package.optional-dependencies]
@@ -54,7 +53,6 @@ requires-dist = [
     { name = "langgraph", marker = "extra == 'acv'", specifier = ">=1.0.0" },
     { name = "packaging", specifier = ">=26.0" },
     { name = "pulumi", specifier = ">=3.230.0" },
-    { name = "pulumi-policy", specifier = ">=1.20.0" },
 ]
 provides-extras = ["fuzzing", "acv"]
 
@@ -2354,20 +2352,6 @@ wheels = [
 ]
 
 [[package]]
-name = "pulumi-policy"
-version = "1.20.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "grpcio" },
-    { name = "protobuf" },
-    { name = "pulumi" },
-    { name = "setuptools" },
-]
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/f9/4d/2487ecfe4d72502b3644050c3912bc9a734ae4cf67b46dbe05c15ddfa3d6/pulumi_policy-1.20.0-py2.py3-none-any.whl", hash = "sha256:4fbe39efc106db35d1512646a5c1dc8c8d272ce69413ece7ec019e9e6cd87670", size = 20763, upload-time = "2025-10-23T22:35:22.709Z" },
-]
-
-[[package]]
 name = "pulumi-random"
 version = "4.19.2"
 source = { registry = "https://pypi.org/simple" }
@@ -3125,15 +3109,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/72/d1/d3159231aec234a59dd7d601e9dd9fe96f3afff15efd33c1070019b26132/semver-3.0.4.tar.gz", hash = "sha256:afc7d8c584a5ed0a11033af086e8af226a9c0b206f313e0301f8dd7b6b589602", size = 269730, upload-time = "2025-01-24T13:19:27.617Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a6/24/4d91e05817e92e3a61c8a21e08fd0f390f5301f1c448b137c57c4bc6e543/semver-3.0.4-py3-none-any.whl", hash = "sha256:9c824d87ba7f7ab4a1890799cec8596f15c1241cb473404ea1cb0c55e4b04746", size = 17912, upload-time = "2025-01-24T13:19:24.949Z" },
-]
-
-[[package]]
-name = "setuptools"
-version = "82.0.1"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/4f/db/cfac1baf10650ab4d1c111714410d2fbb77ac5a616db26775db562c8fab2/setuptools-82.0.1.tar.gz", hash = "sha256:7d872682c5d01cfde07da7bccc7b65469d3dca203318515ada1de5eda35efbf9", size = 1152316, upload-time = "2026-03-09T12:47:17.221Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/9d/76/f789f7a86709c6b087c5a2f52f911838cad707cc613162401badc665acfe/setuptools-82.0.1-py3-none-any.whl", hash = "sha256:a59e362652f08dcd477c78bb6e7bd9d80a7995bc73ce773050228a348ce2e5bb", size = 1006223, upload-time = "2026-03-09T12:47:15.026Z" },
 ]
 
 [[package]]
