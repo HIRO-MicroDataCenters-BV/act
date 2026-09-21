@@ -65,6 +65,33 @@ def detect_plugins(program_path: str) -> list[str]:
     )
 
 
+def provider_modules(program_path: str) -> list[str]:
+    """Provider SDK modules the program imports (pulumi_cape, pulumi_aws_native, ...).
+
+    ACT executes the program, so each of these must be importable where ACT runs.
+    """
+    return sorted(root for root in _import_roots(program_path) if root.startswith("pulumi_"))
+
+
+def sdk_package(module: str) -> str:
+    """Distribution conventionally providing a provider module (pulumi_aws_native -> pulumi-aws-native).
+
+    A convention, not a guarantee: some providers ship outside PyPI.
+    """
+    return module.replace("_", "-")
+
+
+def provider_sdk_hint(exc: BaseException) -> Optional[str]:
+    """Advice for an import that failed because a provider SDK is absent, else None."""
+    module = exc.name or "" if isinstance(exc, ModuleNotFoundError) else ""
+    if not module.startswith("pulumi_"):
+        return None
+    return (
+        f"[HINT] the program imports '{module}', which is not installed here; "
+        f"try `pip install {sdk_package(module)}` (see 'act doctor --program <path>')."
+    )
+
+
 def _search_dirs(program_path: str, extra_dirs: Sequence[str]) -> list[Path]:
     """Directories searched for a local <plugin>.json, in priority order."""
     prog_dir = Path(MockGenerator._entry_point(program_path)).resolve().parent

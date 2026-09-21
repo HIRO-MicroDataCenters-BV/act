@@ -6,6 +6,7 @@ import traceback
 
 from act.acv.models import acv_result_to_violations
 from act.core.pipeline import ACTPipeline, PipelineResult
+from act.schema_resolver import provider_sdk_hint
 
 log = logging.getLogger(__name__)
 
@@ -40,6 +41,9 @@ class CIGate:
             return exit_code
         except Exception as e:
             print(f"[ERROR] Pipeline failed: {e}", file=sys.stderr)
+            hint = provider_sdk_hint(e)
+            if hint:
+                print(hint, file=sys.stderr)
             traceback.print_exc(file=sys.stderr)
             return 2
 

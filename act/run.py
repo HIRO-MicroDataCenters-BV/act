@@ -607,6 +607,7 @@ def _print_top_level_help() -> None:
         "commands:\n"
         "  check            Validate a program (default when no command is given)\n"
         "  doctor           Report external-tool availability and per-flag prerequisites\n"
+        "                   (--program <path> also checks that program's provider SDKs)\n"
         "  list-rules       List the security rules ACT will apply\n"
         "  list-providers   List providers ACT has built-in rules for\n"
         "  version          Print the ACT version\n"
@@ -654,7 +655,9 @@ def main(argv=None) -> int:
     if argv[0] == "doctor":
         from act.doctor import run as _doctor_run
 
-        return _doctor_run()
+        parser = argparse.ArgumentParser(prog="act doctor", description="Report ACT's preflight status.")
+        parser.add_argument("--program", help="also report whether this program's provider SDKs are importable")
+        return _doctor_run(program=parser.parse_args(argv[1:]).program)
     if argv[0] == "list-rules":
         return _cmd_list_rules(argv[1:])
     if argv[0] == "list-providers":

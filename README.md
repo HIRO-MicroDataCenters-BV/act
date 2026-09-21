@@ -140,6 +140,7 @@ bare `act --program ...` with no subcommand also runs `check`.
 |---------|---------|
 | `act check` | Validate a program (the default when no command is given) |
 | `act doctor` | Report external-tool availability and per-flag prerequisites |
+| `act doctor --program <path>` | Also report whether that program's provider SDKs are importable |
 | `act list-rules` | List the security rules ACT applies |
 | `act list-providers` | List providers ACT has built-in rules for |
 | `act version` | Print the ACT version (also `act --version` / `-V`) |
@@ -225,6 +226,7 @@ Show the help text:
 uv run act --help          # command overview
 uv run act check --help    # all check flags
 uv run act doctor          # verify prerequisites for the optional checks
+uv run act doctor --program infra/main.py   # plus that program's provider SDKs
 ```
 
 ---
@@ -511,6 +513,15 @@ import the program makes has to resolve in the environment where ACT runs.
 | Locally (`uv run act check`) | Nothing extra. The SDK is already in your environment, otherwise the program could not run under `pulumi up` either |
 | Published image or Helm Job | The image ships `pulumi` core only, with no provider SDKs. Layer on the ones your program imports (see the Docker section above) |
 
+`act doctor --program <path>` lists the provider SDKs a program imports and whether each
+one can be imported here, without running the program:
+
+```text
+provider SDKs for infra/main.py
+  pulumi_cape        ok
+  pulumi_kubernetes  missing (pip install pulumi-kubernetes)
+```
+
 A program that declares resources through raw type tokens needs no provider SDK at all,
 because the schema alone describes the resource:
 
@@ -648,7 +659,7 @@ The substrate is selected automatically from the program's target architecture a
 
 | Symptom | Likely cause + fix |
 |---------|--------------------|
-| `[ERROR] Pipeline failed: No module named 'pulumi_cape'` (exit 2) | The program's provider SDK isn't importable where ACT runs. Working in this repo: run `uv sync`, not `uv sync --no-dev`. Running the published image or the Helm Job: layer the SDK onto the image, see [Provider SDKs at run time](#provider-sdks-at-run-time) |
+| `[ERROR] Pipeline failed: No module named 'pulumi_cape'` (exit 2) | The program's provider SDK isn't importable where ACT runs; the error is followed by a `[HINT]` naming the package. Run `act doctor --program <path>` to list them all. Working in this repo: run `uv sync`, not `uv sync --no-dev`. Running the published image or the Helm Job: layer the SDK onto the image, see [Provider SDKs at run time](#provider-sdks-at-run-time) |
 | `FileNotFoundError: schema.json` | Either the path is wrong, or you haven't fetched the schema. Run `pulumi package get-schema <provider> > schemas/<provider>.json` |
 | `--check-deployment-arch riscv64` exits with `docker_missing` | Docker isn't on PATH. Install Docker Desktop or `docker.io` |
 | Image arch check fails with `no_arch_variant` | The image's manifest list doesn't include the target arch. Either rebuild the image multi-arch (`docker buildx build --platform linux/amd64,linux/arm64,linux/riscv64`), or remove the target arch from your validation matrix |
