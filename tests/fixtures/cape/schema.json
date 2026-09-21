@@ -2,52 +2,983 @@
   "name": "cape",
   "version": "0.1.0",
   "resources": {
-    "cape:workspace:Workspace": {
-      "description": "A CAPE workspace grouping resources under a tenant",
+    "cape:authorization:Role": {
+      "description": "A CAPE role",
       "inputProperties": {
-        "spec":        { "type": "object" },
-        "tenant":      { "type": "string" },
-        "labels":      { "type": "object" },
-        "annotations": { "type": "object" },
-        "extensions":  { "type": "object" }
+        "annotations": {
+          "type": "object"
+        },
+        "extensions": {
+          "type": "object"
+        },
+        "labels": {
+          "type": "object"
+        },
+        "spec": {
+          "type": "object"
+        },
+        "tenant": {
+          "type": "string"
+        }
       },
-      "requiredInputs": ["spec"],
+      "requiredInputs": [
+        "spec"
+      ],
       "properties": {
-        "metadata": { "type": "object" },
-        "status":   { "type": "object" }
+        "annotations": {
+          "type": "object"
+        },
+        "extensions": {
+          "type": "object"
+        },
+        "labels": {
+          "type": "object"
+        },
+        "metadata": {
+          "type": "object"
+        },
+        "spec": {
+          "type": "object"
+        },
+        "status": {
+          "type": "object"
+        },
+        "tenant": {
+          "type": "string"
+        }
+      }
+    },
+    "cape:authorization:RoleAssignment": {
+      "description": "A CAPE role assignment",
+      "inputProperties": {
+        "annotations": {
+          "type": "object"
+        },
+        "extensions": {
+          "type": "object"
+        },
+        "labels": {
+          "type": "object"
+        },
+        "spec": {
+          "type": "object"
+        },
+        "tenant": {
+          "type": "string"
+        }
+      },
+      "requiredInputs": [
+        "spec"
+      ],
+      "properties": {
+        "annotations": {
+          "type": "object"
+        },
+        "extensions": {
+          "type": "object"
+        },
+        "labels": {
+          "type": "object"
+        },
+        "metadata": {
+          "type": "object"
+        },
+        "spec": {
+          "type": "object"
+        },
+        "status": {
+          "type": "object"
+        },
+        "tenant": {
+          "type": "string"
+        }
       }
     },
     "cape:compute:Instance": {
       "description": "A CAPE compute instance (virtual machine)",
       "inputProperties": {
-        "spec":        { "type": "object" },
-        "workspace":   { "type": "string" },
-        "tenant":      { "type": "string" },
-        "labels":      { "type": "object" },
-        "annotations": { "type": "object" },
-        "extensions":  { "type": "object" }
+        "annotations": {
+          "type": "object"
+        },
+        "extensions": {
+          "type": "object"
+        },
+        "labels": {
+          "type": "object"
+        },
+        "spec": {
+          "type": "object"
+        },
+        "tenant": {
+          "type": "string"
+        },
+        "workspace": {
+          "type": "string"
+        }
       },
-      "requiredInputs": ["spec"],
+      "requiredInputs": [
+        "spec"
+      ],
       "properties": {
-        "metadata": { "type": "object" },
-        "status":   { "type": "object" },
-        "spec":     { "type": "object" }
+        "annotations": {
+          "type": "object"
+        },
+        "extensions": {
+          "type": "object"
+        },
+        "labels": {
+          "type": "object"
+        },
+        "metadata": {
+          "type": "object"
+        },
+        "spec": {
+          "type": "object"
+        },
+        "status": {
+          "type": "object"
+        },
+        "tenant": {
+          "type": "string"
+        },
+        "workspace": {
+          "type": "string"
+        }
+      }
+    },
+    "cape:kubernetes:KubernetesCluster": {
+      "description": "A CAPE kubernetes cluster",
+      "inputProperties": {
+        "annotations": {
+          "type": "object"
+        },
+        "extensions": {
+          "type": "object"
+        },
+        "labels": {
+          "type": "object"
+        },
+        "spec": {
+          "type": "object"
+        },
+        "tenant": {
+          "type": "string"
+        },
+        "workspace": {
+          "type": "string"
+        }
+      },
+      "requiredInputs": [
+        "spec"
+      ],
+      "properties": {
+        "annotations": {
+          "type": "object"
+        },
+        "extensions": {
+          "type": "object"
+        },
+        "labels": {
+          "type": "object"
+        },
+        "metadata": {
+          "type": "object"
+        },
+        "spec": {
+          "type": "object"
+        },
+        "status": {
+          "type": "object"
+        },
+        "tenant": {
+          "type": "string"
+        },
+        "workspace": {
+          "type": "string"
+        }
+      }
+    },
+    "cape:kubernetes:KubernetesNodePool": {
+      "description": "A CAPE kubernetes node pool",
+      "inputProperties": {
+        "annotations": {
+          "type": "object"
+        },
+        "cluster": {
+          "type": "string"
+        },
+        "extensions": {
+          "type": "object"
+        },
+        "labels": {
+          "type": "object"
+        },
+        "spec": {
+          "type": "object"
+        },
+        "tenant": {
+          "type": "string"
+        },
+        "workspace": {
+          "type": "string"
+        }
+      },
+      "requiredInputs": [
+        "cluster",
+        "spec"
+      ],
+      "properties": {
+        "annotations": {
+          "type": "object"
+        },
+        "cluster": {
+          "type": "string"
+        },
+        "extensions": {
+          "type": "object"
+        },
+        "labels": {
+          "type": "object"
+        },
+        "metadata": {
+          "type": "object"
+        },
+        "spec": {
+          "type": "object"
+        },
+        "status": {
+          "type": "object"
+        },
+        "tenant": {
+          "type": "string"
+        },
+        "workspace": {
+          "type": "string"
+        }
+      }
+    },
+    "cape:loadbalancer:NetworkLoadBalancer": {
+      "description": "A CAPE network load balancer",
+      "inputProperties": {
+        "annotations": {
+          "type": "object"
+        },
+        "extensions": {
+          "type": "object"
+        },
+        "labels": {
+          "type": "object"
+        },
+        "spec": {
+          "type": "object"
+        },
+        "tenant": {
+          "type": "string"
+        },
+        "workspace": {
+          "type": "string"
+        }
+      },
+      "requiredInputs": [
+        "spec"
+      ],
+      "properties": {
+        "annotations": {
+          "type": "object"
+        },
+        "extensions": {
+          "type": "object"
+        },
+        "labels": {
+          "type": "object"
+        },
+        "metadata": {
+          "type": "object"
+        },
+        "spec": {
+          "type": "object"
+        },
+        "status": {
+          "type": "object"
+        },
+        "tenant": {
+          "type": "string"
+        },
+        "workspace": {
+          "type": "string"
+        }
+      }
+    },
+    "cape:natgateway:InternetNatGatewayInstance": {
+      "description": "A CAPE internet nat gateway instance",
+      "inputProperties": {
+        "annotations": {
+          "type": "object"
+        },
+        "extensions": {
+          "type": "object"
+        },
+        "labels": {
+          "type": "object"
+        },
+        "spec": {
+          "type": "object"
+        },
+        "tenant": {
+          "type": "string"
+        },
+        "workspace": {
+          "type": "string"
+        }
+      },
+      "requiredInputs": [
+        "spec"
+      ],
+      "properties": {
+        "annotations": {
+          "type": "object"
+        },
+        "extensions": {
+          "type": "object"
+        },
+        "labels": {
+          "type": "object"
+        },
+        "metadata": {
+          "type": "object"
+        },
+        "spec": {
+          "type": "object"
+        },
+        "status": {
+          "type": "object"
+        },
+        "tenant": {
+          "type": "string"
+        },
+        "workspace": {
+          "type": "string"
+        }
+      }
+    },
+    "cape:network:InternetGateway": {
+      "description": "A CAPE internet gateway",
+      "inputProperties": {
+        "annotations": {
+          "type": "object"
+        },
+        "extensions": {
+          "type": "object"
+        },
+        "labels": {
+          "type": "object"
+        },
+        "spec": {
+          "type": "object"
+        },
+        "tenant": {
+          "type": "string"
+        },
+        "workspace": {
+          "type": "string"
+        }
+      },
+      "requiredInputs": [
+        "spec"
+      ],
+      "properties": {
+        "annotations": {
+          "type": "object"
+        },
+        "extensions": {
+          "type": "object"
+        },
+        "labels": {
+          "type": "object"
+        },
+        "metadata": {
+          "type": "object"
+        },
+        "spec": {
+          "type": "object"
+        },
+        "status": {
+          "type": "object"
+        },
+        "tenant": {
+          "type": "string"
+        },
+        "workspace": {
+          "type": "string"
+        }
+      }
+    },
+    "cape:network:Network": {
+      "description": "A CAPE network",
+      "inputProperties": {
+        "annotations": {
+          "type": "object"
+        },
+        "extensions": {
+          "type": "object"
+        },
+        "labels": {
+          "type": "object"
+        },
+        "spec": {
+          "type": "object"
+        },
+        "tenant": {
+          "type": "string"
+        },
+        "workspace": {
+          "type": "string"
+        }
+      },
+      "requiredInputs": [
+        "spec"
+      ],
+      "properties": {
+        "annotations": {
+          "type": "object"
+        },
+        "extensions": {
+          "type": "object"
+        },
+        "labels": {
+          "type": "object"
+        },
+        "metadata": {
+          "type": "object"
+        },
+        "spec": {
+          "type": "object"
+        },
+        "status": {
+          "type": "object"
+        },
+        "tenant": {
+          "type": "string"
+        },
+        "workspace": {
+          "type": "string"
+        }
+      }
+    },
+    "cape:network:Nic": {
+      "description": "A CAPE nic",
+      "inputProperties": {
+        "annotations": {
+          "type": "object"
+        },
+        "extensions": {
+          "type": "object"
+        },
+        "labels": {
+          "type": "object"
+        },
+        "spec": {
+          "type": "object"
+        },
+        "tenant": {
+          "type": "string"
+        },
+        "workspace": {
+          "type": "string"
+        }
+      },
+      "requiredInputs": [
+        "spec"
+      ],
+      "properties": {
+        "annotations": {
+          "type": "object"
+        },
+        "extensions": {
+          "type": "object"
+        },
+        "labels": {
+          "type": "object"
+        },
+        "metadata": {
+          "type": "object"
+        },
+        "spec": {
+          "type": "object"
+        },
+        "status": {
+          "type": "object"
+        },
+        "tenant": {
+          "type": "string"
+        },
+        "workspace": {
+          "type": "string"
+        }
+      }
+    },
+    "cape:network:PublicIp": {
+      "description": "A CAPE public ip",
+      "inputProperties": {
+        "annotations": {
+          "type": "object"
+        },
+        "extensions": {
+          "type": "object"
+        },
+        "labels": {
+          "type": "object"
+        },
+        "spec": {
+          "type": "object"
+        },
+        "tenant": {
+          "type": "string"
+        },
+        "workspace": {
+          "type": "string"
+        }
+      },
+      "requiredInputs": [
+        "spec"
+      ],
+      "properties": {
+        "annotations": {
+          "type": "object"
+        },
+        "extensions": {
+          "type": "object"
+        },
+        "labels": {
+          "type": "object"
+        },
+        "metadata": {
+          "type": "object"
+        },
+        "spec": {
+          "type": "object"
+        },
+        "status": {
+          "type": "object"
+        },
+        "tenant": {
+          "type": "string"
+        },
+        "workspace": {
+          "type": "string"
+        }
+      }
+    },
+    "cape:network:RouteTable": {
+      "description": "A CAPE route table",
+      "inputProperties": {
+        "annotations": {
+          "type": "object"
+        },
+        "extensions": {
+          "type": "object"
+        },
+        "labels": {
+          "type": "object"
+        },
+        "network": {
+          "type": "string"
+        },
+        "spec": {
+          "type": "object"
+        },
+        "tenant": {
+          "type": "string"
+        },
+        "workspace": {
+          "type": "string"
+        }
+      },
+      "requiredInputs": [
+        "network",
+        "spec"
+      ],
+      "properties": {
+        "annotations": {
+          "type": "object"
+        },
+        "extensions": {
+          "type": "object"
+        },
+        "labels": {
+          "type": "object"
+        },
+        "metadata": {
+          "type": "object"
+        },
+        "network": {
+          "type": "string"
+        },
+        "spec": {
+          "type": "object"
+        },
+        "status": {
+          "type": "object"
+        },
+        "tenant": {
+          "type": "string"
+        },
+        "workspace": {
+          "type": "string"
+        }
+      }
+    },
+    "cape:network:SecurityGroup": {
+      "description": "A CAPE security group",
+      "inputProperties": {
+        "annotations": {
+          "type": "object"
+        },
+        "extensions": {
+          "type": "object"
+        },
+        "labels": {
+          "type": "object"
+        },
+        "spec": {
+          "type": "object"
+        },
+        "tenant": {
+          "type": "string"
+        },
+        "workspace": {
+          "type": "string"
+        }
+      },
+      "requiredInputs": [
+        "spec"
+      ],
+      "properties": {
+        "annotations": {
+          "type": "object"
+        },
+        "extensions": {
+          "type": "object"
+        },
+        "labels": {
+          "type": "object"
+        },
+        "metadata": {
+          "type": "object"
+        },
+        "spec": {
+          "type": "object"
+        },
+        "status": {
+          "type": "object"
+        },
+        "tenant": {
+          "type": "string"
+        },
+        "workspace": {
+          "type": "string"
+        }
+      }
+    },
+    "cape:network:SecurityGroupRule": {
+      "description": "A CAPE security group rule",
+      "inputProperties": {
+        "annotations": {
+          "type": "object"
+        },
+        "extensions": {
+          "type": "object"
+        },
+        "labels": {
+          "type": "object"
+        },
+        "spec": {
+          "type": "object"
+        },
+        "tenant": {
+          "type": "string"
+        },
+        "workspace": {
+          "type": "string"
+        }
+      },
+      "requiredInputs": [
+        "spec"
+      ],
+      "properties": {
+        "annotations": {
+          "type": "object"
+        },
+        "extensions": {
+          "type": "object"
+        },
+        "labels": {
+          "type": "object"
+        },
+        "metadata": {
+          "type": "object"
+        },
+        "spec": {
+          "type": "object"
+        },
+        "status": {
+          "type": "object"
+        },
+        "tenant": {
+          "type": "string"
+        },
+        "workspace": {
+          "type": "string"
+        }
+      }
+    },
+    "cape:network:Subnet": {
+      "description": "A CAPE subnet",
+      "inputProperties": {
+        "annotations": {
+          "type": "object"
+        },
+        "extensions": {
+          "type": "object"
+        },
+        "labels": {
+          "type": "object"
+        },
+        "network": {
+          "type": "string"
+        },
+        "spec": {
+          "type": "object"
+        },
+        "tenant": {
+          "type": "string"
+        },
+        "workspace": {
+          "type": "string"
+        }
+      },
+      "requiredInputs": [
+        "network",
+        "spec"
+      ],
+      "properties": {
+        "annotations": {
+          "type": "object"
+        },
+        "extensions": {
+          "type": "object"
+        },
+        "labels": {
+          "type": "object"
+        },
+        "metadata": {
+          "type": "object"
+        },
+        "network": {
+          "type": "string"
+        },
+        "spec": {
+          "type": "object"
+        },
+        "status": {
+          "type": "object"
+        },
+        "tenant": {
+          "type": "string"
+        },
+        "workspace": {
+          "type": "string"
+        }
+      }
+    },
+    "cape:objectstorage:ObjectStorageAccount": {
+      "description": "A CAPE object storage account",
+      "inputProperties": {
+        "annotations": {
+          "type": "object"
+        },
+        "extensions": {
+          "type": "object"
+        },
+        "labels": {
+          "type": "object"
+        },
+        "spec": {
+          "type": "object"
+        },
+        "tenant": {
+          "type": "string"
+        }
+      },
+      "requiredInputs": [
+        "spec"
+      ],
+      "properties": {
+        "annotations": {
+          "type": "object"
+        },
+        "extensions": {
+          "type": "object"
+        },
+        "labels": {
+          "type": "object"
+        },
+        "metadata": {
+          "type": "object"
+        },
+        "spec": {
+          "type": "object"
+        },
+        "status": {
+          "type": "object"
+        },
+        "tenant": {
+          "type": "string"
+        }
       }
     },
     "cape:storage:BlockStorage": {
       "description": "A CAPE block storage volume",
       "inputProperties": {
-        "spec":        { "type": "object" },
-        "workspace":   { "type": "string" },
-        "tenant":      { "type": "string" },
-        "labels":      { "type": "object" },
-        "annotations": { "type": "object" }
+        "annotations": {
+          "type": "object"
+        },
+        "extensions": {
+          "type": "object"
+        },
+        "labels": {
+          "type": "object"
+        },
+        "spec": {
+          "type": "object"
+        },
+        "tenant": {
+          "type": "string"
+        },
+        "workspace": {
+          "type": "string"
+        }
       },
-      "requiredInputs": ["spec"],
+      "requiredInputs": [
+        "spec"
+      ],
       "properties": {
-        "metadata": { "type": "object" },
-        "status":   { "type": "object" },
-        "spec":     { "type": "object" }
+        "annotations": {
+          "type": "object"
+        },
+        "extensions": {
+          "type": "object"
+        },
+        "labels": {
+          "type": "object"
+        },
+        "metadata": {
+          "type": "object"
+        },
+        "spec": {
+          "type": "object"
+        },
+        "status": {
+          "type": "object"
+        },
+        "tenant": {
+          "type": "string"
+        },
+        "workspace": {
+          "type": "string"
+        }
+      }
+    },
+    "cape:storage:Image": {
+      "description": "A CAPE image",
+      "inputProperties": {
+        "annotations": {
+          "type": "object"
+        },
+        "extensions": {
+          "type": "object"
+        },
+        "labels": {
+          "type": "object"
+        },
+        "spec": {
+          "type": "object"
+        },
+        "tenant": {
+          "type": "string"
+        }
+      },
+      "requiredInputs": [
+        "spec"
+      ],
+      "properties": {
+        "annotations": {
+          "type": "object"
+        },
+        "extensions": {
+          "type": "object"
+        },
+        "labels": {
+          "type": "object"
+        },
+        "metadata": {
+          "type": "object"
+        },
+        "spec": {
+          "type": "object"
+        },
+        "status": {
+          "type": "object"
+        },
+        "tenant": {
+          "type": "string"
+        }
+      }
+    },
+    "cape:workspace:Workspace": {
+      "description": "A CAPE workspace grouping resources under a tenant",
+      "inputProperties": {
+        "annotations": {
+          "type": "object"
+        },
+        "extensions": {
+          "type": "object"
+        },
+        "labels": {
+          "type": "object"
+        },
+        "spec": {
+          "type": "object"
+        },
+        "tenant": {
+          "type": "string"
+        }
+      },
+      "requiredInputs": [
+        "spec"
+      ],
+      "properties": {
+        "annotations": {
+          "type": "object"
+        },
+        "extensions": {
+          "type": "object"
+        },
+        "labels": {
+          "type": "object"
+        },
+        "metadata": {
+          "type": "object"
+        },
+        "spec": {
+          "type": "object"
+        },
+        "status": {
+          "type": "object"
+        },
+        "tenant": {
+          "type": "string"
+        }
       }
     }
   }
