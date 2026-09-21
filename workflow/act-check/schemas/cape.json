@@ -1,0 +1,54 @@
+{
+  "name": "cape",
+  "version": "0.1.0",
+  "resources": {
+    "cape:workspace:Workspace": {
+      "description": "A CAPE workspace grouping resources under a tenant",
+      "inputProperties": {
+        "spec":        { "type": "object" },
+        "tenant":      { "type": "string" },
+        "labels":      { "type": "object" },
+        "annotations": { "type": "object" },
+        "extensions":  { "type": "object" }
+      },
+      "requiredInputs": ["spec"],
+      "properties": {
+        "metadata": { "type": "object" },
+        "status":   { "type": "object" }
+      }
+    },
+    "cape:compute:Instance": {
+      "description": "A CAPE compute instance (virtual machine)",
+      "inputProperties": {
+        "spec":        { "type": "object" },
+        "workspace":   { "type": "string" },
+        "tenant":      { "type": "string" },
+        "labels":      { "type": "object" },
+        "annotations": { "type": "object" },
+        "extensions":  { "type": "object" }
+      },
+      "requiredInputs": ["spec"],
+      "properties": {
+        "metadata": { "type": "object" },
+        "status":   { "type": "object" },
+        "spec":     { "type": "object" }
+      }
+    },
+    "cape:storage:BlockStorage": {
+      "description": "A CAPE block storage volume",
+      "inputProperties": {
+        "spec":        { "type": "object" },
+        "workspace":   { "type": "string" },
+        "tenant":      { "type": "string" },
+        "labels":      { "type": "object" },
+        "annotations": { "type": "object" }
+      },
+      "requiredInputs": ["spec"],
+      "properties": {
+        "metadata": { "type": "object" },
+        "status":   { "type": "object" },
+        "spec":     { "type": "object" }
+      }
+    }
+  }
+}

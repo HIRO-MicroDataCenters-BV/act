@@ -431,6 +431,10 @@ The Job runs the same image, so a program that imports a provider SDK needs the 
 
 The in-cluster Job runs the plan-time checks only (mock generation, oracle, and the cognitive validator when reachable). The reproducibility flags (`--check-deployment-arch`, `--check-deployment-runtime`) are not exposed by the chart: they need `docker`/`kubectl`/`pulumi` and privileged host access, which suits a workstation or CI runner, not a pod inside the validated cluster. Run them from CI or locally with `uv run act check`.
 
+### Workflow engines
+
+A workflow engine that builds actions from a git repository can run the gate as one step of a pipeline: `workflow/act-check` wraps `act check` as a self-contained action (inputs: the program as a file or as text, an optional schema, the rule engine, and the cognitive-validator settings; outputs: the verdict, exit code, report, and run artefact). See `workflow/README.md` for how to register it. As with the in-cluster Job, only the plan-time checks run there.
+
 ---
 
 ## Writing programs ACT can validate

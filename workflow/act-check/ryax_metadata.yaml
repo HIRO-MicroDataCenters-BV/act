@@ -1,0 +1,78 @@
+apiVersion: "ryax.tech/v2.0"
+kind: Processor
+spec:
+  id: act-check
+  human_name: ACT trust gate
+  type: python3
+  version: "0.8.0"
+  description: "Validate a Pulumi program before deployment: mock generation, structural oracle, optional Checkov rules, plan determinism, and the advisory cognitive validator. Exit 0 = pass, 1 = violations, 2 = pipeline error."
+  categories:
+    - Infrastructure as Code
+    - Validation
+  resources:
+    time: 600s
+    cpu: 1
+    memory: 2G
+  inputs:
+    - name: program
+      human_name: Pulumi program (file)
+      help: The Python Pulumi program to validate. Provide this or the program source below.
+      type: file
+      optional: true
+    - name: program_source
+      human_name: Pulumi program (source text)
+      help: Alternative to the file input, e.g. when the program comes from an API call or a generator.
+      type: longstring
+      optional: true
+    - name: schema
+      human_name: Provider schema (file)
+      help: Pulumi provider schema JSON. Leave empty to use the bundled schemas (CAPE and Kubernetes); upload one for any other provider.
+      type: file
+      optional: true
+    - name: rules
+      human_name: Extra rule engine
+      help: Load an additional rule engine on top of the built-in oracle.
+      type: enum
+      enum_values: [none, checkov]
+      default_value: none
+      optional: true
+    - name: acv_mode
+      human_name: Cognitive validator mode
+      help: advisory reports findings without changing the verdict; blocking fails the gate on an ACV FAIL.
+      type: enum
+      enum_values: [advisory, blocking]
+      default_value: advisory
+      optional: true
+    - name: acv_model
+      human_name: Cognitive validator model id
+      help: Served model id on an OpenAI-compatible endpoint. Leave empty to skip the cognitive validator.
+      type: string
+      optional: true
+    - name: acv_base_url
+      human_name: Cognitive validator base URL
+      help: OpenAI-compatible base URL, e.g. https://generativelanguage.googleapis.com/v1beta/openai
+      type: string
+      optional: true
+    - name: acv_api_key
+      human_name: Cognitive validator API key
+      help: Bearer token for the endpoint, if it needs one.
+      type: password
+      optional: true
+  outputs:
+    - name: passed
+      human_name: Gate passed
+      help: True when the exit code is 0.
+      type: boolean
+    - name: exit_code
+      human_name: Exit code
+      help: 0 = pass, 1 = violations found, 2 = pipeline error.
+      type: integer
+    - name: report
+      human_name: Report
+      help: The PASS/FAIL report with every violation and cognitive-validator finding.
+      type: longstring
+    - name: artefact
+      human_name: Run artefact (JSON)
+      help: Plan-determinism result, package versions, and timestamp.
+      type: file
+      optional: true
