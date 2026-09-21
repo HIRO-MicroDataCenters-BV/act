@@ -20,10 +20,14 @@ container runtime. Run those from a workstation or CI runner.
 
 ## Registering the action
 
-1. In the engine's library, add this repository by its git URL and scan it; the
-   scanner finds every directory that carries an action metadata file.
+1. In the engine's library, add this repository by its git URL and scan it on the
+   `main` branch (a scan with no branch named falls back to `master`, which this
+   repository does not have); the scanner finds every directory that carries an
+   action metadata file.
 2. Build `act-check`. The build installs `requirements.txt`, which pins ACT to a
-   release tag; bump that tag when a new ACT release should be picked up.
+   release tag. The action version in `ryax_metadata.yaml` mirrors that tag, so
+   bump both together when a new ACT release should be picked up; the store shows
+   the action version, not the package version.
 3. In a workflow, add a trigger (a manual run with a file upload, or an HTTP
    endpoint that carries the program text in the request body) and connect it to
    `act-check`. The report and the run artefact appear as outputs of the run.
