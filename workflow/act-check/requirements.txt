@@ -1,0 +1,6 @@
+# Source archives, not git URLs: a git install recurses into submodules, and the CAPE SDK
+# tree carries a submodule pointer without a .gitmodules entry, which aborts the clone.
+act[acv] @ https://github.com/HIRO-MicroDataCenters-BV/act/archive/refs/tags/0.8.0.tar.gz
+pulumi-cape @ https://github.com/cape-project-eu/cape-sdks/archive/055fe4996d6d0d704766b2cd494d23648a3cbdee.tar.gz#subdirectory=python
+# Provider SDKs the bundled schemas correspond to; a program can only be loaded if its SDK is importable.
+pulumi-kubernetes>=4.28.0
