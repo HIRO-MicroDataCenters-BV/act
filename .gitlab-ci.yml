@@ -5,7 +5,6 @@
 image: ghcr.io/astral-sh/uv:python3.11-bookworm
 
 variables:
-  GIT_SUBMODULE_STRATEGY: recursive  # fetch cape-sdks (provides pulumi_cape)
   UV_CACHE_DIR: "$CI_PROJECT_DIR/.uv-cache"
 
 stages:

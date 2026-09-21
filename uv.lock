@@ -65,7 +65,7 @@ dev = [
     { name = "isort", specifier = ">=5.13.0" },
     { name = "mypy", specifier = ">=1.10.0" },
     { name = "pre-commit", specifier = ">=3.7.0" },
-    { name = "pulumi-cape", editable = "cape-sdks/python" },
+    { name = "pulumi-cape", url = "https://github.com/cape-project-eu/cape-sdks/archive/055fe4996d6d0d704766b2cd494d23648a3cbdee.tar.gz", subdirectory = "python" },
     { name = "pulumi-kubernetes", specifier = ">=4.28.0" },
     { name = "pulumi-random", specifier = ">=4.19.2" },
     { name = "pytest", specifier = ">=9.0.3" },
@@ -2322,12 +2322,13 @@ wheels = [
 [[package]]
 name = "pulumi-cape"
 version = "0.0.0"
-source = { editable = "cape-sdks/python" }
+source = { url = "https://github.com/cape-project-eu/cape-sdks/archive/055fe4996d6d0d704766b2cd494d23648a3cbdee.tar.gz", subdirectory = "python" }
 dependencies = [
     { name = "parver" },
     { name = "pulumi" },
     { name = "semver" },
 ]
+sdist = { hash = "sha256:f7aa63561ad9dfceb48f4aae93d1fcf8b184f81f6df414bec652a529c4caeb7b" }
 
 [package.metadata]
 requires-dist = [

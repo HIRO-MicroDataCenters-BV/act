@@ -1,7 +1,7 @@
 """CAPE security rules: (inputs: dict) -> List[Violation].
 
 Pulumi serializes InstanceSpecArgs fields to camelCase under the "spec" key
-(e.g. securityGroupRef, sshKeys). Only add rules for fields that exist in cape-sdks.
+(e.g. securityGroupRef, sshKeys). Only add rules for fields that exist in the CAPE SDK.
 """
 
 from typing import List
