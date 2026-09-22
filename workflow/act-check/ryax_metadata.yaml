@@ -4,7 +4,7 @@ spec:
   id: act-check
   human_name: ACT trust gate
   type: python3
-  version: "0.9.2"
+  version: "0.9.3"
   description: "Validate a Pulumi program before deployment: mock generation, structural oracle, optional Checkov rules, plan determinism, and the advisory cognitive validator. Exit 0 = pass, 1 = violations, 2 = pipeline error."
   categories:
     - Infrastructure as Code
@@ -35,6 +35,13 @@ spec:
       type: enum
       enum_values: [none, checkov]
       default_value: none
+      optional: true
+    - name: log_level
+      human_name: Log level
+      help: INFO logs one line per validation layer with its timing; DEBUG adds the detail inside each layer.
+      type: enum
+      enum_values: [WARNING, INFO, DEBUG, ERROR]
+      default_value: INFO
       optional: true
     - name: acv_mode
       human_name: Cognitive validator mode

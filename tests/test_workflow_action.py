@@ -47,3 +47,27 @@ def test_kubernetes_program_uses_bundled_schema_and_checkov(handle):
     result = handle({"program": str(program), "rules": "checkov"})
     assert result["exit_code"] == 1
     assert "CKV" in result["report"]
+
+
+def _capture_argv(handle, monkeypatch, inputs):
+    """Run the handler with the ACT entry point stubbed, returning the argv it built."""
+    seen = {}
+
+    def fake_main(argv):
+        seen["argv"] = argv
+        return 0
+
+    monkeypatch.setitem(handle.__globals__, "act_main", fake_main)
+    handle(inputs)
+    return seen["argv"]
+
+
+def test_log_level_input_reaches_the_cli(handle, monkeypatch, cape_fixtures):
+    """The engine's log panel is where the layers show, so the level must be passed through."""
+    argv = _capture_argv(handle, monkeypatch, {"program": str(cape_fixtures / "path_a_valid.py"), "log_level": "DEBUG"})
+    assert argv[argv.index("--log-level") + 1] == "DEBUG"
+
+
+def test_log_level_defaults_to_info(handle, monkeypatch, cape_fixtures):
+    argv = _capture_argv(handle, monkeypatch, {"program": str(cape_fixtures / "path_a_valid.py")})
+    assert argv[argv.index("--log-level") + 1] == "INFO"

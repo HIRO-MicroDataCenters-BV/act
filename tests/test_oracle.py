@@ -188,3 +188,56 @@ def test_empty_string_required_field_flagged(tmp_path):
 def test_zero_is_valid_for_required_integer(tmp_path):
     oracle = CorrectnessOracle(_make_schema(tmp_path, {"count": {"type": "integer"}}, required=["count"]))
     assert oracle.check(RTYPE, {"count": 0}) == []
+
+
+# ---------------------------------------------------------------------------
+# Violation attribution
+# ---------------------------------------------------------------------------
+
+
+def test_schema_inference_violations_are_labelled_schema(tmp_path):
+    schema = _make_schema(tmp_path, {"name": {"type": "string"}}, required=["name"])
+    oracle = CorrectnessOracle(schema)
+    violations = oracle.check("test:index:Resource", {"name": ""})
+    assert violations
+    assert {v.source for v in violations} == {"schema"}
+
+
+def test_rule_violations_carry_the_name_they_registered_under(tmp_path):
+    schema = _make_schema(tmp_path, {"name": {"type": "string"}})
+    oracle = CorrectnessOracle(schema)
+    oracle.add_rule(lambda inputs: [Violation("f", "m", "LOW")], source="myengine")
+    violations = oracle.check("test:index:Resource", {"name": "ok"})
+    assert [v.source for v in violations] == ["myengine"]
+
+
+def test_unlabelled_rule_leaves_the_source_empty(tmp_path):
+    schema = _make_schema(tmp_path, {"name": {"type": "string"}})
+    oracle = CorrectnessOracle(schema)
+    oracle.add_rule(lambda inputs: [Violation("f", "m", "LOW")])
+    violations = oracle.check("test:index:Resource", {"name": "ok"})
+    assert [v.source for v in violations] == [""]
+
+
+def test_count_by_source_groups_the_engines():
+    from act.core.violations import count_by_source
+
+    counted = count_by_source(
+        [
+            Violation("a", "m", "LOW", source="checkov"),
+            Violation("b", "m", "LOW", source="checkov"),
+            Violation("c", "m", "LOW", source="schema"),
+            Violation("d", "m", "LOW"),
+        ]
+    )
+    assert counted == {"checkov": 2, "schema": 1, "unknown": 1}
+
+
+def test_provider_rules_are_labelled_with_their_module(cape_schema_path):
+    from act.rules import auto_load
+
+    oracle = CorrectnessOracle(cape_schema_path)
+    auto_load(oracle)
+    violations = oracle.check("cape:compute:Instance", {"spec": {"sshKeys": ["k"]}})
+    assert violations
+    assert {v.source for v in violations} == {"cape"}

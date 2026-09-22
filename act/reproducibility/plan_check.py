@@ -2,10 +2,13 @@ from typing import List
 
 import hashlib
 import json
+import logging
 import subprocess
 import sys
 import time
 from dataclasses import dataclass, field
+
+log = logging.getLogger(__name__)
 
 DEFAULT_CAPTURE_TIMEOUT_S = 30
 
@@ -58,6 +61,18 @@ class PlanCheck:
         h1 = hashlib.sha256(out_1).hexdigest()
         h2 = hashlib.sha256(out_2).hexdigest()
         diff = [] if h1 == h2 else _diff_paths(out_1, out_2)
+        # Both hashes, so a reader can see the comparison this rung actually made rather
+        # than only its verdict.
+        log.info(
+            "plan_check.done",
+            extra={
+                "deterministic": h1 == h2,
+                "hash_1": h1,
+                "hash_2": h2,
+                "diff": diff,
+                "duration_ms": int(duration_ms),
+            },
+        )
         return PlanCheckResult(
             deterministic=h1 == h2,
             hash_1=h1,

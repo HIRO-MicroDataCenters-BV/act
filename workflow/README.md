@@ -34,3 +34,11 @@ container runtime. Run those from a workstation or CI runner.
 
 Give the action at least 1 CPU and 2 GB of memory; the Checkov engine is the
 heaviest dependency.
+
+## Seeing each validation layer
+
+The `log_level` input controls how much of the run the engine's log panel shows for
+that step. It defaults to `INFO`, which prints one line per layer with its timing:
+mock generation, the oracle with the violation count split by the engine that raised
+it, the verdict, and plan determinism with both hashes it compared. `DEBUG` adds the
+detail inside each layer. `WARNING` returns to the quiet output.

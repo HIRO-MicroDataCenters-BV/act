@@ -7,7 +7,7 @@ from dataclasses import dataclass
 
 from act.acv.models import ACVResult
 from act.core.mock_generator import MockGenerator
-from act.core.violations import Violation
+from act.core.violations import Violation, count_by_source
 from act.plugins.base import OraclePlugin
 
 log = logging.getLogger(__name__)
@@ -92,7 +92,16 @@ class ACTPipeline:
             if resource_type:
                 oracle_violations.extend(self._oracle.check(resource_type, outputs))
         violations.extend(oracle_violations)
-        log.info("pipeline.oracle_done", extra={"violations": len(oracle_violations), "duration_ms": _ms(t)})
+        log.info(
+            "pipeline.oracle_done",
+            extra={
+                "violations": len(oracle_violations),
+                # Which engine raised them: schema inference, a provider rule set, or an
+                # opt-in engine like Checkov, which all run through the same oracle.
+                "by_source": count_by_source(oracle_violations),
+                "duration_ms": _ms(t),
+            },
+        )
 
         # ACV runs after the oracle, additive: findings surface in the report but
         # never join `violations`, so they don't affect `passed`/exit code.
