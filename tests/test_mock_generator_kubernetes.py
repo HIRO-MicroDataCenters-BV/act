@@ -4,7 +4,7 @@ from act.core.mock_generator import MockGenerator
 def test_kubernetes_type_map_loaded(kubernetes_schema_path):
     mg = MockGenerator(kubernetes_schema_path)
     assert "Deployment" in mg._type_map
-    assert "Deployment" in mg._type_map["Deployment"]["token"]
+    assert all("Deployment" in i["token"] for i in mg._type_map["Deployment"])
 
 
 def test_kubernetes_deployment_captured(kubernetes_schema_path, kubernetes_fixtures):

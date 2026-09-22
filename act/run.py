@@ -115,7 +115,7 @@ def _load_extra_rules(oracle, mg, engines: list) -> None:
     if "checkov" not in engines:
         return
     # One unscoped rule per provider; avoids schema vs runtime token mismatches.
-    providers = {info["token"].split(":")[0] for info in mg._type_map.values()}
+    providers = {info["token"].split(":")[0] for infos in mg._type_map.values() for info in infos}
     for provider in providers:
         try:
             load_checkov_rules(oracle, check_type=provider)

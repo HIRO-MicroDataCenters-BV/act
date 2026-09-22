@@ -90,26 +90,27 @@ class MockGenerator:
         self._type_map = self._build_type_map()
 
     def _build_type_map(self) -> dict:
-        """Map class name (last token segment) -> {token, inputs, outputs, required}."""
+        """Map class name (last token segment) -> [{token, inputs, outputs, required}, ...].
+
+        One class name can stand for several tokens: two providers may declare it (CAPE and
+        Kubernetes both have Role), and one provider declares it once per API version
+        (kubernetes apps/v1 and apps/v1beta1 both have Deployment). Every candidate is kept,
+        because the name alone cannot choose between them and a single program may declare
+        resources from more than one provider. The choice is made later by the token each
+        resource reports when it is created, which is unique, so keeping every candidate
+        resolves each resource to its own provider without anyone declaring which is which.
+        """
         result: dict = {}
         for token, resource in self._schema.get("resources", {}).items():
             class_name = token.split(":")[-1]
-            existing = result.get(class_name)
-            # Only a cross-provider clash is ambiguous; the same class across a provider's own
-            # API versions (e.g. kubernetes apps/v1 vs apps/v1beta1) is expected, not a collision.
-            if existing and existing["token"].split(":")[0] != token.split(":")[0]:
-                log.warning(
-                    "mock_generator.class_name_collision class=%s tokens=%s,%s",
-                    class_name,
-                    existing["token"],
-                    token,
-                )
-            result[class_name] = {
-                "token": token,
-                "inputs": resource.get("inputProperties", {}),
-                "outputs": resource.get("properties", {}),
-                "required": resource.get("requiredInputs", []),
-            }
+            result.setdefault(class_name, []).append(
+                {
+                    "token": token,
+                    "inputs": resource.get("inputProperties", {}),
+                    "outputs": resource.get("properties", {}),
+                    "required": resource.get("requiredInputs", []),
+                }
+            )
         return result
 
     def _default_for_type(self, prop_schema: dict) -> Any:
@@ -156,21 +157,23 @@ class MockGenerator:
         type_map = self._type_map
 
         # Defaults only for computed outputs (not inputs) so missing fields stay missing.
+        # Keyed by token, so a class name standing for several tokens contributes one entry
+        # each and the resource finds its own at creation time.
         token_defaults: dict[str, dict] = {}
         for class_name in detected:
-            info = type_map[class_name]
-            input_names = set(info["inputs"].keys())
-            defaults: dict[str, Any] = {}
-            for prop_name, prop_schema in info["outputs"].items():
-                if prop_name in input_names:
-                    continue
-                if prop_name == "status":
-                    defaults["status"] = "active"
-                elif prop_name == "metadata":
-                    defaults["metadata"] = {"name": "mock-resource"}
-                else:
-                    defaults[prop_name] = self._default_for_type(prop_schema)
-            token_defaults[info["token"]] = defaults
+            for info in type_map[class_name]:
+                input_names = set(info["inputs"].keys())
+                defaults: dict[str, Any] = {}
+                for prop_name, prop_schema in info["outputs"].items():
+                    if prop_name in input_names:
+                        continue
+                    if prop_name == "status":
+                        defaults["status"] = "active"
+                    elif prop_name == "metadata":
+                        defaults["metadata"] = {"name": "mock-resource"}
+                    else:
+                        defaults[prop_name] = self._default_for_type(prop_schema)
+                token_defaults[info["token"]] = defaults
 
         class GeneratedMock(pulumi.runtime.Mocks):
             def new_resource(self, args: pulumi.runtime.MockResourceArgs):
