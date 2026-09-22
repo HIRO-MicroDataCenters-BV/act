@@ -64,9 +64,7 @@ def _capture_argv(handle, monkeypatch, inputs):
 
 def test_log_level_input_reaches_the_cli(handle, monkeypatch, cape_fixtures):
     """The engine's log panel is where the layers show, so the level must be passed through."""
-    argv = _capture_argv(
-        handle, monkeypatch, {"program": str(cape_fixtures / "path_a_valid.py"), "log_level": "DEBUG"}
-    )
+    argv = _capture_argv(handle, monkeypatch, {"program": str(cape_fixtures / "path_a_valid.py"), "log_level": "DEBUG"})
     assert argv[argv.index("--log-level") + 1] == "DEBUG"
 
 
