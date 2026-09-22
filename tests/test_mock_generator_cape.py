@@ -24,27 +24,24 @@ def test_detects_aliased_import(cape_schema_path, tmp_path):
     assert "Instance" in mg._detect_resource_types(str(prog))
 
 
-def test_warns_on_class_name_collision(tmp_path, caplog):
+def test_class_name_shared_by_two_providers_keeps_both(tmp_path):
+    """Two providers declaring one class name: neither entry may displace the other."""
     import json
-    import logging
 
     (tmp_path / "a.json").write_text(json.dumps({"resources": {"a:index:Bucket": {}}}))
     (tmp_path / "b.json").write_text(json.dumps({"resources": {"b:index:Bucket": {}}}))
-    with caplog.at_level(logging.WARNING, logger="act"):
-        MockGenerator([str(tmp_path / "a.json"), str(tmp_path / "b.json")])
-    assert "class_name_collision" in caplog.text
+    mg = MockGenerator([str(tmp_path / "a.json"), str(tmp_path / "b.json")])
+    assert {i["token"] for i in mg._type_map["Bucket"]} == {"a:index:Bucket", "b:index:Bucket"}
 
 
-def test_no_collision_warning_same_provider_versions(tmp_path, caplog):
+def test_class_name_shared_by_api_versions_keeps_both(tmp_path):
+    """One provider declaring a class once per API version keeps every version."""
     import json
-    import logging
 
-    # Same class across a provider's own API versions is expected, not a collision.
     schema: dict = {"resources": {"k8s:apps/v1:Deployment": {}, "k8s:apps/v1beta1:Deployment": {}}}
     (tmp_path / "s.json").write_text(json.dumps(schema))
-    with caplog.at_level(logging.WARNING, logger="act"):
-        MockGenerator(str(tmp_path / "s.json"))
-    assert "class_name_collision" not in caplog.text
+    mg = MockGenerator(str(tmp_path / "s.json"))
+    assert {i["token"] for i in mg._type_map["Deployment"]} == {"k8s:apps/v1:Deployment", "k8s:apps/v1beta1:Deployment"}
 
 
 def test_run_with_mocks_valid(cape_schema_path, cape_fixtures):

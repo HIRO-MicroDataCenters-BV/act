@@ -86,7 +86,7 @@ def test_run_load_extra_rules_logs_when_checkov_skips_provider(caplog):
     from act.run import _load_extra_rules
 
     mg = MagicMock()
-    mg._type_map = {"Thing": {"token": "unknownprov:foo:Thing"}}
+    mg._type_map = {"Thing": [{"token": "unknownprov:foo:Thing"}]}
 
     with caplog.at_level(logging.DEBUG, logger="act"):
         _load_extra_rules(oracle=MagicMock(), mg=mg, engines=["checkov"])
