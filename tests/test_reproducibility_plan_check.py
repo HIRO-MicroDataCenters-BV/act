@@ -50,3 +50,16 @@ def test_capture_timeout_propagates():
     ):
         with pytest.raises(subprocess.TimeoutExpired):
             PlanCheck(capture_timeout_s=1).run(CAPE_PROGRAM_VALID, CAPE_SCHEMA)
+
+
+def test_run_logs_both_hashes(caplog):
+    """The rung reports the comparison it made, not only its verdict."""
+    import logging
+
+    with caplog.at_level(logging.INFO, logger="act.reproducibility.plan_check"):
+        result = PlanCheck().run(CAPE_PROGRAM_VALID, CAPE_SCHEMA)
+
+    record = next(r for r in caplog.records if r.getMessage() == "plan_check.done")
+    assert record.hash_1 == result.hash_1
+    assert record.hash_2 == result.hash_2
+    assert record.deterministic is True

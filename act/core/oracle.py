@@ -3,7 +3,7 @@ from typing import Callable, List, Optional, Tuple
 import logging
 
 from act.core.schema import load_merged_resources
-from act.core.violations import Violation
+from act.core.violations import Violation, count_by_source
 from act.plugins.base import OraclePlugin
 
 log = logging.getLogger(__name__)
@@ -35,17 +35,23 @@ class CorrectnessOracle(OraclePlugin):
     def __init__(self, schema_path: str | list[str]):
         self._schema = load_merged_resources(schema_path)
         self._rules: List[Tuple[Optional[str], Callable[[dict], List[Violation]]]] = []
+        self._sources: dict[int, str] = {}
 
     def add_rule(
         self,
         rule_fn: Callable[[dict], List[Violation]],
         resource_type: Optional[str] = None,
+        source: Optional[str] = None,
     ) -> None:
         """Register a rule function.
 
         resource_type: Pulumi token to scope the rule; None runs it for every type.
+        source: name this rule set reports itself as, so a report can say which engine
+                raised a violation. Stamped onto the rule's violations by check().
         """
         self._rules.append((resource_type, rule_fn))
+        if source:
+            self._sources[id(rule_fn)] = source
 
     def registered_rules(self) -> List[Tuple[Optional[str], Callable[[dict], List[Violation]]]]:
         """Return the (resource_type, rule_fn) pairs registered via add_rule()."""
@@ -57,9 +63,15 @@ class CorrectnessOracle(OraclePlugin):
         inputs: the resource output dict from MockGenerator.run_with_mocks().
         """
         violations = self._infer_from_schema(resource_type, inputs)
+        for v in violations:
+            v.source = v.source or "schema"
         for scoped_type, rule in self._rules:
             if scoped_type is None or scoped_type == resource_type:
-                violations.extend(rule(inputs))
+                found = rule(inputs)
+                source = self._sources.get(id(rule), "")
+                for v in found:
+                    v.source = v.source or source
+                violations.extend(found)
         if violations:
             log.debug(
                 "oracle.violations",
@@ -67,6 +79,7 @@ class CorrectnessOracle(OraclePlugin):
                     "resource_type": resource_type,
                     "count": len(violations),
                     "fields": [v.field for v in violations],
+                    "by_source": count_by_source(violations),
                 },
             )
         return violations

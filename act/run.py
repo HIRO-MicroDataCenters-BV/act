@@ -71,6 +71,8 @@ class _JsonFormatter(logging.Formatter):
         "hash_1",
         "hash_2",
         "diff",
+        "deterministic",
+        "by_source",
         "image",
         "arch",
         "detail",

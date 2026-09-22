@@ -99,4 +99,4 @@ def load_checkov_rules(
     def _rule(inputs: dict) -> List[Violation]:
         return _run_checkov(resolved_type, inputs)
 
-    oracle.add_rule(_rule, resource_type=resource_type)
+    oracle.add_rule(_rule, resource_type=resource_type, source="checkov")

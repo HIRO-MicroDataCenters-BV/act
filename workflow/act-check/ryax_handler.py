@@ -69,6 +69,8 @@ def handle(inputs: dict) -> dict:
 
     argv = ["check", "--program", program, "--schema", *schemas, "--output", workdir]
     argv += ["--acv-mode", inputs.get("acv_mode") or "advisory"]
+    # INFO and below put one line per validation layer in the engine's log for this step.
+    argv += ["--log-level", inputs.get("log_level") or "INFO"]
     rules = inputs.get("rules") or "none"
     if rules != "none":
         argv += ["--rules", rules]

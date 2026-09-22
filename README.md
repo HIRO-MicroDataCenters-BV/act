@@ -321,6 +321,27 @@ uv run act check \
 
 JSON goes to stderr; the human-readable PASS/FAIL report goes to stdout. The two streams are independent, so you can pipe or redirect them separately.
 
+### See each validation layer
+
+At `INFO` every layer reports itself once, with how long it took, so a run can be read as
+the sequence of stages it actually is:
+
+```
+{"msg": "pipeline.start", "program": "nginx.py", "parameterized": false}
+{"msg": "pipeline.mock_done", "resources": ["nginx"], "duration_ms": 128}
+{"msg": "pipeline.oracle_done", "violations": 20, "duration_ms": 673, "by_source": {"checkov": 20}}
+{"msg": "pipeline.done", "violations": 20, "duration_ms": 841, "passed": false}
+{"msg": "ci_gate.result", "violations": 20, "passed": false, "exit_code": 1}
+{"msg": "plan_check.done", "deterministic": true, "hash_1": "98c370aa...", "hash_2": "98c370aa...", "duration_ms": 533}
+```
+
+`parameterized` on the first line is the Path A or Path B routing decision. `by_source`
+splits the violation count by the engine that raised it, so the built-in provider rules and
+an opt-in engine such as Checkov stay separately countable even though both run through the
+same oracle. `plan_check.done` carries both hashes it compared, not just the verdict.
+`DEBUG` adds the detail inside each layer, including which resource type produced which
+violation fields.
+
 ---
 
 ## CI/CD integration
