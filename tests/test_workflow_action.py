@@ -29,7 +29,7 @@ def test_invalid_program_fails_with_violations(handle, cape_fixtures):
     result = handle({"program": str(cape_fixtures / "path_a_invalid.py")})
     assert result["passed"] is False
     assert result["exit_code"] == 1
-    assert result["report"].count("[HIGH]") == 2
+    assert result["report"].count("[HIGH]") == 1
 
 
 def test_program_source_text_is_accepted(handle, cape_fixtures):

@@ -104,13 +104,14 @@ def test_invalid_instance_violations_detected(cape_schema_path, cape_fixtures):
     assert all(v.severity == "HIGH" for v in violations)
 
 
-def test_missing_security_group_flagged_by_correct_rule(cape_schema_path, cape_fixtures):
+def test_ssh_without_security_group_reported_once(cape_schema_path, cape_fixtures):
     mg = MockGenerator(cape_schema_path)
     result = mg.run_with_mocks(str(cape_fixtures / "path_a_invalid.py"))
     oracle = CorrectnessOracle(cape_schema_path)
     oracle.add_rule(rule_no_exposed_instance, resource_type="cape:compute:Instance")
+    oracle.add_rule(rule_no_unprotected_ssh, resource_type="cape:compute:Instance")
     violations = oracle.check("cape:compute:Instance", result["my-instance"])
-    assert any(v.field == "spec.securityGroupRef" for v in violations)
+    assert [v.field for v in violations] == ["spec.sshKeys"]
 
 
 def test_instance_rules_do_not_fire_on_workspace(cape_schema_path, cape_fixtures):
