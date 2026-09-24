@@ -46,9 +46,8 @@ uv run act check --program tests/fixtures/cape/path_a_invalid.py
 
 # Expected:
 # FAIL  tests/fixtures/cape/path_a_invalid.py
-#   [HIGH] spec.securityGroupRef: Instance has no security group - network traffic is uncontrolled
-#   [HIGH] spec.sshKeys: SSH keys configured but no security group - SSH access is open
-# Summary: 1 resource, 2 violations, plan reproducible
+#   [HIGH] spec.sshKeys: SSH keys configured but no security group - SSH is not restricted to known sources
+# Summary: 1 resource, 1 violation, plan reproducible
 # (exit 1)
 ```
 
@@ -61,7 +60,7 @@ That's the gate. Wire the same invocation into CI and bad commits stop at the ga
 For every Pulumi program you run through it, ACT does up to five things:
 
 1. **Captures the plan without provisioning.** It hooks the Pulumi SDK and records what resources *would* be created and what inputs they carry. Never calls a real cloud API.
-2. **Checks structural rules.** The oracle flags missing required fields (for example a missing security group), wrong types, and out-of-range or invalid enum values, plus provider rules such as CAPE network exposure. Each surfaces as a `Violation` with severity and a recommendation. Content checks (embedded secrets) are the cognitive validator's job.
+2. **Checks structural rules.** The oracle flags missing required fields (for example a missing security group), wrong types, and out-of-range or invalid enum values, plus provider rules. The CAPE rules cover network exposure (security groups, open ingress, an unrestricted Kubernetes API), RBAC wildcards, and values the provider would reject at admission (rule ports and protocols, image architecture). Each surfaces as a `Violation` with severity and a recommendation. Content checks (embedded secrets) are the cognitive validator's job.
 3. **Fuzzes parameterised programs.** When the program takes inputs, ACT mutates them (atheris fuzz + hypothesis property tests) to find configurations that pass the type checker but break the policy.
 4. **Verifies reproducibility.** Optional: provisions a fresh ephemeral cluster (k3s in Docker) for each of two runs and confirms the cluster accepts an identical deployment each time, hashing the accepted resource specs rather than waiting for the workload to finish running. This keeps the check fast and uniform across amd64, arm64, riscv64, GPU, FPGA, and CXL targets.
 5. **Offers AI advice.** Optional: with the cognitive validator enabled, ACT sends the program to an LLM for extra security advice. The findings are advisory by default and don't change the pass/fail result unless you opt into `--acv-mode blocking`.
