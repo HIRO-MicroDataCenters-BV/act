@@ -13,6 +13,17 @@ entries:
     - https://HIRO-MicroDataCenters-BV.github.io/act/helm-charts/act-0.9.3.tgz
     version: 0.9.3
   - apiVersion: v2
+    appVersion: 0.9.3-dev.2.main.658fb944
+    created: "2026-09-24T12:13:53.797654051Z"
+    description: Automated Configuration Testing — IaC validation and trust gate for
+      Pulumi programs.
+    digest: cc7b8412f9ca51609bd9e3e53f6be005efb043e8fa84cc0f142ec9eb35e04cd9
+    name: act
+    type: application
+    urls:
+    - https://HIRO-MicroDataCenters-BV.github.io/act/helm-charts/act-0.9.3-dev.2.main.658fb944.tgz
+    version: 0.9.3-dev.2.main.658fb944
+  - apiVersion: v2
     appVersion: 0.9.3-dev.1.cape-rules-new-s.9f820b02
     created: "2026-09-24T12:11:04.727076164Z"
     description: Automated Configuration Testing — IaC validation and trust gate for
@@ -1233,4 +1244,4 @@ entries:
     urls:
     - https://HIRO-MicroDataCenters-BV.github.io/act/helm-charts/act-0.1.0-dev.0.main.5b67059e.tgz
     version: 0.1.0-dev.0.main.5b67059e
-generated: "2026-09-24T12:11:04.726615836Z"
+generated: "2026-09-24T12:13:53.797194907Z"
