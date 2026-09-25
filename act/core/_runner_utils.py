@@ -15,6 +15,15 @@ _ENV_BOUNDARY_VALUES: tuple = (None, "", "act-fuzz")
 # Key under which a finding's inputs record the program's arguments (not a valid env var name).
 ARGV_KEY = "sys.argv"
 
+# Values worth trying beyond unset/empty: wildcards, open CIDRs, flags, numeric edges, and a
+# long string. Security misconfigurations tend to hide behind exactly these.
+INTERESTING_VALUES: tuple = ("*", "0.0.0.0/0", "::/0", "true", "false", "0", "-1", "65536", " ", "null", "a" * 256)
+
+
+def record_inputs(env: dict, argv: Optional[list]) -> dict:
+    """The inputs a finding was triggered by, in the shape describe_inputs renders."""
+    return {**env, ARGV_KEY: list(argv)} if argv is not None else dict(env)
+
 
 def deduplicate(violations: list[Violation], seen: set) -> list[Violation]:
     """Return violations whose (field, message) key is new; adds new keys to seen in-place."""
