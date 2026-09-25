@@ -6,6 +6,7 @@ import traceback
 
 from act.acv.models import acv_result_to_violations
 from act.core.pipeline import ACTPipeline, PipelineResult
+from act.core.violations import describe_inputs
 from act.schema_resolver import provider_sdk_hint
 
 log = logging.getLogger(__name__)
@@ -53,7 +54,10 @@ class CIGate:
         else:
             lines = [f"FAIL  {result.program_path}"]
             for v in result.violations:
-                lines.append(f"  [{v.severity}] {v.field}: {v.message}")
+                where = f" on {v.resource}" if v.resource else ""
+                lines.append(f"  [{v.severity}] {v.field}{where}: {v.message}")
+                if v.found_by and v.inputs:
+                    lines.append(f"      found by {v.found_by} with {describe_inputs(v.inputs)}")
         lines.extend(self._acv_lines(result))
         # Appended last so it never shifts the PASS/FAIL/ACV lines other callers assert on.
         if result.resource_count == 0:
