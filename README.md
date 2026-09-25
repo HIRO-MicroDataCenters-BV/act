@@ -415,7 +415,7 @@ pipeline {
 
 ### Docker
 
-A pre-built image is published per release. `latest` tracks the newest; pin a release tag (e.g. `:0.5.1`) for reproducible runs. The image expects the program + schema on a mounted volume.
+A pre-built image is published per release. `latest` tracks the newest; pin a release tag (e.g. `:0.9.4`) for reproducible runs. The image expects the program + schema on a mounted volume.
 
 ```bash
 docker run --rm \
