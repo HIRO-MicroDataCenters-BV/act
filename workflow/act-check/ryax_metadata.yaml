@@ -4,7 +4,7 @@ spec:
   id: act-check
   human_name: ACT trust gate
   type: python3
-  version: "0.9.4"
+  version: "0.9.4-fuzzing"
   description: "Validate a Pulumi program before deployment: mock generation, structural oracle, optional Checkov rules, plan determinism, and the advisory cognitive validator. Exit 0 = pass, 1 = violations, 2 = pipeline error."
   categories:
     - Infrastructure as Code
