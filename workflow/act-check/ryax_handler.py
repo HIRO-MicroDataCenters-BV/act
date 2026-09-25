@@ -59,11 +59,14 @@ def handle(inputs: dict) -> dict:
         ("acv_model", "ACT_ACV_MODEL"),
         ("acv_base_url", "ACT_ACV_BASE_URL"),
         ("acv_api_key", "ACT_ACV_API_KEY"),
+        ("acv_timeout", "ACT_ACV_TIMEOUT"),
+        ("acv_max_iterations", "ACT_ACV_MAX_ITERATIONS"),
+        ("acv_extra_body", "ACT_ACV_EXTRA_BODY"),
     )
     for key, env in acv_env:
         value = inputs.get(key)
         if value:
-            os.environ[env] = value
+            os.environ[env] = str(value)
         else:
             os.environ.pop(env, None)
 
