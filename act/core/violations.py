@@ -3,6 +3,9 @@ from typing import Iterable, Optional
 from collections import Counter
 from dataclasses import dataclass
 
+# Key under which a finding's inputs record the program's arguments (not a valid env var name).
+ARGV_KEY = "sys.argv"
+
 
 @dataclass
 class Violation:
@@ -28,3 +31,16 @@ class Violation:
 def count_by_source(violations: Iterable[Violation]) -> dict:
     """How many violations each rule set raised, for reports that name the engine."""
     return dict(sorted(Counter(v.source or "unknown" for v in violations).items()))
+
+
+def describe_inputs(inputs: dict) -> str:
+    """Render the inputs that triggered a finding: set values, then the unset names."""
+    set_parts = [f'{name}="{value}"' for name, value in inputs.items() if name != ARGV_KEY and value is not None]
+    unset = [name for name, value in inputs.items() if name != ARGV_KEY and value is None]
+    text = " ".join(set_parts)
+    if unset:
+        text += f" ({', '.join(unset)} unset)" if text else f"{', '.join(unset)} unset"
+    if ARGV_KEY in inputs:
+        args = ", ".join(f'"{a}"' for a in inputs[ARGV_KEY])
+        text += f"{' ' if text else ''}sys.argv[1:]=[{args}]"
+    return text

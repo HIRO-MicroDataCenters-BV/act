@@ -45,6 +45,17 @@ def _is_parameterized(program_path: str) -> bool:
     return False
 
 
+def _merge_new(first: List[Violation], extra: List[Violation]) -> List[Violation]:
+    """`first`, then each finding in `extra` not already reported (same resource, field, message)."""
+    seen = {v.key() for v in first}
+    merged = list(first)
+    for v in extra:
+        if v.key() not in seen:
+            seen.add(v.key())
+            merged.append(v)
+    return merged
+
+
 class ACTPipeline:
     def __init__(
         self,
@@ -74,24 +85,28 @@ class ACTPipeline:
         if not mock_outputs:
             log.warning("pipeline.no_resources", extra={"program": program_path})
 
+        fuzz_v: List[Violation] = []
+        prop_v: List[Violation] = []
         if parameterized:
             if self._fuzz_runner:
                 t = time.perf_counter()
                 fuzz_v = self._fuzz_runner.run(program_path)
-                violations.extend(fuzz_v)
                 log.info("pipeline.fuzz_done", extra={"violations": len(fuzz_v), "duration_ms": _ms(t)})
             if self._property_runner:
                 t = time.perf_counter()
                 prop_v = self._property_runner.run(program_path)
-                violations.extend(prop_v)
                 log.info("pipeline.property_done", extra={"violations": len(prop_v), "duration_ms": _ms(t)})
         t = time.perf_counter()
         oracle_violations: List[Violation] = []
         for resource_name, outputs in mock_outputs.items():
             resource_type = self._mock_generator.get_resource_type(resource_name)
             if resource_type:
-                oracle_violations.extend(self._oracle.check(resource_type, outputs))
-        violations.extend(oracle_violations)
+                for v in self._oracle.check(resource_type, outputs):
+                    v.resource = v.resource or resource_name
+                    oracle_violations.append(v)
+        # Property testing first: for a finding both layers hit, it reports the smallest input,
+        # where fuzzing reports the first one it tried.
+        violations.extend(_merge_new(oracle_violations, prop_v + fuzz_v))
         log.info(
             "pipeline.oracle_done",
             extra={

@@ -7,13 +7,10 @@ import ast
 import itertools
 
 from act.core.mock_generator import MockGenerator
-from act.core.violations import Violation
+from act.core.violations import ARGV_KEY, Violation
 
 # Per-variable boundary values: unset, empty, and a representative non-empty value.
 _ENV_BOUNDARY_VALUES: tuple = (None, "", "act-fuzz")
-
-# Key under which a finding's inputs record the program's arguments (not a valid env var name).
-ARGV_KEY = "sys.argv"
 
 # Values worth trying beyond unset/empty: wildcards, open CIDRs, flags, numeric edges, and a
 # long string. Security misconfigurations tend to hide behind exactly these.
@@ -70,19 +67,6 @@ def reads_argv(program_path: str) -> bool:
         isinstance(node, ast.Attribute) and node.attr == "argv" and _is_name(node.value, "sys")
         for node in ast.walk(tree)
     )
-
-
-def describe_inputs(inputs: dict) -> str:
-    """Render the inputs that triggered a finding: set values, then the unset names."""
-    set_parts = [f'{name}="{value}"' for name, value in inputs.items() if name != ARGV_KEY and value is not None]
-    unset = [name for name, value in inputs.items() if name != ARGV_KEY and value is None]
-    text = " ".join(set_parts)
-    if unset:
-        text += f" ({', '.join(unset)} unset)" if text else f"{', '.join(unset)} unset"
-    if ARGV_KEY in inputs:
-        args = ", ".join(f'"{a}"' for a in inputs[ARGV_KEY])
-        text += f"{' ' if text else ''}sys.argv[1:]=[{args}]"
-    return text
 
 
 def check_inputs(mock_generator, oracle, program_path: str, env: dict, argv: Optional[list] = None) -> list[Violation]:

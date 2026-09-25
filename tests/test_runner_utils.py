@@ -31,10 +31,10 @@ def test_generate_env_combinations_one_at_a_time_when_large():
 # Inputs a parameterized program is re-run under
 # ---------------------------------------------------------------------------
 
-from act.core._runner_utils import check_inputs, describe_inputs, reads_argv  # noqa: E402
+from act.core._runner_utils import check_inputs, reads_argv  # noqa: E402
 from act.core.mock_generator import MockGenerator  # noqa: E402
 from act.core.oracle import CorrectnessOracle  # noqa: E402
-from act.core.violations import Violation  # noqa: E402
+from act.core.violations import Violation, describe_inputs  # noqa: E402
 from act.rules import cape  # noqa: E402
 
 ARGV_PROGRAM = """

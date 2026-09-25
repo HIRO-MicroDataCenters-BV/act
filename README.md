@@ -46,7 +46,7 @@ uv run act check --program tests/fixtures/cape/path_a_invalid.py
 
 # Expected:
 # FAIL  tests/fixtures/cape/path_a_invalid.py
-#   [HIGH] spec.sshKeys: SSH keys configured but no security group - SSH is not restricted to known sources
+#   [HIGH] spec.sshKeys on my-instance: SSH keys configured but no security group - SSH is not restricted to known sources
 # Summary: 1 resource, 1 violation, plan reproducible
 # (exit 1)
 ```
@@ -61,7 +61,7 @@ For every Pulumi program you run through it, ACT does up to five things:
 
 1. **Captures the plan without provisioning.** It hooks the Pulumi SDK and records what resources *would* be created and what inputs they carry. Never calls a real cloud API.
 2. **Checks structural rules.** The oracle flags missing required fields (for example a missing security group), wrong types, and out-of-range or invalid enum values, plus provider rules. The CAPE rules cover network exposure (security groups, open ingress, an unrestricted Kubernetes API), RBAC wildcards, and values the provider would reject at admission (rule ports and protocols, image architecture). Each surfaces as a `Violation` with severity and a recommendation. Content checks (embedded secrets) are the cognitive validator's job.
-3. **Fuzzes parameterised programs.** When the program takes inputs, ACT mutates them (atheris fuzz + hypothesis property tests) to find configurations that pass the type checker but break the policy.
+3. **Fuzzes and property-tests parameterized programs.** When the program reads inputs (environment variables or `sys.argv`), ACT re-runs it under many of them. Fuzzing (atheris) tries every unset/empty/sample combination, then generated values such as `*`, `0.0.0.0/0` and arbitrary text. Property testing (hypothesis) searches for an input that breaks the policy and shrinks it to the smallest one. Each finding reports the input that triggered it.
 4. **Verifies reproducibility.** Optional: provisions a fresh ephemeral cluster (k3s in Docker) for each of two runs and confirms the cluster accepts an identical deployment each time, hashing the accepted resource specs rather than waiting for the workload to finish running. This keeps the check fast and uniform across amd64, arm64, riscv64, GPU, FPGA, and CXL targets.
 5. **Offers AI advice.** Optional: with the cognitive validator enabled, ACT sends the program to an LLM for extra security advice. The findings are advisory by default and don't change the pass/fail result unless you opt into `--acv-mode blocking`.
 
@@ -187,8 +187,8 @@ Logging and analysis depth:
 | `ACT_ACV_MAX_ITERATIONS` | Cognitive validator planner/tool loop iterations | `3` |
 | `ACT_ACV_MIN_REQUEST_INTERVAL_S` | Minimum seconds between ACV LLM calls; pace to a free-tier RPM limit | `0` (no pacing) |
 | `ACT_ACV_MAX_RETRIES` | Retries on rate-limit/overload (429/5xx) responses from the LLM | `3` |
-| `ACT_FUZZ_ITERATIONS` | Fuzz mutations per resource on Path B (parameterized programs) | `100` |
-| `ACT_PROPERTY_MAX_EXAMPLES` | Hypothesis examples per resource on Path B | `50` |
+| `ACT_FUZZ_ITERATIONS` | Distinct inputs fuzzing tries per parameterized program | `100` |
+| `ACT_PROPERTY_MAX_EXAMPLES` | Inputs each property-testing search tries per parameterized program | `50` |
 
 Reproducibility substrate images:
 
@@ -334,7 +334,7 @@ the sequence of stages it actually is:
 {"msg": "plan_check.done", "deterministic": true, "hash_1": "98c370aa...", "hash_2": "98c370aa...", "duration_ms": 533}
 ```
 
-`parameterized` on the first line is the Path A or Path B routing decision. `by_source`
+`parameterized` on the first line says whether the program reads inputs, so fuzzing and property testing run. `by_source`
 splits the violation count by the engine that raised it, so the built-in provider rules and
 an opt-in engine such as Checkov stay separately countable even though both run through the
 same oracle. `plan_check.done` carries both hashes it compared, not just the verdict.
@@ -463,7 +463,7 @@ ACT accepts any standard Pulumi Python program. No special imports, no decorator
 
 ### Two flavours
 
-**LLM-generated programs (Path A)**: hard-coded inputs, no parameters. ACT runs the mock generator + oracle + (optionally) the cognitive validator.
+**LLM-generated programs**: hard-coded inputs, no parameters. ACT runs the mock generator + oracle + (optionally) the cognitive validator.
 
 ```python
 # valid_instance.py
@@ -481,7 +481,7 @@ Instance("web",
 )
 ```
 
-**Developer-written programs (Path B)**: read inputs from `os.environ` / `sys.argv`. ACT additionally fuzzes those inputs and runs hypothesis property tests to explore corners that pass typing but fail policy.
+**Parameterized programs**: read inputs from `os.environ` / `sys.argv`. ACT additionally fuzzes those inputs and property-tests them to find inputs that pass typing but fail policy, and reports each finding with the smallest input that triggers it.
 
 ```python
 # parameterised.py
