@@ -12,6 +12,9 @@ from act.core.violations import Violation
 # Per-variable boundary values: unset, empty, and a representative non-empty value.
 _ENV_BOUNDARY_VALUES: tuple = (None, "", "act-fuzz")
 
+# Key under which a finding's inputs record the program's arguments (not a valid env var name).
+ARGV_KEY = "sys.argv"
+
 
 def deduplicate(violations: list[Violation], seen: set) -> list[Violation]:
     """Return violations whose (field, message) key is new; adds new keys to seen in-place."""
@@ -59,6 +62,45 @@ def discover_env_vars(program_path: str) -> list[str]:
         if name and name not in names:
             names.append(name)
     return names
+
+
+def reads_argv(program_path: str) -> bool:
+    """Whether the program reads sys.argv (so its arguments are an input to vary)."""
+    with open(MockGenerator._entry_point(program_path)) as f:
+        tree = ast.parse(f.read())
+    return any(
+        isinstance(node, ast.Attribute) and node.attr == "argv" and _is_name(node.value, "sys") for node in ast.walk(tree)
+    )
+
+
+def describe_inputs(inputs: dict) -> str:
+    """Render the inputs that triggered a finding: set values, then the unset names."""
+    set_parts = [f'{name}="{value}"' for name, value in inputs.items() if name != ARGV_KEY and value is not None]
+    unset = [name for name, value in inputs.items() if name != ARGV_KEY and value is None]
+    text = " ".join(set_parts)
+    if unset:
+        text += f" ({', '.join(unset)} unset)" if text else f"{', '.join(unset)} unset"
+    if ARGV_KEY in inputs:
+        args = ", ".join(f'"{a}"' for a in inputs[ARGV_KEY])
+        text += f"{' ' if text else ''}sys.argv[1:]=[{args}]"
+    return text
+
+
+def check_inputs(mock_generator, oracle, program_path: str, env: dict, argv: Optional[list] = None) -> list[Violation]:
+    """Re-run the program under one set of inputs; return its violations, each naming its resource."""
+    try:
+        # A program that raises on some input is not itself a policy violation.
+        outputs = mock_generator.run_with_mocks(program_path, env=env, argv=argv)
+    except Exception:
+        return []
+    found: list[Violation] = []
+    for name, resource_outputs in outputs.items():
+        token = mock_generator.get_resource_type(name)
+        if token:
+            for v in oracle.check(token, resource_outputs):
+                v.resource = name
+                found.append(v)
+    return found
 
 
 def generate_env_combinations(var_names: list[str], cap: int = 64) -> list[dict]:

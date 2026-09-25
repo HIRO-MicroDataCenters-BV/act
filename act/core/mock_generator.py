@@ -57,6 +57,20 @@ def _env_overrides(overrides: Optional[dict]):
 
 
 @contextlib.contextmanager
+def _argv_override(program_path: str, argv: Optional[list]):
+    """Temporarily set sys.argv to [program, *argv]; argv None leaves it untouched."""
+    if argv is None:
+        yield
+        return
+    saved = sys.argv
+    sys.argv = [program_path, *argv]
+    try:
+        yield
+    finally:
+        sys.argv = saved
+
+
+@contextlib.contextmanager
 def _exec_timeout(seconds: float):
     """Best-effort wall-clock cap on program execution (SIGALRM; Unix main thread only)."""
     usable = seconds > 0 and hasattr(signal, "SIGALRM") and threading.current_thread() is threading.main_thread()
@@ -196,11 +210,17 @@ class MockGenerator:
         p = Path(program_path)
         return str(p / "__main__.py") if p.is_dir() else str(p)
 
-    def run_with_mocks(self, program_path: str, env: Optional[dict[str, Optional[str]]] = None) -> dict:
+    def run_with_mocks(
+        self,
+        program_path: str,
+        env: Optional[dict[str, Optional[str]]] = None,
+        argv: Optional[list[str]] = None,
+    ) -> dict:
         """Run a program (file or project dir) under mocks; return {resource name -> outputs}.
 
         env: os.environ overrides applied during execution (value None unsets the var),
         so a parameterised program can be re-run under varied inputs.
+        argv: arguments the program sees as sys.argv[1:]; None leaves sys.argv as is.
         """
         program_path = self._entry_point(program_path)
         MockClass = self.generate(program_path)
@@ -240,7 +260,12 @@ class MockGenerator:
         try:
             # Divert the program's own stdout so its prints don't pollute ACT's report
             # or corrupt the canonical JSON the plan-determinism subprocess emits.
-            with contextlib.redirect_stdout(io.StringIO()), _env_overrides(env), _exec_timeout(self._exec_timeout_s):
+            with (
+                contextlib.redirect_stdout(io.StringIO()),
+                _env_overrides(env),
+                _argv_override(program_path, argv),
+                _exec_timeout(self._exec_timeout_s),
+            ):
                 loop.run_until_complete(_execute())
         finally:
             asyncio.set_event_loop(None)
