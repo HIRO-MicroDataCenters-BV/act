@@ -54,7 +54,7 @@ def handle(inputs: dict) -> dict:
     # An uploaded schema is used on its own; otherwise every bundled schema is offered.
     schemas = [inputs["schema"]] if inputs.get("schema") else _bundled_schemas(workdir)
 
-    # The cognitive validator is enabled purely through its environment variables.
+    # The cognitive validator's settings travel as environment variables; acv_mode decides whether it runs.
     acv_env = (
         ("acv_model", "ACT_ACV_MODEL"),
         ("acv_base_url", "ACT_ACV_BASE_URL"),
@@ -71,7 +71,7 @@ def handle(inputs: dict) -> dict:
             os.environ.pop(env, None)
 
     argv = ["check", "--program", program, "--schema", *schemas, "--output", workdir]
-    argv += ["--acv-mode", inputs.get("acv_mode") or "advisory"]
+    argv += ["--acv-mode", inputs.get("acv_mode") or "none"]
     # INFO and below put one line per validation layer in the engine's log for this step.
     argv += ["--log-level", inputs.get("log_level") or "INFO"]
     rules = inputs.get("rules") or "none"

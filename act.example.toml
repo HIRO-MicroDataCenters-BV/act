@@ -18,10 +18,10 @@
 # schema_dirs = ["./schemas"]
 
 # --- ACT Cognitive Validator (optional; needs the `acv` extra and a served model) ---
-# acv_model = ""              # served model name; leaving it unset disables ACV
+# acv_model = ""              # served model name
 # acv_base_url = ""           # OpenAI-compatible endpoint
 # acv_api_key = ""            # bearer token for hosted endpoints
-# acv_mode = "advisory"       # advisory | blocking
+# acv_mode = "none"           # none (off) | advisory | blocking
 # acv_timeout = 20.0
 # acv_max_iterations = 3
 # acv_min_request_interval_s = 0.0

@@ -149,7 +149,7 @@ def test_doctor_runs_and_exits_zero(capsys):
     out = capsys.readouterr().out
     assert "ACT preflight" in out
     assert "--check-deployment-runtime" in out
-    assert "--acv-mode blocking" in out
+    assert "--acv-mode advisory|blocking" in out
 
 
 def test_doctor_in_top_level_help(capsys):
@@ -259,3 +259,19 @@ def test_passing_program_still_reports_pass(capsys):
     code = main(["--program", CAPE_PROGRAM, "--schema", CAPE_SCHEMA, "--log-level", "ERROR"])
     assert code == 0
     assert capsys.readouterr().out.startswith("PASS  ")
+
+
+@pytest.mark.parametrize("mode, runs", [(None, False), ("none", False), ("advisory", True), ("blocking", True)])
+def test_acv_mode_decides_whether_the_validator_runs(monkeypatch, mode, runs):
+    from unittest.mock import patch
+
+    # Configured validator: only the mode decides whether it is built; none is the default.
+    monkeypatch.setenv("ACT_ACV_MODEL", "m")
+    monkeypatch.setenv("ACT_ACV_BASE_URL", "http://unreachable.invalid")
+    monkeypatch.delenv("ACT_ACV_MODE", raising=False)
+    argv = ["--program", CAPE_PROGRAM, "--schema", CAPE_SCHEMA, "--log-level", "ERROR"]
+    if mode:
+        argv += ["--acv-mode", mode]
+    with patch("act.run.ACTCognitiveValidator.from_env", return_value=None) as from_env:
+        assert main(argv) == 0
+    assert from_env.called is runs

@@ -160,9 +160,9 @@ Flags for `act check`:
 | `--check-deployment-arch ARCH` | no | off | Smoke-boot every container image referenced by the program under `linux/<ARCH>` via QEMU. Example: `--check-deployment-arch riscv64` |
 | `--check-deployment-runtime` | no | off | Provision a fresh ephemeral k3s cluster matching the program's target for each of two runs, run `pulumi up`, and verify the cluster accepts an identical deployment each time. Requires `docker`, `kubectl`, and `pulumi` CLI |
 | `--check-deployment-runtime-arch ARCH` | no | detected | Run the runtime check against `ARCH` (`amd64`, `arm64`, or `riscv64`) instead of the architecture detected from the program. Implies `--check-deployment-runtime`. A program with no architecture label resolves to `amd64`, so on an arm64 host pass `--check-deployment-runtime-arch arm64` to use a native cluster instead of an emulated one |
-| `--acv-mode {advisory,blocking}` | no | `advisory` | Whether the cognitive validator's verdict gates the exit code. `advisory` (default) never blocks; `blocking` fails the gate on an ACV FAIL. Env: `ACT_ACV_MODE` |
+| `--acv-mode {none,advisory,blocking}` | no | `none` | Whether the cognitive validator runs and gates. `none` (default) does not run it; `advisory` runs it and reports its findings without changing the exit code; `blocking` also fails the gate on an ACV FAIL. Env: `ACT_ACV_MODE` |
 
-The optional cognitive validator has no flag of its own; it is enabled through environment variables:
+The optional cognitive validator runs when `--acv-mode` is `advisory` or `blocking`; its endpoint comes from environment variables:
 
 | Variable | Purpose |
 |----------|---------|
