@@ -5,13 +5,13 @@ extra is missing, no endpoint is configured, or the endpoint is unreachable.
 Enable via ``ACT_ACV_MODEL`` + ``ACT_ACV_BASE_URL`` (``CAPE_ACV_MODEL_URL`` aliases the base URL).
 """
 
-from concurrent.futures import ThreadPoolExecutor
 from typing import List, Optional, Tuple, TypedDict
 
 import contextvars
 import logging
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 from act.acv.models import LLM, ACVFinding, ACVResult, findings_from_tool_json, skipped_result
 from act.config import DEFAULT_ACV_TIMEOUT_S, ActConfig
