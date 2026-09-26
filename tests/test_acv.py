@@ -6,6 +6,8 @@ shown in the report without changing the exit code, graceful skip when the
 endpoint is unreachable, and env-driven enablement.
 """
 
+import threading
+
 import pytest
 
 pytest.importorskip("langgraph")
@@ -107,6 +109,19 @@ def test_all_tools_contribute_when_llm_responds(valid_program):
     client = FakeClient(FINDING_JSON)  # no match -> responds to all prompts
     result = ACTCognitiveValidator("http://fake", "fake", client=client).validate(valid_program)
     assert result.verdict == "FAIL"
+    assert {f.tool for f in result.findings} == {t.name for t in acv_tools.TOOLS}
+
+
+def test_analysers_query_the_llm_concurrently(valid_program):
+    # Every call waits at a barrier that only opens once all five are in flight at once.
+    barrier = threading.Barrier(len(acv_tools.TOOLS), timeout=5)
+
+    class BarrierClient:
+        def complete(self, prompt: str) -> str:
+            barrier.wait()
+            return FINDING_JSON
+
+    result = ACTCognitiveValidator("http://fake", "fake", client=BarrierClient()).validate(valid_program)
     assert {f.tool for f in result.findings} == {t.name for t in acv_tools.TOOLS}
 
 

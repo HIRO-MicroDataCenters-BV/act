@@ -7,8 +7,11 @@ Enable via ``ACT_ACV_MODEL`` + ``ACT_ACV_BASE_URL`` (``CAPE_ACV_MODEL_URL`` alia
 
 from typing import List, Optional, Tuple, TypedDict
 
+import contextvars
 import logging
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 from act.acv.models import LLM, ACVFinding, ACVResult, findings_from_tool_json, skipped_result
 from act.config import DEFAULT_ACV_TIMEOUT_S, ActConfig
@@ -62,6 +65,7 @@ class _HttpxLLM:
         # Endpoint-specific request fields (e.g. disable Qwen3 thinking); merged last.
         self._extra_body = extra_body or {}
         self._last_request_ts = 0.0
+        self._throttle_lock = threading.Lock()
 
     def complete(self, prompt: str) -> str:
         body = {
@@ -105,10 +109,12 @@ class _HttpxLLM:
     def _throttle(self) -> None:
         if self._min_interval <= 0:
             return
-        wait = self._last_request_ts + self._min_interval - time.monotonic()
-        if wait > 0:
-            time.sleep(wait)
-        self._last_request_ts = time.monotonic()
+        # The analysers call concurrently; the lock keeps the requests spaced.
+        with self._throttle_lock:
+            wait = self._last_request_ts + self._min_interval - time.monotonic()
+            if wait > 0:
+                time.sleep(wait)
+            self._last_request_ts = time.monotonic()
 
     def _retry_delay(self, resp, attempt: int) -> float:
         if resp is not None:
@@ -160,9 +166,16 @@ def _planner(state: _ACVState) -> dict:
 
 def _run_tools(state: _ACVState) -> dict:
     content = state["program_content"]
+
+    def run(t) -> str:
+        return t.invoke({"program_content": content})
+
+    # One thread per analyser; each copies the context so the ContextVar-held client reaches it.
+    with ThreadPoolExecutor(max_workers=len(acv_tools.TOOLS)) as pool:
+        futures = [pool.submit(contextvars.copy_context().run, run, t) for t in acv_tools.TOOLS]
+        raws = [f.result() for f in futures]
     findings: List[ACVFinding] = []
-    for t in acv_tools.TOOLS:
-        raw = t.invoke({"program_content": content})
+    for t, raw in zip(acv_tools.TOOLS, raws):
         findings.extend(findings_from_tool_json(t.name, raw))
     return {"findings": _dedupe(findings), "prev_signature": _signature(state["findings"])}
 
