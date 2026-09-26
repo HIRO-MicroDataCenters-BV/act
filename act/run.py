@@ -308,6 +308,32 @@ def _is_runtime_skip(result: RuntimeCheckResult) -> bool:
     return bool(result.failures) and all(f.stage in _RUNTIME_SKIP_STAGES for f in result.failures)
 
 
+_ARCH_FAILURE_TEXT = {
+    "no_arch_variant": "has no linux/{arch} variant",
+    "boot_failed": "failed to boot on linux/{arch}",
+    "timeout": "timed out booting on linux/{arch}",
+}
+
+
+def _layer_failures(plan_result, arch_result, runtime_result) -> list[str]:
+    """One report line per failed check after the rules; skips (missing prerequisites) are not failures."""
+    lines = []
+    if plan_result is not None and not plan_result.deterministic:
+        where = ", ".join(plan_result.diff) if plan_result.diff else "the plan"
+        lines.append(f"plan determinism: the two runs differ at {where}")
+    if arch_result is not None:
+        for f in arch_result.failures:
+            if f.reason not in _ARCH_SKIP_REASONS:
+                text = _ARCH_FAILURE_TEXT.get(f.reason, f.reason).format(arch=arch_result.arch)
+                lines.append(f"deployment arch: {f.image} {text}")
+    if runtime_result is not None and not runtime_result.passed and not _is_runtime_skip(runtime_result):
+        for f in runtime_result.failures:
+            if f.stage not in _RUNTIME_SKIP_STAGES:
+                detail = (f.detail or "").splitlines()[0] if f.detail else ""
+                lines.append(f"deployment runtime: {f.stage}" + (f": {detail}" if detail else ""))
+    return lines
+
+
 def _run_runtime_check(
     program: str,
     schemas: list[str],
@@ -435,6 +461,12 @@ def _validate_inputs(program: str, schemas: list) -> str | None:
     return None
 
 
+def _print_partial_report(gate) -> None:
+    """When the check stops early, still print what the rules found."""
+    if gate is not None and gate.last_result is not None:
+        print(gate.format_report(gate.last_result))
+
+
 def _summary_line(pipeline_result, plan_result, arch_result, runtime_result) -> str:
     """One-line outcome summary for the check command (suppressed by --quiet)."""
     parts = []
@@ -492,6 +524,7 @@ def _cmd_check(argv=None) -> int:
         print(f"[ERROR] {error}", file=sys.stderr)
         return 2
 
+    gate = None
     try:
         mg = MockGenerator(schemas, exec_timeout_s=cfg.exec_timeout_s)
         oracle = CorrectnessOracle(schemas)
@@ -514,10 +547,12 @@ def _cmd_check(argv=None) -> int:
             acv_blocking=(args.acv_mode == "blocking"),
         )
         gate = CIGate(pipeline)
-        exit_code = gate.evaluate(args.program)
+        # The report is printed once every check has run, so its verdict covers all of them.
+        exit_code = gate.evaluate(args.program, print_report=False)
         # A pipeline error (exit 2) means the plan-capture subprocess would fail too;
         # stop here instead of surfacing a second traceback from the reproducibility checks.
         if exit_code == 2:
+            _print_partial_report(gate)
             return exit_code
 
         plan_result = _run_plan_check(args.program, schemas, log, cfg)
@@ -569,17 +604,22 @@ def _cmd_check(argv=None) -> int:
             path = write_artefact(artefact, args.output)
             log.info("artefact_written", extra={"artefact_path": path})
 
+        if gate.last_result is not None:
+            print(gate.format_report(gate.last_result, _layer_failures(plan_result, arch_result, runtime_result)))
         if not args.quiet:
             print(_summary_line(gate.last_result, plan_result, arch_result, runtime_result))
 
         return exit_code
     except subprocess.TimeoutExpired:
+        _print_partial_report(gate)
         print("[ERROR] timed out running the program (see ACT_EXEC_TIMEOUT_S).", file=sys.stderr)
         return 2
     except FileNotFoundError as e:
+        _print_partial_report(gate)
         print(f"[ERROR] {e}", file=sys.stderr)
         return 2
     except Exception as e:
+        _print_partial_report(gate)
         print(f"[ERROR] Pipeline failed: {e}", file=sys.stderr)
         traceback.print_exc(file=sys.stderr)
         return 2

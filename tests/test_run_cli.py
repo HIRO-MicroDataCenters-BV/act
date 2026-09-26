@@ -208,3 +208,54 @@ def test_resolve_config_path(tmp_path, monkeypatch):
     assert _resolve_config_path(["--program", "p"]) is None
     (tmp_path / "act.toml").write_text("")
     assert _resolve_config_path(["--program", "p"]) == "act.toml"
+
+
+CAPE_NONDETERMINISTIC = "tests/fixtures/cape/path_a_nondeterministic.py"
+
+
+def test_plan_drift_reports_fail_not_pass(capsys):
+    # The rules pass, but the plan differs between runs: the verdict line must say FAIL.
+    code = main(["--program", CAPE_NONDETERMINISTIC, "--schema", CAPE_SCHEMA, "--log-level", "ERROR"])
+    out = capsys.readouterr().out
+    assert code == 1
+    assert out.startswith("FAIL  ")
+    assert "PASS" not in out
+    assert "  plan determinism: the two runs differ at" in out
+
+
+def test_failed_layer_is_listed_after_rule_violations(capsys):
+    from unittest.mock import MagicMock, patch
+
+    from act.reproducibility import DeploymentArchResult, ImageBootFailure
+
+    arch = MagicMock()
+    arch.run.return_value = DeploymentArchResult(
+        passed=False,
+        arch="riscv64",
+        images_checked=["img"],
+        failures=[ImageBootFailure(image="img", reason="no_arch_variant", detail="x")],
+    )
+    with patch("act.run.DeploymentArchCheck", return_value=arch):
+        code = main(
+            [
+                "--program",
+                CAPE_INVALID,
+                "--schema",
+                CAPE_SCHEMA,
+                "--check-deployment-arch",
+                "riscv64",
+                "--log-level",
+                "ERROR",
+            ]
+        )
+    lines = capsys.readouterr().out.splitlines()
+    assert code == 1
+    assert lines[0].startswith("FAIL  ")
+    assert any(line.startswith("  [HIGH] ") for line in lines)
+    assert "  deployment arch: img has no linux/riscv64 variant" in lines
+
+
+def test_passing_program_still_reports_pass(capsys):
+    code = main(["--program", CAPE_PROGRAM, "--schema", CAPE_SCHEMA, "--log-level", "ERROR"])
+    assert code == 0
+    assert capsys.readouterr().out.startswith("PASS  ")
