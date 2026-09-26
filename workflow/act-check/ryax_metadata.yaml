@@ -65,6 +65,21 @@ spec:
       help: Bearer token for the endpoint, if it needs one.
       type: password
       optional: true
+    - name: acv_timeout
+      human_name: Cognitive validator timeout (s)
+      help: Seconds to wait for each model reply. Leave empty for ACT's default (20 s); slower models need more.
+      type: float
+      optional: true
+    - name: acv_max_iterations
+      human_name: Cognitive validator rounds
+      help: How many rounds of the five analysers to run. Leave empty for ACT's default (3).
+      type: integer
+      optional: true
+    - name: acv_extra_body
+      human_name: Cognitive validator extra request fields (JSON)
+      help: 'JSON merged into every model request, e.g. {"chat_template_kwargs": {"enable_thinking": false}} to turn off reasoning.'
+      type: string
+      optional: true
   outputs:
     - name: passed
       human_name: Gate passed
