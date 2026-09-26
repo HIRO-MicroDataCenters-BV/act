@@ -15,11 +15,11 @@ _T = TypeVar("_T")
 log = logging.getLogger("act.config")
 
 LOG_LEVELS: tuple[str, ...] = ("DEBUG", "INFO", "WARNING", "ERROR")
-ACV_MODES: tuple[str, ...] = ("advisory", "blocking")
+ACV_MODES: tuple[str, ...] = ("none", "advisory", "blocking")
 SUPPORTED_ARCHS: tuple[str, ...] = ("amd64", "arm64", "riscv64")
 
 DEFAULT_LOG_LEVEL = "WARNING"
-DEFAULT_ACV_MODE = "advisory"
+DEFAULT_ACV_MODE = "none"
 DEFAULT_ACV_TIMEOUT_S = 20.0
 DEFAULT_ACV_MAX_ITERATIONS = 3
 DEFAULT_ACV_MIN_REQUEST_INTERVAL_S = 0.0

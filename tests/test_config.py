@@ -26,7 +26,7 @@ def test_defaults():
     cfg = ActConfig.from_env(env={})
     assert (cfg.acv_model, cfg.acv_base_url, cfg.acv_api_key) == (None, None, None)
     assert cfg.acv_timeout == DEFAULT_ACV_TIMEOUT_S
-    assert cfg.acv_mode == "advisory"
+    assert cfg.acv_mode == "none"
     assert cfg.log_level == DEFAULT_LOG_LEVEL
     assert cfg.k3s_image == DEFAULT_K3S_IMAGE
     assert cfg.k3s_riscv64_image == DEFAULT_K3S_RISCV64_IMAGE
@@ -50,7 +50,7 @@ def test_defaults():
         ({"ACT_ACV_TIMEOUT": "0.5"}, "acv_timeout", 0.5),
         # enums: valid kept, invalid -> default
         ({"ACT_ACV_MODE": "blocking"}, "acv_mode", "blocking"),
-        ({"ACT_ACV_MODE": "bogus"}, "acv_mode", "advisory"),
+        ({"ACT_ACV_MODE": "bogus"}, "acv_mode", "none"),
         ({"ACT_SCHEMA_FETCH": "deny"}, "schema_fetch", "deny"),
         ({"ACT_SCHEMA_FETCH": "bogus"}, "schema_fetch", "allow"),
         ({"ACT_RULES": "checkov"}, "rules", ("checkov",)),

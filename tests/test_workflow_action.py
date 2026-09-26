@@ -71,3 +71,8 @@ def test_log_level_input_reaches_the_cli(handle, monkeypatch, cape_fixtures):
 def test_log_level_defaults_to_info(handle, monkeypatch, cape_fixtures):
     argv = _capture_argv(handle, monkeypatch, {"program": str(cape_fixtures / "path_a_valid.py")})
     assert argv[argv.index("--log-level") + 1] == "INFO"
+
+
+def test_acv_mode_defaults_to_none(handle, monkeypatch, cape_fixtures):
+    argv = _capture_argv(handle, monkeypatch, {"program": str(cape_fixtures / "path_a_valid.py")})
+    assert argv[argv.index("--acv-mode") + 1] == "none"

@@ -118,7 +118,7 @@ def run(cfg: Optional[ActConfig] = None, program: Optional[str] = None) -> int:
         "optional flags and their prerequisites",
         f"  --check-deployment-arch     docker + qemu binfmt            -> {_readiness(arch_missing)}",
         f"  --check-deployment-runtime  docker + kubectl + pulumi + pip -> {_readiness(runtime_missing)}",
-        f"  --acv-mode blocking         acv extra + ACV env vars        -> {_readiness(acv_missing)}",
+        f"  --acv-mode advisory|blocking acv extra + ACV env vars       -> {_readiness(acv_missing)}",
         f"  --rules checkov             checkov package                 -> {_readiness(checkov_missing)}",
     ]
     if program:

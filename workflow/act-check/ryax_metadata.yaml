@@ -45,14 +45,14 @@ spec:
       optional: true
     - name: acv_mode
       human_name: Cognitive validator mode
-      help: advisory reports findings without changing the verdict; blocking fails the gate on an ACV FAIL.
+      help: none skips the cognitive validator; advisory reports its findings without changing the verdict; blocking also fails the gate on an ACV FAIL.
       type: enum
-      enum_values: [advisory, blocking]
-      default_value: advisory
+      enum_values: [none, advisory, blocking]
+      default_value: none
       optional: true
     - name: acv_model
       human_name: Cognitive validator model id
-      help: Served model id on an OpenAI-compatible endpoint. Leave empty to skip the cognitive validator.
+      help: Served model id on an OpenAI-compatible endpoint; used when acv_mode is advisory or blocking.
       type: string
       optional: true
     - name: acv_base_url

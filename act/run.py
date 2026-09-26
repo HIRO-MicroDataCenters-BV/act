@@ -208,8 +208,9 @@ def _build_check_parser(cfg: ActConfig) -> argparse.ArgumentParser:
         "--acv-mode",
         choices=list(ACV_MODES),
         default=cfg.acv_mode,
-        help="Whether ACV findings gate the exit code. advisory (default) never blocks; "
-        "blocking fails the gate on an ACV FAIL. Env: ACT_ACV_MODE.",
+        help="Cognitive validator: none (default) does not run it; advisory runs it and reports its "
+        "findings without changing the exit code; blocking also fails the gate on an ACV FAIL. "
+        "Env: ACT_ACV_MODE.",
     )
     return parser
 
@@ -530,9 +531,9 @@ def _cmd_check(argv=None) -> int:
         oracle = CorrectnessOracle(schemas)
         auto_load(oracle)
         _load_extra_rules(oracle, mg, args.rules)
-        # ACV is additive; from_env returns None unless ACT_ACV_MODEL + a base URL
-        # are set (and the optional acv extra is installed).
-        acv = ACTCognitiveValidator.from_env(cfg)
+        # ACV is additive and off unless --acv-mode asks for it; from_env still returns None
+        # unless ACT_ACV_MODEL + a base URL are set (and the optional acv extra is installed).
+        acv = ACTCognitiveValidator.from_env(cfg) if args.acv_mode != "none" else None
         # Fuzz + property runners only fire on Path B (parameterized programs); the
         # pipeline skips them for Path A. Depth is tunable via ACT_FUZZ_ITERATIONS /
         # ACT_PROPERTY_MAX_EXAMPLES.
