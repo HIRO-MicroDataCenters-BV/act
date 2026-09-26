@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Sequence
 
 import logging
 import sys
@@ -19,8 +19,12 @@ class CIGate:
         # None until evaluate() completes without raising.
         self.last_result: Optional[PipelineResult] = None
 
-    def evaluate(self, program_path: str) -> int:
-        """Run the pipeline and return exit code: 0 = pass, 1 = violations, 2 = error."""
+    def evaluate(self, program_path: str, print_report: bool = True) -> int:
+        """Run the pipeline and return exit code: 0 = pass, 1 = violations, 2 = error.
+
+        ``print_report=False`` leaves printing to the caller, which can then add the
+        failures of the checks it runs afterwards (see :meth:`format_report`).
+        """
         try:
             result = self._pipeline.run(program_path)
             self.last_result = result
@@ -38,7 +42,8 @@ class CIGate:
                     "exit_code": exit_code,
                 },
             )
-            print(self.format_report(result))
+            if print_report:
+                print(self.format_report(result))
             return exit_code
         except Exception as e:
             print(f"[ERROR] Pipeline failed: {e}", file=sys.stderr)
@@ -48,8 +53,9 @@ class CIGate:
             traceback.print_exc(file=sys.stderr)
             return 2
 
-    def format_report(self, result: PipelineResult) -> str:
-        if result.passed:
+    def format_report(self, result: PipelineResult, layer_failures: Sequence[str] = ()) -> str:
+        """The report; ``layer_failures`` (one line per failed later check) also make it FAIL."""
+        if result.passed and not layer_failures:
             lines = [f"PASS  {result.program_path}"]
         else:
             lines = [f"FAIL  {result.program_path}"]
@@ -58,6 +64,7 @@ class CIGate:
                 lines.append(f"  [{v.severity}] {v.field}{where}: {v.message}")
                 if v.found_by and v.inputs:
                     lines.append(f"      found by {v.found_by} with {describe_inputs(v.inputs)}")
+            lines.extend(f"  {line}" for line in layer_failures)
         lines.extend(self._acv_lines(result))
         # Appended last so it never shifts the PASS/FAIL/ACV lines other callers assert on.
         if result.resource_count == 0:
